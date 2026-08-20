@@ -106,8 +106,9 @@ CREATE TABLE turnos_caixa (
 -- ---------------------------------------------------------------------
 -- 5. PAGAMENTOS E RECIBOS
 -- ---------------------------------------------------------------------
-CREATE TYPE metodo_pagamento AS ENUM ('dinheiro', 'tpa', 'express', 'referencia', 'outro');
+CREATE TYPE metodo_pagamento AS ENUM ('dinheiro', 'tpa', 'express', 'referencia', 'transferencia', 'outro');
 CREATE TYPE tipo_pagamento AS ENUM ('mensalidade', 'produto', 'personal_training', 'outro');
+CREATE TYPE estado_aprovacao AS ENUM ('pendente', 'aprovado', 'rejeitado');
 
 CREATE TABLE pagamentos (
     id              SERIAL PRIMARY KEY,
@@ -122,12 +123,48 @@ CREATE TABLE pagamentos (
     criado_em       TIMESTAMP DEFAULT NOW()
 );
 
+-- Transferências bancárias (IBAN ou nº de telefone) registadas pela recepção/administrador
+-- ficam pendentes até o administrador aprovar, mediante verificação do comprovativo anexado.
+CREATE TABLE pagamentos_pendentes (
+    id                  SERIAL PRIMARY KEY,
+    membro_id           INTEGER REFERENCES membros(id) NOT NULL,
+    valor_kz            NUMERIC(12,2) NOT NULL,
+    destino             VARCHAR(20) NOT NULL,     -- 'iban' ou 'telefone'
+    comprovativo_url    TEXT NOT NULL,            -- imagem/print do comprovativo, obrigatório
+    submetido_por       INTEGER REFERENCES utilizadores(id) NOT NULL,
+    estado              estado_aprovacao DEFAULT 'pendente',
+    aprovado_por        INTEGER REFERENCES utilizadores(id),
+    pagamento_id        INTEGER REFERENCES pagamentos(id),  -- preenchido quando aprovado
+    criado_em           TIMESTAMP DEFAULT NOW(),
+    resolvido_em        TIMESTAMP
+);
+
 CREATE TABLE recibos (
     id              SERIAL PRIMARY KEY,
     numero_recibo   VARCHAR(30) UNIQUE NOT NULL,   -- REC-2026-000458
     pagamento_id    INTEGER REFERENCES pagamentos(id) NOT NULL,
     qr_validacao    TEXT UNIQUE,
     emitido_em      TIMESTAMP DEFAULT NOW()
+);
+
+-- Fatura: documento fiscal formal, distinto do recibo simples
+CREATE TABLE faturas (
+    id              SERIAL PRIMARY KEY,
+    numero_fatura   VARCHAR(30) UNIQUE NOT NULL,   -- FAT-2026-000123
+    membro_id       INTEGER REFERENCES membros(id) NOT NULL,
+    pagamento_id    INTEGER REFERENCES pagamentos(id),
+    valor_kz        NUMERIC(12,2) NOT NULL,
+    descricao       TEXT,
+    emitida_por     INTEGER REFERENCES utilizadores(id),
+    emitida_em      TIMESTAMP DEFAULT NOW()
+);
+
+-- Personal Trainers (dados específicos, para além do registo em utilizadores/funcionarios)
+CREATE TABLE personal_trainers (
+    id              SERIAL PRIMARY KEY,
+    funcionario_id  INTEGER REFERENCES funcionarios(id) NOT NULL,
+    especialidade   VARCHAR(150),
+    ativo           BOOLEAN DEFAULT TRUE
 );
 
 -- ---------------------------------------------------------------------
