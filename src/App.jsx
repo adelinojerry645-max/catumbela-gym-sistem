@@ -7317,16 +7317,27 @@ export default function CatumbelaGymApp() {
   // sempre que a app abre e a cada hora — sem isto, um membro cuja mensalidade
   // vence nunca deixava de aparecer como "Ativo". Nunca mexe em quem foi
   // manualmente "suspenso" ou está "pausada" (ex.: atleta a trabalhar fora).
+  //
+  // CUIDADO: isto tem de devolver exatamente a MESMA lista (a mesma
+  // referência) quando não há nenhuma mudança real — nunca uma cópia nova.
+  // Sem essa garantia, num dispositivo novo (onde a lista começa vazia por
+  // breves instantes, antes dos dados chegarem do Supabase), isto criava uma
+  // "lista nova" (ainda vazia) que era gravada de volta no Supabase,
+  // apagando os membros verdadeiros mesmo antes de eles chegarem a aparecer.
   useEffect(() => {
     const recalcular = () => {
       const hojeStr = new Date().toISOString().slice(0, 10);
-      setMembros((atual) =>
-        atual.map((m) => {
+      setMembros((atual) => {
+        let mudouAlgumaCoisa = false;
+        const novo = atual.map((m) => {
           if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado" || !m.vencimento) return m;
           const novoEstado = m.vencimento < hojeStr ? "vencido" : "ativo";
-          return m.estado === novoEstado ? m : { ...m, estado: novoEstado };
-        })
-      );
+          if (m.estado === novoEstado) return m;
+          mudouAlgumaCoisa = true;
+          return { ...m, estado: novoEstado };
+        });
+        return mudouAlgumaCoisa ? novo : atual; // mesma referência = React nem sequer volta a gravar
+      });
     };
     recalcular();
     const intervalo = setInterval(recalcular, 60 * 60 * 1000); // repete a cada hora
