@@ -2,8 +2,17 @@
 <html lang="pt">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Catumbela Gym</title>
+
+    <!-- PWA — permite "instalar" o site como app (ícone no ecrã inicial, ecrã cheio) -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#3F8F87" />
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Catumbela Gym" />
   </head>
   <body>
     <div id="root"></div>
