@@ -337,7 +337,13 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     const guardado = carregarEstadoGuardado();
     return chave in guardado ? guardado[chave] : valorInicial;
   });
-  const primeiraVez = useRef(true);
+  // Normalmente, o primeiro carregamento da página não reenvia nada para o
+  // Supabase (só busca) — mas logo a seguir a restaurares uma cópia de
+  // segurança, os dados restaurados só existem neste dispositivo, e
+  // PRECISAM de ser enviados. A função de restauro marca isso com
+  // "__forcarSyncAposRestauro" — se estiver marcado, forçamos o envio já
+  // no primeiro carregamento, em vez de o saltar como de costume.
+  const primeiraVez = useRef(!carregarEstadoGuardado().__forcarSyncAposRestauro);
   const ignorarProximoEnvio = useRef(false);
   const mudouLocalmente = useRef(false); // true assim que a pessoa altera algo (só protege a busca inicial)
   const gravacaoPendente = useRef(false); // true só enquanto há uma gravação nossa a caminho do Supabase
@@ -5343,8 +5349,13 @@ function CopiaSeguranca({ dadosGinasio, onSalvarFrequencia }) {
       try {
         const dados = JSON.parse(leitor.result);
         if (typeof dados !== "object" || dados === null) throw new Error("formato inválido");
+        // Marca que isto é uma restauração — sem isto, os dados restaurados
+        // ficavam só neste dispositivo e nunca chegavam ao Supabase (nem a
+        // outros dispositivos), porque o primeiro carregamento da página
+        // normalmente só busca dados, nunca os reenvia.
+        dados.__forcarSyncAposRestauro = true;
         window.localStorage.setItem(CHAVE_ARMAZENAMENTO_ATUAL, JSON.stringify(dados));
-        setMensagem({ tipo: "sucesso", texto: "Cópia restaurada com sucesso! A recarregar..." });
+        setMensagem({ tipo: "sucesso", texto: "Cópia restaurada com sucesso! A recarregar e a sincronizar com os outros dispositivos..." });
         setTimeout(() => window.location.reload(), 1200);
       } catch {
         setMensagem({ tipo: "erro", texto: "Este ficheiro não parece ser uma cópia de segurança válida do Catumbela Gym." });
@@ -5412,8 +5423,9 @@ function CopiaSeguranca({ dadosGinasio, onSalvarFrequencia }) {
 // e no Supabase) quando se reinicia o site.
 const CHAVES_TODAS_COLECOES = [
   "membros", "planos", "produtos", "trainers", "dadosGinasio", "contas", "acessos",
-  "pagamentosFeitos", "movimentosBancarios", "comprasMembros", "vendasProdutos",
-  "auditLog", "pagamentosPendentes", "custos", "faturas",
+  "pagamentosFeitos", "movimentosBancarios", "movimentosCaixa", "comprasMembros", "vendasProdutos",
+  "auditLog", "pagamentosPendentes", "custos", "faturas", "advertencias", "orcamento",
+  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno",
 ];
 
 function ReiniciarSite({ contaAtual }) {
@@ -7248,6 +7260,22 @@ export default function CatumbelaGymApp() {
   const [avisoBackup, setAvisoBackup] = useState(false);
   const [atualizadoAgora, setAtualizadoAgora] = useState(false); // pisca brevemente quando chega uma atualização em tempo real de outro dispositivo
   const backupAutoDisparado = useRef(false);
+
+  // Depois de restaurar uma cópia de segurança, cada coleção força o envio
+  // para o Supabase logo no primeiro carregamento (ver usePersistente). Uma
+  // vez dado tempo suficiente para todas essas gravações partirem, apagamos
+  // a marca — sem isto, TODOS os carregamentos futuros da página forçariam
+  // reenvios desnecessários para sempre.
+  useEffect(() => {
+    const atual = carregarEstadoGuardado();
+    if (!atual.__forcarSyncAposRestauro) return;
+    const temporizador = setTimeout(() => {
+      const maisRecente = carregarEstadoGuardado();
+      delete maisRecente.__forcarSyncAposRestauro;
+      window.localStorage.setItem(CHAVE_ARMAZENAMENTO_ATUAL, JSON.stringify(maisRecente));
+    }, 15000); // 15s dá tempo de sobra a todas as coleções gravarem (cada uma tem um pequeno atraso próprio)
+    return () => clearTimeout(temporizador);
+  }, []);
   const timeoutAtualizadoRef = useRef(null);
 
   // Escuta falhas reais de gravação (ex.: espaço do navegador esgotado) e avisa
