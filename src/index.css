@@ -5,3 +5,25 @@
 body {
   margin: 0;
 }
+
+/* Impressão de relatórios — sem isto, o browser imprime a página INTEIRA
+   tal como está no ecrã (menu lateral, dashboard por trás, tudo), porque o
+   relatório é só uma janela flutuante por cima do resto da app, e não
+   substitui o conteúdo da página. Esta técnica esconde tudo, e só torna
+   visível o que está marcado com a classe "area-imprimivel" — reutilizável
+   em qualquer relatório, não só num. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .area-imprimivel,
+  .area-imprimivel * {
+    visibility: visible;
+  }
+  .area-imprimivel {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
