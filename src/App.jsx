@@ -7,7 +7,7 @@ import {
   Sun, Moon, MessageCircle, Phone, Trash2, Camera, FileText, Dumbbell,
   ShieldCheck, KeyRound, Menu, Save, LogIn, DoorClosed, Wallet as WalletIcon,
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
-  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone,
+  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target,
 } from "lucide-react";
 import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
@@ -636,7 +636,7 @@ function Card({ title, action, children, className = "" }) {
 // ---------------------------------------------------------------------
 // TELAS
 // ---------------------------------------------------------------------
-function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios }) {
+function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos }) {
   const total = membros.length;
   const ativos = membros.filter((m) => m.estado === "ativo").length;
   const vencidos = membros.filter((m) => m.estado === "vencido").length;
@@ -657,6 +657,24 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 
   const hojeStr = new Date().toISOString().slice(0, 10);
   const checkinsHoje = acessos.filter((a) => a.data === hojeStr);
+
+  // RESUMO DO DIA — para o administrador mandar por WhatsApp ao fim do dia,
+  // sem ter de abrir o sistema à noite para ver como correu.
+  const novasInscricoesHoje = membros.filter((m) => m.dataInscricao === hojeStr).length;
+  const receitaHoje = pagamentosFeitos.filter((p) => p.data === hojeStr).reduce((s, p) => s + p.valor, 0);
+  const equipamentosAtrasados = (equipamentos || []).filter((eq) => {
+    const dias = diasAteProximaManutencao(eq);
+    return dias !== null && dias < 0;
+  });
+  const construirResumoDoDia = () => {
+    let msg = `📋 Resumo de hoje (${new Date().toLocaleDateString("pt-PT")}) — ${dadosGinasio?.nome || "Catumbela Gym"}:\n\n`;
+    msg += `🚪 Check-ins: ${checkinsHoje.length}\n`;
+    msg += `🆕 Novas inscrições: ${novasInscricoesHoje}\n`;
+    msg += `💰 Receita de hoje: ${kz(receitaHoje)}\n`;
+    if (stockBaixo > 0) msg += `⚠️ Produtos com stock baixo: ${stockBaixo}\n`;
+    if (equipamentosAtrasados.length > 0) msg += `🔧 Equipamentos com manutenção atrasada: ${equipamentosAtrasados.map((e) => e.nome).join(", ")}\n`;
+    return msg;
+  };
 
   // Aniversários nos próximos 7 dias (incluindo hoje) — compara só mês/dia,
   // não o ano, e ordena pela proximidade.
@@ -734,6 +752,16 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
           <CartaoDashboard icon={TrendingUp} tone={lucro >= 0 ? "emerald" : "red"} titulo="Lucro Líquido" subtitulo="Receitas menos custos registados" valor={kz(lucro)} />
         )}
       </div>
+
+      {perfil === "administrador" && (
+        <a
+          href={`https://wa.me/?text=${encodeURIComponent(construirResumoDoDia())}`}
+          target="_blank" rel="noreferrer"
+          className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg w-full sm:w-auto"
+        >
+          <MessageCircle size={16} /> Enviar resumo de hoje por WhatsApp
+        </a>
+      )}
 
       {/* Crescimento de membros */}
       <Card title="Crescimento de membros" action={<span className="text-xs text-slate-400 dark:text-slate-500">Últimos 6 meses</span>}>
@@ -1138,7 +1166,7 @@ function CanvasAssinatura({ onAssinar }) {
 
 const TEXTO_TERMO_RESPONSABILIDADE = `Declaro que estou em condições físicas adequadas para a prática de exercício físico neste ginásio, e que participo nas atividades por minha conta e risco. Comprometo-me a seguir as regras e normas de funcionamento do espaço, e a informar a equipa técnica de qualquer condição de saúde relevante antes de iniciar os treinos.`;
 
-function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAdicionarAdvertencia, onRemoverAdvertencia, perfil, dadosGinasio }) {
+function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAdicionarAdvertencia, onRemoverAdvertencia, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -1191,6 +1219,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   };
 
   const [ultimoReciboInscricao, setUltimoReciboInscricao] = useState(null);
+  const [aVerEvolucaoDeMembro, setAVerEvolucaoDeMembro] = useState(null);
 
   const submeter = (e) => {
     e.preventDefault();
@@ -1286,6 +1315,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                       )}
                       <button onClick={() => setAdvertindoMembro(m)} title="Advertências" className="text-slate-400 hover:text-amber-600">
                         <AlertTriangle size={15} />
+                      </button>
+                      <button onClick={() => setAVerEvolucaoDeMembro(m)} title="Imprimir evolução (peso e cargas)" className="text-slate-400 hover:text-blue-600">
+                        <Printer size={15} />
                       </button>
                       <button onClick={() => abrirEdicao(m)} title="Editar" className="text-slate-400 hover:text-[#3F8F87]">
                         <Pencil size={15} />
@@ -1486,6 +1518,14 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
           podeRemover={perfil === "administrador"}
           onFechar={() => setAdvertindoMembro(null)}
           dadosGinasio={dadosGinasio}
+        />
+      )}
+
+      {aVerEvolucaoDeMembro && (
+        <RelatorioEvolucaoTreino
+          membros={membros} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
+          membroInicialId={aVerEvolucaoDeMembro.id}
+          onFechar={() => setAVerEvolucaoDeMembro(null)}
         />
       )}
 
@@ -2393,9 +2433,10 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
   );
 }
 
-function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida }) {
+function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
   const [query, setQuery] = useState("");
   const [encontrado, setEncontrado] = useState(null);
+  const [permitirExcecao, setPermitirExcecao] = useState(false);
   const [camaraAtiva, setCamaraAtiva] = useState(false);
   const [erroCamara, setErroCamara] = useState("");
   const videoRef = React.useRef(null);
@@ -2552,6 +2593,9 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida 
         {encontrado && encontrado !== "nao-encontrado" && (() => {
           const hojeStr = new Date().toISOString().slice(0, 10);
           const entradaAberta = acessos.find((a) => a.numero === encontrado.numero && a.data === hojeStr && !a.saida);
+          const diasVencido = encontrado.vencimento ? Math.round((new Date(hojeStr) - new Date(encontrado.vencimento)) / (1000 * 60 * 60 * 24)) : 0;
+          const estaVencido = encontrado.estado !== "ativo" && encontrado.estado !== "suspenso" && encontrado.estado !== "pausada";
+          const podeEntrar = encontrado.estado === "ativo" || (estaVencido && perfil === "administrador" && permitirExcecao);
           return (
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -2565,10 +2609,20 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida 
                 <div className="ml-auto"><Pill estado={encontrado.estado} /></div>
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-1">Validade: {encontrado.vencimento}</p>
+              {estaVencido && diasVencido > 0 && (
+                <p className="text-sm font-bold text-red-600 dark:text-red-400 mb-2">⚠️ Mensalidade vencida há {diasVencido} dia{diasVencido > 1 ? "s" : ""}</p>
+              )}
               {entradaAberta && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mb-3">
                   Já está no ginásio desde as {entradaAberta.entrada} — ainda não saiu.
                 </p>
+              )}
+
+              {estaVencido && perfil === "administrador" && !entradaAberta && (
+                <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 mb-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                  <input type="checkbox" checked={permitirExcecao} onChange={(e) => setPermitirExcecao(e.target.checked)} />
+                  Permitir entrada mesmo assim, excecionalmente (ex.: está a pagar agora mesmo)
+                </label>
               )}
 
               {entradaAberta ? (
@@ -2577,6 +2631,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida 
                     onRegistarSaida(encontrado);
                     setEncontrado(null);
                     setQuery("");
+                    setPermitirExcecao(false);
                   }}
                   className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 transition-all text-white font-semibold py-2.5 rounded-lg mt-2"
                 >
@@ -2584,15 +2639,16 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida 
                 </button>
               ) : (
                 <button
-                  disabled={encontrado.estado !== "ativo"}
+                  disabled={!podeEntrar}
                   onClick={() => {
                     onRegistarEntrada(encontrado);
                     setEncontrado(null);
                     setQuery("");
+                    setPermitirExcecao(false);
                   }}
                   className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:bg-slate-600 disabled:text-slate-400 dark:text-slate-500 text-white font-semibold py-2.5 rounded-lg mt-2"
                 >
-                  <DoorOpen size={16} /> {encontrado.estado === "ativo" ? "Registar entrada" : "Plano inativo — regularizar pagamento"}
+                  <DoorOpen size={16} /> {podeEntrar ? "Registar entrada" : "Entrada bloqueada — mensalidade vencida"}
                 </button>
               )}
             </div>
@@ -2631,14 +2687,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida 
 // ---------------------------------------------------------------------
 // OS MEUS ALUNOS (vista do próprio Personal Trainer)
 // ---------------------------------------------------------------------
-function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, onFechar }) {
+function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, onFechar, equipamentos }) {
   const [aba, setAba] = useState("avaliacao");
   const vazioAvaliacao = { peso: "", altura: "", gordura: "", peito: "", cintura: "", quadril: "", braco: "", coxa: "", notas: "" };
   const [novaAvaliacao, setNovaAvaliacao] = useState(vazioAvaliacao);
 
   const [nomePlano, setNomePlano] = useState(planoTreino?.nome || "Treino do mês");
   const [exercicios, setExercicios] = useState(planoTreino?.exercicios || []);
-  const [novoExercicio, setNovoExercicio] = useState({ nome: "", series: "", repeticoes: "", carga: "", notas: "" });
+  const [novoExercicio, setNovoExercicio] = useState({ nome: "", series: "", repeticoes: "", carga: "", notas: "", equipamentoId: "" });
 
   const submeterAvaliacao = (e) => {
     e.preventDefault();
@@ -2655,7 +2711,7 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
   const adicionarLinhaExercicio = () => {
     if (!novoExercicio.nome) return;
     setExercicios((atual) => [...atual, { ...novoExercicio, id: Date.now() }]);
-    setNovoExercicio({ nome: "", series: "", repeticoes: "", carga: "", notas: "" });
+    setNovoExercicio({ nome: "", series: "", repeticoes: "", carga: "", notas: "", equipamentoId: "" });
   };
 
   const removerLinhaExercicio = (id) => setExercicios((atual) => atual.filter((e) => e.id !== id));
@@ -2733,21 +2789,49 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
             <input value={nomePlano} onChange={(e) => setNomePlano(e.target.value)} placeholder="Nome do plano (ex.: Treino A)"
               className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm font-semibold" />
             <div className="space-y-2">
-              {exercicios.map((ex) => (
-                <div key={ex.id} className="flex items-center justify-between p-2.5 rounded-lg ring-1 ring-slate-100 dark:ring-slate-700 text-sm">
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-slate-100">{ex.nome}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">
-                      {ex.series} séries × {ex.repeticoes} reps{ex.carga ? ` · ${ex.carga} kg` : ""}{ex.notas ? ` · ${ex.notas}` : ""}
-                    </p>
+              {exercicios.map((ex) => {
+                const equip = ex.equipamentoId ? equipamentos.find((eq) => eq.id === ex.equipamentoId) : null;
+                const diasManutencao = equip ? diasAteProximaManutencao(equip) : null;
+                const equipAtrasado = diasManutencao !== null && diasManutencao < 0;
+                return (
+                  <div key={ex.id} className={`flex items-center justify-between p-2.5 rounded-lg ring-1 text-sm ${equipAtrasado ? "ring-red-200 bg-red-50 dark:bg-red-900/10" : "ring-slate-100 dark:ring-slate-700"}`}>
+                    <div>
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{ex.nome}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
+                        {ex.series} séries × {ex.repeticoes} reps{ex.carga ? ` · ${ex.carga} kg` : ""}{ex.notas ? ` · ${ex.notas}` : ""}
+                      </p>
+                      {equipAtrasado && (
+                        <p className="text-xs font-semibold text-red-600 mt-0.5">⚠️ "{equip.nome}" está com manutenção atrasada — considera outro exercício</p>
+                      )}
+                    </div>
+                    <button onClick={() => removerLinhaExercicio(ex.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
                   </div>
-                  <button onClick={() => removerLinhaExercicio(ex.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
-                </div>
-              ))}
+                );
+              })}
               {exercicios.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ainda sem exercícios neste plano.</p>}
             </div>
+            {equipamentos.length > 0 && (
+              <div>
+                <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Máquina/equipamento do ginásio (opcional)</label>
+                <select
+                  value={novoExercicio.equipamentoId}
+                  onChange={(e) => {
+                    const eq = equipamentos.find((eq) => eq.id === Number(e.target.value));
+                    setNovoExercicio({ ...novoExercicio, equipamentoId: e.target.value ? Number(e.target.value) : "", nome: eq ? eq.nome : novoExercicio.nome });
+                  }}
+                  className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs"
+                >
+                  <option value="">Nenhuma (exercício livre/peso corporal)</option>
+                  {equipamentos.map((eq) => {
+                    const dias = diasAteProximaManutencao(eq);
+                    const atrasado = dias !== null && dias < 0;
+                    return <option key={eq.id} value={eq.id}>{eq.nome}{atrasado ? " — ⚠️ manutenção atrasada" : ""}</option>;
+                  })}
+                </select>
+              </div>
+            )}
             <div className="grid grid-cols-4 gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-              <input placeholder="Exercício" value={novoExercicio.nome} onChange={(e) => setNovoExercicio({ ...novoExercicio, nome: e.target.value })}
+              <input placeholder="Exercício" value={novoExercicio.nome} onChange={(e) => setNovoExercicio({ ...novoExercicio, nome: e.target.value, equipamentoId: "" })}
                 className="col-span-2 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs" />
               <input placeholder="Séries" value={novoExercicio.series} onChange={(e) => setNovoExercicio({ ...novoExercicio, series: e.target.value })}
                 className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs" />
@@ -2769,7 +2853,7 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
   );
 }
 
-function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano }) {
+function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, equipamentos }) {
   const alunos = trainer ? membros.filter((m) => m.trainerId === trainer.id) : [];
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
 
@@ -2821,6 +2905,7 @@ function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdici
           onRemoverAvaliacao={onRemoverAvaliacao}
           onSalvarPlano={onSalvarPlano}
           onFechar={() => setAlunoSelecionado(null)}
+          equipamentos={equipamentos}
         />
       )}
     </>
@@ -2864,7 +2949,7 @@ function Funcionarios({ contas }) {
 // ---------------------------------------------------------------------
 // PERSONAL TRAINERS
 // ---------------------------------------------------------------------
-function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir }) {
+function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir, avaliacoesTrainer }) {
   const [showForm, setShowForm] = useState(false);
   const [novo, setNovo] = useState({ nome: "", telefone: "", especialidade: "" });
   const [gerirAlunosDe, setGerirAlunosDe] = useState(null); // trainer selecionado para gerir alunos
@@ -2908,6 +2993,19 @@ function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir
               </div>
               <p className="text-sm text-slate-600 dark:text-slate-300 mt-3">{t.especialidade}</p>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">{meusAlunos.length} alunos ativos</p>
+              {(() => {
+                const avaliacoesDoTrainer = (avaliacoesTrainer || []).filter((a) => a.trainerId === t.id);
+                if (avaliacoesDoTrainer.length === 0) return null;
+                const media = avaliacoesDoTrainer.reduce((s, a) => s + a.nota, 0) / avaliacoesDoTrainer.length;
+                return (
+                  <div className="flex items-center gap-1 mt-1.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} size={13} className={n <= Math.round(media) ? "text-amber-500 fill-amber-500" : "text-slate-300 dark:text-slate-600"} />
+                    ))}
+                    <span className="text-xs text-slate-400 dark:text-slate-500 ml-1">{media.toFixed(1)} ({avaliacoesDoTrainer.length} avaliação{avaliacoesDoTrainer.length > 1 ? "ões" : ""})</span>
+                  </div>
+                );
+              })()}
               {meusAlunos.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {meusAlunos.map((m) => (
@@ -3732,20 +3830,166 @@ function PlanoAtividades({ atividades, trainers, reservasAtividades, onAdicionar
   );
 }
 
+// ---------------------------------------------------------------------
+// MANUTENÇÃO DE EQUIPAMENTOS — regista as máquinas do ginásio, quando foi
+// a última manutenção, e avisa quando se aproxima a próxima — para nunca
+// haver equipamento parado por falta de revisão.
+// ---------------------------------------------------------------------
+const CATEGORIAS_EQUIPAMENTO = ["Cardio", "Musculação", "Peso livre", "Outro"];
+
+function diasAteProximaManutencao(equipamento) {
+  if (!equipamento.dataUltimaManutencao) return null;
+  const ultima = new Date(equipamento.dataUltimaManutencao + "T00:00:00");
+  const proxima = new Date(ultima);
+  proxima.setDate(proxima.getDate() + (equipamento.intervaloDias || 90));
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  return Math.round((proxima - hoje) / (1000 * 60 * 60 * 24));
+}
+
+function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
+  const vazio = { nome: "", categoria: "Musculação", dataUltimaManutencao: new Date().toISOString().slice(0, 10), intervaloDias: 90, notas: "" };
+  const [novo, setNovo] = useState(vazio);
+  const [showForm, setShowForm] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+
+  const abrirEdicao = (eq) => {
+    setEditandoId(eq.id);
+    setNovo({ nome: eq.nome, categoria: eq.categoria, dataUltimaManutencao: eq.dataUltimaManutencao, intervaloDias: eq.intervaloDias, notas: eq.notas || "" });
+    setShowForm(true);
+  };
+
+  const submeter = (e) => {
+    e.preventDefault();
+    if (!novo.nome) return;
+    if (editandoId) onUpdate(editandoId, novo);
+    else onAdd(novo);
+    setNovo(vazio);
+    setShowForm(false);
+    setEditandoId(null);
+  };
+
+  const registarManutencaoFeitaHoje = (eq) => {
+    onUpdate(eq.id, { ...eq, dataUltimaManutencao: new Date().toISOString().slice(0, 10) });
+  };
+
+  // Ordenados dos mais urgentes para os menos urgentes
+  const ordenados = equipamentos.slice().sort((a, b) => {
+    const diasA = diasAteProximaManutencao(a);
+    const diasB = diasAteProximaManutencao(b);
+    if (diasA === null) return 1;
+    if (diasB === null) return -1;
+    return diasA - diasB;
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Manutenção de Equipamentos</h2>
+        <button
+          onClick={() => { setNovo(vazio); setEditandoId(null); setShowForm(true); }}
+          className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] hover:bg-[#357A73] text-white px-3 py-2 rounded-lg"
+        >
+          <Plus size={15} /> Novo equipamento
+        </button>
+      </div>
+
+      {ordenados.length === 0 ? (
+        <Card><p className="text-sm text-slate-400 dark:text-slate-500">Ainda não registaste nenhum equipamento.</p></Card>
+      ) : (
+        <div className="space-y-2">
+          {ordenados.map((eq) => {
+            const dias = diasAteProximaManutencao(eq);
+            const atrasado = dias !== null && dias < 0;
+            const aproximar = dias !== null && dias >= 0 && dias <= 7;
+            const cor = atrasado ? "border-red-300 bg-red-50 dark:bg-red-900/10" : aproximar ? "border-amber-300 bg-amber-50 dark:bg-amber-900/10" : "border-slate-100 dark:border-slate-700";
+            return (
+              <div key={eq.id} className={`flex items-center justify-between p-3 rounded-xl ring-1 ${cor} dark:bg-slate-800`}>
+                <div>
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">{eq.nome} <span className="text-xs font-normal text-slate-400">· {eq.categoria}</span></p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Última manutenção: {eq.dataUltimaManutencao || "—"} · A cada {eq.intervaloDias} dias
+                  </p>
+                  {dias !== null && (
+                    <p className={`text-xs font-semibold mt-0.5 ${atrasado ? "text-red-600" : aproximar ? "text-amber-600" : "text-emerald-600"}`}>
+                      {atrasado ? `⚠️ Manutenção atrasada há ${Math.abs(dias)} dia(s)` : aproximar ? `Próxima manutenção em ${dias} dia(s)` : `Próxima manutenção em ${dias} dias — dentro do prazo`}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => registarManutencaoFeitaHoje(eq)} title="Registar manutenção feita hoje" className="text-xs font-semibold text-emerald-600 ring-1 ring-emerald-200 rounded-lg px-2.5 py-1.5">
+                    Feita hoje
+                  </button>
+                  <button onClick={() => abrirEdicao(eq)} title="Editar" className="text-slate-400 hover:text-[#3F8F87]"><Pencil size={15} /></button>
+                  <button onClick={() => onRemove(eq.id)} title="Remover" className="text-slate-400 hover:text-red-500"><Trash2 size={15} /></button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <form onSubmit={submeter} className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">{editandoId ? "Editar equipamento" : "Novo equipamento"}</h3>
+              <button type="button" onClick={() => setShowForm(false)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome</label>
+              <input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} placeholder="Ex.: Passadeira 1"
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" required />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Categoria</label>
+              <select value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+                {CATEGORIAS_EQUIPAMENTO.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Última manutenção</label>
+                <input type="date" value={novo.dataUltimaManutencao} onChange={(e) => setNovo({ ...novo, dataUltimaManutencao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">A cada quantos dias</label>
+                <input type="number" min="1" value={novo.intervaloDias} onChange={(e) => setNovo({ ...novo, intervaloDias: Number(e.target.value) })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Notas (opcional)</label>
+              <textarea value={novo.notas} onChange={(e) => setNovo({ ...novo, notas: e.target.value })} rows={2}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+            </div>
+            <button className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">
+              {editandoId ? "Guardar alterações" : "Guardar equipamento"}
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
   const contasBancarias = obterContasBancarias(dadosGinasio);
-  const [novo, setNovo] = useState({ categoria: "Renda", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+  const [novo, setNovo] = useState({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
 
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.valor) return;
     onAdicionar({ ...novo, valor: Number(novo.valor) });
-    setNovo({ categoria: "Renda", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+    setNovo({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
     setShowForm(false);
   };
 
   const totalGeral = custos.reduce((s, c) => s + c.valor, 0);
+  const totalFixo = custos.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalVariavel = custos.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
   const porCategoria = useMemo(() => {
     const mapa = {};
     custos.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
@@ -3763,23 +4007,31 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard icon={TrendingUp} label="Total de custos registados" value={kz(totalGeral)} tone="red" />
-        <Card title="Por categoria" className="sm:col-span-1">
-          {porCategoria.length === 0 ? (
-            <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
-          ) : (
-            <div className="space-y-2">
-              {porCategoria.map(([cat, valor]) => (
-                <div key={cat} className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-300">{cat}</span>
-                  <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
+        <StatCard icon={Wallet} label="Custos fixos (renda, salários...)" value={kz(totalFixo)} tone="amber" />
+        <StatCard icon={TrendingUp} label="Custos variáveis" value={kz(totalVariavel)} tone="blue" />
       </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        "Fixos" são os que se repetem todos os meses, independentemente de quanto o ginásio vende (renda, salários,
+        internet). "Variáveis" mudam de mês para mês (manutenção, compras avulsas). Saber o total fixo ajuda a
+        perceber quanto precisas de faturar só para cobrir o básico, antes de teres lucro a sério.
+      </p>
+
+      <Card title="Por categoria">
+        {porCategoria.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
+        ) : (
+          <div className="space-y-2">
+            {porCategoria.map(([cat, valor]) => (
+              <div key={cat} className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-300">{cat}</span>
+                <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <Card title="Todos os custos">
         {custos.length === 0 ? (
@@ -3791,6 +4043,7 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
                 <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
                   <th className="pb-2 font-medium">Data</th>
                   <th className="pb-2 font-medium">Categoria</th>
+                  <th className="pb-2 font-medium">Tipo</th>
                   <th className="pb-2 font-medium">Descrição</th>
                   <th className="pb-2 font-medium">Valor</th>
                   <th className="pb-2 font-medium"></th>
@@ -3802,6 +4055,11 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
                     <td className="py-2 text-slate-500 dark:text-slate-400">{c.data}</td>
                     <td className="py-2">
                       <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
+                    </td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
+                        {c.tipo === "variavel" ? "Variável" : "Fixo"}
+                      </span>
                     </td>
                     <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
                     <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
@@ -3832,6 +4090,14 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
                   {CATEGORIAS_CUSTO.map((c) => <option key={c}>{c}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Tipo</label>
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={() => setNovo({ ...novo, tipo: "fixo" })} className={`flex-1 text-xs font-semibold py-2 rounded-lg ring-1 ${novo.tipo !== "variavel" ? "bg-amber-500 text-white ring-amber-500" : "ring-slate-200 dark:ring-slate-600 text-slate-500"}`}>Fixo</button>
+                  <button type="button" onClick={() => setNovo({ ...novo, tipo: "variavel" })} className={`flex-1 text-xs font-semibold py-2 rounded-lg ring-1 ${novo.tipo === "variavel" ? "bg-blue-500 text-white ring-blue-500" : "ring-slate-200 dark:ring-slate-600 text-slate-500"}`}>Variável</button>
+                </div>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Fixo = repete-se todos os meses (renda, salários). Variável = muda de mês para mês.</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Descrição (opcional)</label>
@@ -5164,7 +5430,7 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario }) {
   );
 }
 
-function DadosGinasio({ dados, onSalvar, contaAtual }) {
+function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onAtivarPush, onDesativarPush }) {
   const [form, setForm] = useState(dados);
   const [guardado, setGuardado] = useState(false);
   const tocouNoFormulario = useRef(false);
@@ -5276,6 +5542,7 @@ function DadosGinasio({ dados, onSalvar, contaAtual }) {
     </form>
 
     <CopiaSeguranca dadosGinasio={dados} onSalvarFrequencia={(freq) => onSalvar({ ...dados, frequenciaBackup: freq })} />
+    <NotificacoesPushConfig ativas={notificacoesPushAtivas} onAtivar={onAtivarPush} onDesativar={onDesativarPush} />
     <ModoTesteConfig />
     <ReiniciarSite contaAtual={contaAtual} />
     </div>
@@ -5811,13 +6078,53 @@ const CHAVES_TODAS_COLECOES = [
   "membros", "planos", "produtos", "trainers", "dadosGinasio", "contas", "acessos",
   "pagamentosFeitos", "movimentosBancarios", "movimentosCaixa", "comprasMembros", "vendasProdutos",
   "auditLog", "pagamentosPendentes", "custos", "faturas", "advertencias", "orcamento",
-  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas",
+  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer",
 ];
 
 // O modo de teste só pode ser ligado a partir daqui — de dentro do painel
 // do administrador, já autenticado. Antes ficava um botão no ecrã de
 // login, visível a qualquer pessoa (incluindo atletas), o que lhes dava
 // acesso a mexer no modo de teste sem precisarem de ser administradores.
+function NotificacoesPushConfig({ ativas, onAtivar, onDesativar }) {
+  const [erro, setErro] = useState("");
+  const suportado = typeof Notification !== "undefined";
+
+  const ativar = async () => {
+    setErro("");
+    if (!suportado) { setErro("Este navegador não suporta notificações."); return; }
+    const permissao = await Notification.requestPermission();
+    if (permissao === "granted") {
+      onAtivar();
+      new Notification("🔔 Notificações ativadas", { body: "Vais receber alertas de pagamentos, stock e manutenção enquanto este browser estiver aberto." });
+    } else {
+      setErro("Permissão negada — ativa as notificações para este site nas definições do navegador, se mudares de ideias.");
+    }
+  };
+
+  return (
+    <Card title={<span className="flex items-center gap-2">🔔 Notificações push</span>}>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
+        Alertas reais do navegador (não WhatsApp) para pagamentos por aprovar, stock baixo, e manutenção de
+        equipamentos atrasada.
+      </p>
+      <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">
+        Funcionam enquanto este browser estiver aberto (mesmo com outra aba à frente) — não funcionam com o browser
+        totalmente fechado, porque isso precisaria de um servidor próprio a enviar os alertas.
+      </p>
+      {erro && <p className="text-xs text-red-500 mb-3">{erro}</p>}
+      {ativas ? (
+        <button onClick={onDesativar} className="text-sm font-semibold ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2.5 rounded-lg">
+          Desativar notificações
+        </button>
+      ) : (
+        <button onClick={ativar} className="text-sm font-semibold bg-[#3F8F87] hover:bg-[#357A73] text-white px-4 py-2.5 rounded-lg">
+          Ativar notificações neste dispositivo
+        </button>
+      )}
+    </Card>
+  );
+}
+
 function ModoTesteConfig() {
   return (
     <Card title={<span className="flex items-center gap-2">🧪 Modo de teste</span>}>
@@ -5942,27 +6249,70 @@ function ReiniciarSite({ contaAtual }) {
 // do tempo. Vem do histórico gravado sempre que um Personal Trainer
 // atualiza o plano de treino de alguém com uma carga preenchida.
 // ---------------------------------------------------------------------
-function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
+function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, membroInicialId }) {
   // O peso corporal é a parte principal deste relatório — mostra se o
   // atleta está mesmo a evoluir (emagrecer, engordar, manter), independente
   // de qual seja o objetivo dele. As cargas dos exercícios vêm depois, como
   // complemento.
   const membrosComDados = membros.filter((m) => avaliacoesFisicas.some((a) => a.membroId === m.id) || historicoCargas.some((h) => h.membroId === m.id));
-  const [membroId, setMembroId] = useState(membrosComDados[0]?.id || null);
+  // Se veio um atleta pré-selecionado (ex.: botão de imprimir junto do nome
+  // dele em Membros) e ele ainda não tem nenhum dado registado, mostra-o na
+  // lista à mesma — para se perceber que "ainda não há dados" em vez de o
+  // atleta simplesmente desaparecer da seleção.
+  const membroPreSelecionado = membroInicialId ? membros.find((m) => m.id === membroInicialId) : null;
+  const listaParaEscolher = membroPreSelecionado && !membrosComDados.some((m) => m.id === membroInicialId)
+    ? [membroPreSelecionado, ...membrosComDados]
+    : membrosComDados;
+  const [membroId, setMembroId] = useState(membroInicialId || membrosComDados[0]?.id || null);
   const membro = membros.find((m) => m.id === membroId);
 
+  // Relatório mensal — para se poder mandar ao atleta todos os meses um
+  // resumo novo, em vez de sempre o histórico completo desde o início.
+  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+
   const avaliacoesDoMembro = avaliacoesFisicas.filter((a) => a.membroId === membroId).slice().sort((a, b) => a.data.localeCompare(b.data));
-  const primeiraAval = avaliacoesDoMembro[0];
-  const ultimaAval = avaliacoesDoMembro[avaliacoesDoMembro.length - 1];
-  const diferencaPeso = primeiraAval && ultimaAval ? ultimaAval.peso - primeiraAval.peso : null;
+  const avaliacoesDoMes = avaliacoesDoMembro.filter((a) => (a.data || "").startsWith(mesEscolhido));
+  const primeiraAval = avaliacoesDoMes[0];
+  const ultimaAval = avaliacoesDoMes[avaliacoesDoMes.length - 1];
+  const diferencaPeso = primeiraAval && ultimaAval && primeiraAval.id !== ultimaAval.id ? ultimaAval.peso - primeiraAval.peso : null;
 
   const historicoDoMembro = historicoCargas.filter((h) => h.membroId === membroId);
+  const historicoDoMes = historicoDoMembro.filter((h) => (h.data || "").startsWith(mesEscolhido));
   const porExercicio = {};
-  historicoDoMembro.forEach((h) => {
+  historicoDoMes.forEach((h) => {
     if (!porExercicio[h.exercicio]) porExercicio[h.exercicio] = [];
     porExercicio[h.exercicio].push(h);
   });
   Object.values(porExercicio).forEach((lista) => lista.sort((a, b) => a.data.localeCompare(b.data)));
+
+  // Mensagem de WhatsApp com o resumo do mês, para o Personal Trainer ou a
+  // receção poderem mandar diretamente ao atleta com um clique.
+  const construirMensagemWhatsApp = () => {
+    if (!membro) return "";
+    let msg = `Olá ${membro.nome.split(" ")[0]}! Aqui está a tua evolução em ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}:\n\n`;
+    if (ultimaAval) {
+      msg += `📊 Peso: ${ultimaAval.peso} kg`;
+      if (diferencaPeso !== null && diferencaPeso !== 0) {
+        msg += ` (${diferencaPeso > 0 ? "+" : ""}${diferencaPeso.toFixed(1)} kg este mês — ${diferencaPeso < 0 ? "parabéns, estás a emagrecer!" : "a ganhar peso"})`;
+      }
+      msg += "\n";
+    }
+    const exerciciosComProgresso = Object.entries(porExercicio).filter(([, pontos]) => pontos.length >= 2);
+    if (exerciciosComProgresso.length > 0) {
+      msg += `\n💪 Progressão nas cargas:\n`;
+      exerciciosComProgresso.forEach(([nome, pontos]) => {
+        const diff = pontos[pontos.length - 1].carga - pontos[0].carga;
+        msg += `• ${nome}: ${pontos[0].carga}kg → ${pontos[pontos.length - 1].carga}kg (${diff > 0 ? "+" : ""}${diff.toFixed(1)}kg)\n`;
+      });
+    }
+    if (!ultimaAval && exerciciosComProgresso.length === 0) {
+      msg += "Continua a treinar — assim que tivermos mais registos este mês, mandamos-te a tua evolução!";
+    } else {
+      msg += `\nContinua assim! 💪`;
+    }
+    return msg;
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
@@ -5970,6 +6320,15 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
         <div className="flex items-center justify-between mb-4 print:hidden">
           <h2 className="font-bold text-lg">Evolução do atleta</h2>
           <div className="flex items-center gap-2">
+            {membro?.telefone && (
+              <a
+                href={linkWhatsApp(membro.telefone, construirMensagemWhatsApp())}
+                target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-3 py-2"
+              >
+                <MessageCircle size={15} /> Enviar por WhatsApp
+              </a>
+            )}
             <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
               <Printer size={15} /> Imprimir / Guardar PDF
             </button>
@@ -5981,17 +6340,26 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Relatório de evolução do atleta — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Relatório de evolução de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
           </div>
         </div>
 
-        <div className="print:hidden mb-4">
-          <label className="text-xs font-medium text-slate-500">Atleta</label>
-          <select value={membroId || ""} onChange={(e) => setMembroId(Number(e.target.value))} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm">
-            {membrosComDados.length === 0 && <option value="">Nenhum atleta com avaliações ou cargas registadas ainda</option>}
-            {membrosComDados.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-          </select>
+        <div className="grid grid-cols-2 gap-3 print:hidden mb-4">
+          <div>
+            <label className="text-xs font-medium text-slate-500">Atleta</label>
+            <select value={membroId || ""} onChange={(e) => setMembroId(Number(e.target.value))} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm">
+              {listaParaEscolher.length === 0 && <option value="">Nenhum atleta com avaliações ou cargas registadas ainda</option>}
+              {listaParaEscolher.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500">Mês</label>
+            <input type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+          </div>
         </div>
+        {membro && !membro.telefone && (
+          <p className="text-xs text-amber-600 print:hidden mb-3">Este atleta não tem telefone registado — não é possível enviar por WhatsApp. Adiciona o telefone em Membros → Editar.</p>
+        )}
 
         {!membro ? (
           <p className="text-sm text-slate-400">
@@ -6002,15 +6370,15 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
           <>
             <p className="font-semibold mb-3">{membro.nome} — {membro.numero}</p>
 
-            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Peso corporal</h3>
-            {avaliacoesDoMembro.length === 0 ? (
-              <p className="text-sm text-slate-400 mb-4">Este atleta ainda não tem nenhuma avaliação física registada.</p>
+            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Peso corporal em {nomeMes}</h3>
+            {avaliacoesDoMes.length === 0 ? (
+              <p className="text-sm text-slate-400 mb-4">Sem avaliações físicas registadas neste mês.</p>
             ) : (
               <div className="mb-6 break-inside-avoid">
-                {avaliacoesDoMembro.length >= 2 && (
+                {avaliacoesDoMes.length >= 2 && (
                   <div className="h-40 mb-2">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={avaliacoesDoMembro}>
+                      <LineChart data={avaliacoesDoMes}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
                         <XAxis dataKey="data" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit="kg" domain={["auto", "auto"]} />
@@ -6023,7 +6391,7 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
                 <table className="w-full text-sm">
                   <thead><tr className="text-left text-xs text-slate-400"><th>Data</th><th className="text-right">Peso</th><th className="text-right">Gordura</th></tr></thead>
                   <tbody>
-                    {avaliacoesDoMembro.map((a) => (
+                    {avaliacoesDoMes.map((a) => (
                       <tr key={a.id} className="border-t"><td className="py-1">{a.data}</td><td className="text-right font-medium">{a.peso} kg</td><td className="text-right text-slate-500">{a.gordura ? `${a.gordura}%` : "—"}</td></tr>
                     ))}
                   </tbody>
@@ -6037,9 +6405,9 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
               </div>
             )}
 
-            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Progressão nas cargas dos exercícios</h3>
+            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Progressão nas cargas em {nomeMes}</h3>
             {Object.keys(porExercicio).length === 0 ? (
-              <p className="text-sm text-slate-400">Este atleta ainda não tem nenhum registo de carga.</p>
+              <p className="text-sm text-slate-400">Sem cargas registadas neste mês.</p>
             ) : (
               Object.entries(porExercicio).map(([nomeExercicio, pontos]) => (
                 <div key={nomeExercicio} className="mb-6 break-inside-avoid">
@@ -6074,6 +6442,128 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
                 </div>
               ))
             )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// MELHOR ATLETA DO MÊS — combina horas de treino (calculadas a partir das
+// entradas/saídas do Controlo de Acessos) com a evolução nas cargas dos
+// exercícios (do histórico registado pelos Personal Trainers), para dar
+// um reconhecimento simples e justo a quem mais se dedicou naquele mês.
+// ---------------------------------------------------------------------
+function calcularHorasEntreHorarios(entrada, saida) {
+  if (!entrada || !saida) return 0;
+  const [h1, m1] = entrada.split(":").map(Number);
+  const [h2, m2] = saida.split(":").map(Number);
+  const minutos = h2 * 60 + m2 - (h1 * 60 + m1);
+  return minutos > 0 ? minutos / 60 : 0;
+}
+
+function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFechar }) {
+  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+
+  const ranking = useMemo(() => {
+    return membros
+      .map((m) => {
+        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
+        const horasTreino = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+
+        const cargasDoMembro = historicoCargas.filter((h) => h.membroId === m.id && (h.data || "").startsWith(mesEscolhido));
+        const porExercicio = {};
+        cargasDoMembro.forEach((h) => {
+          if (!porExercicio[h.exercicio]) porExercicio[h.exercicio] = [];
+          porExercicio[h.exercicio].push(h);
+        });
+        let progressaoCarga = 0;
+        Object.values(porExercicio).forEach((lista) => {
+          lista.sort((a, b) => a.data.localeCompare(b.data));
+          if (lista.length >= 2) progressaoCarga += lista[lista.length - 1].carga - lista[0].carga;
+        });
+
+        // Fórmula simples e transparente: cada hora de treino vale 10
+        // pontos, cada kg de progresso nas cargas vale 2 — a tabela mostra
+        // sempre os dois números em separado, nunca só o resultado final.
+        const pontuacao = horasTreino * 10 + progressaoCarga * 2;
+
+        return { membro: m, horasTreino, progressaoCarga, pontuacao, numTreinos: acessosDoMes.length };
+      })
+      .filter((r) => r.numTreinos > 0 || r.progressaoCarga !== 0)
+      .sort((a, b) => b.pontuacao - a.pontuacao);
+  }, [membros, acessos, historicoCargas, mesEscolhido]);
+
+  const vencedor = ranking[0];
+  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
+      <div className="max-w-2xl mx-auto bg-white my-4 rounded-2xl print:rounded-none print:my-0 p-6 text-slate-800 area-imprimivel">
+        <div className="flex items-center justify-between mb-4 print:hidden">
+          <h2 className="font-bold text-lg">Melhor atleta do mês</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
+              <Printer size={15} /> Imprimir / Guardar PDF
+            </button>
+            <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 border-b pb-3 mb-4">
+          {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
+          <div>
+            <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
+            <p className="text-xs text-slate-500">Melhor atleta de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+          </div>
+        </div>
+
+        <div className="print:hidden mb-4">
+          <label className="text-xs font-medium text-slate-500">Mês</label>
+          <input type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+        </div>
+
+        {ranking.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            Ainda não há dados suficientes neste mês — precisa de haver check-ins com entrada <strong>e</strong> saída
+            registados em Controlo de Acessos, e/ou cargas registadas pelos Personal Trainers.
+          </p>
+        ) : (
+          <>
+            <div className="bg-amber-50 ring-1 ring-amber-200 rounded-xl p-4 mb-5 flex items-center gap-4">
+              <Award size={36} className="text-amber-500 shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta de {nomeMes}</p>
+                <p className="text-lg font-extrabold text-slate-900">{vencedor.membro.nome}</p>
+                <p className="text-sm text-slate-600">
+                  {vencedor.horasTreino.toFixed(1)}h de treino{vencedor.progressaoCarga !== 0 ? ` · ${vencedor.progressaoCarga > 0 ? "+" : ""}${vencedor.progressaoCarga.toFixed(1)} kg de progressão nas cargas` : ""}
+                </p>
+              </div>
+            </div>
+
+            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Classificação completa</h3>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-400">
+                  <th>#</th><th>Atleta</th><th className="text-right">Horas de treino</th><th className="text-right">Progressão nas cargas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranking.map((r, i) => (
+                  <tr key={r.membro.id} className={`border-t ${i === 0 ? "font-semibold" : ""}`}>
+                    <td className="py-1.5">{i + 1}.º</td>
+                    <td className="py-1.5">{r.membro.nome}</td>
+                    <td className="py-1.5 text-right">{r.horasTreino.toFixed(1)}h ({r.numTreinos} treino{r.numTreinos === 1 ? "" : "s"})</td>
+                    <td className="py-1.5 text-right">{r.progressaoCarga === 0 ? "—" : `${r.progressaoCarga > 0 ? "+" : ""}${r.progressaoCarga.toFixed(1)} kg`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-[11px] text-slate-400 mt-3">
+              Classificação calculada a partir das horas entre entrada e saída em Controlo de Acessos, e da diferença
+              entre a primeira e a última carga registada em cada exercício, neste mês.
+            </p>
           </>
         )}
       </div>
@@ -6152,7 +6642,7 @@ function RelatorioMensalEvolucao({ mesEscolhido, resumoMensal, membros, dadosGin
   );
 }
 
-function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
+function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas }) {
   // "Saldo inicial" é dinheiro que o ginásio já tinha antes de começar a
   // usar o sistema — conta como receita/lucro já feita.
   const saldoInicialTotal = [...movimentosCaixa, ...movimentosBancarios]
@@ -6164,6 +6654,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
   const [aVerRelatorioMensal, setAVerRelatorioMensal] = useState(false);
   const [aVerEvolucaoTreino, setAVerEvolucaoTreino] = useState(false);
+  const [aVerMelhorAtleta, setAVerMelhorAtleta] = useState(false);
 
   // Produtos mais e menos vendidos — para saber o que reabastecer e o que
   // talvez já não valha a pena manter em stock.
@@ -6238,6 +6729,38 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
     const receita = pagamentosMes.reduce((s, p) => s + p.valor, 0);
     const custoTotal = custosMes.reduce((s, c) => s + c.valor, 0);
 
+    // Mensalidades separadas por plano — não só o total "mensalidade" em
+    // bloco, mas quanto veio de cada plano especificamente.
+    const porPlano = {};
+    pagamentosMes.filter((p) => p.tipo === "mensalidade").forEach((p) => {
+      const nome = p.planoNome || "Sem plano identificado";
+      porPlano[nome] = (porPlano[nome] || 0) + p.valor;
+    });
+
+    // Vendas separadas por produto — cruza com a lista de produtos para
+    // saber o nome de cada um, já que a venda só guarda o produtoId.
+    const vendasDoMes = (vendasProdutos || []).filter((v) => {
+      // vendasProdutos guarda a data em formato "dd/mm/aaaa" (pt-PT) — converter para comparar com mesAlvo "aaaa-mm"
+      const [dia, mes, ano] = (v.data || "").split("/");
+      return dia && `${ano}-${mes}` === mesAlvo;
+    });
+    const porProduto = {};
+    vendasDoMes.forEach((v) => {
+      const produto = (produtos || []).find((p) => p.id === v.produtoId);
+      const nome = produto?.nome || "Produto removido";
+      porProduto[nome] = (porProduto[nome] || 0) + v.subtotal;
+    });
+
+    // Avulsos à parte, cada um com a sua descrição — cruzando com as
+    // faturas para saber do que se tratou cada um (a fatura guarda a
+    // descrição; o pagamento em si só guarda o valor).
+    const numerosAvulsosMes = pagamentosMes.filter((p) => p.tipo === "avulso").map((p) => p.numero);
+    const avulsosDetalhados = numerosAvulsosMes.map((num) => {
+      const fatura = faturas.find((f) => f.numero === num);
+      const pagamento = pagamentosMes.find((p) => p.numero === num);
+      return { descricao: fatura?.itens?.[0]?.descricao || "Avulso", valor: pagamento?.valor || 0 };
+    });
+
     const membrosAteInicioMes = membros.filter((m) => (m.dataInscricao || "9999") < mesAlvo).length;
     const totalAteFimMes = membros.filter((m) => (m.dataInscricao || "9999") <= `${mesAlvo}-31`).length;
     const ativosNoMes = membros.filter((m) => m.estado === "ativo").length;
@@ -6245,7 +6768,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
     const taxaCrescimento = membrosAteInicioMes > 0 ? ((totalAteFimMes - membrosAteInicioMes) / membrosAteInicioMes) * 100 : membrosNovosMes.length > 0 ? 100 : 0;
 
     return {
-      receita, custoTotal, lucro: receita - custoTotal, porTipo,
+      receita, custoTotal, lucro: receita - custoTotal, porTipo, porPlano, porProduto, avulsosDetalhados,
       membrosNovos: membrosNovosMes.length, membrosNovosMes, numPagamentos: pagamentosMes.length, pagamentosMes, custosMes,
       membrosAteInicioMes, totalAteFimMes, ativosNoMes, vencidosNoMes, taxaCrescimento,
     };
@@ -6519,11 +7042,52 @@ const exportarMembros = () => {
             <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{resumoMensal.membrosNovos}</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 mb-4">
-          <span className="text-[11px] bg-[#EAF5F4] dark:bg-slate-700 text-[#2E6E68] dark:text-[#5AAFA8] px-2.5 py-1 rounded-full">Mensalidades: {kz(resumoMensal.porTipo.mensalidade || 0)}</span>
-          <span className="text-[11px] bg-[#EAF5F4] dark:bg-slate-700 text-[#2E6E68] dark:text-[#5AAFA8] px-2.5 py-1 rounded-full">Vendas: {kz(resumoMensal.porTipo.venda || 0)}</span>
-          <span className="text-[11px] bg-[#EAF5F4] dark:bg-slate-700 text-[#2E6E68] dark:text-[#5AAFA8] px-2.5 py-1 rounded-full">Avulsos: {kz(resumoMensal.porTipo.avulso || 0)}</span>
-          <span className="text-[11px] bg-[#EAF5F4] dark:bg-slate-700 text-[#2E6E68] dark:text-[#5AAFA8] px-2.5 py-1 rounded-full">Inscrições: {kz(resumoMensal.porTipo.inscricao || 0)}</span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Mensalidades por plano</p>
+            {Object.keys(resumoMensal.porPlano).length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">Nenhuma este mês.</p>
+            ) : (
+              <div className="space-y-1">
+                {Object.entries(resumoMensal.porPlano).map(([nome, valor]) => (
+                  <div key={nome} className="flex justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-300">{nome}</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{kz(valor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Vendas por produto</p>
+            {Object.keys(resumoMensal.porProduto).length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">Nenhuma este mês.</p>
+            ) : (
+              <div className="space-y-1">
+                {Object.entries(resumoMensal.porProduto).map(([nome, valor]) => (
+                  <div key={nome} className="flex justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-300">{nome}</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{kz(valor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Avulsos</p>
+            {resumoMensal.avulsosDetalhados.length === 0 ? (
+              <p className="text-xs text-slate-400 dark:text-slate-500">Nenhum este mês.</p>
+            ) : (
+              <div className="space-y-1">
+                {resumoMensal.avulsosDetalhados.map((av, i) => (
+                  <div key={i} className="flex justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-300">{av.descricao}</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{kz(av.valor)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         {resumoMensal.numPagamentos === 0 && resumoMensal.custosMes.length === 0 ? (
           <p className="text-xs text-slate-400 dark:text-slate-500">Sem movimentos neste mês.</p>
@@ -6549,6 +7113,12 @@ const exportarMembros = () => {
             <TrendingUp size={15} /> Evolução do atleta — peso e cargas (PDF)
           </button>
           <button
+            onClick={() => setAVerMelhorAtleta(true)}
+            className="flex items-center justify-center gap-2 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold px-4 py-2.5 rounded-lg"
+          >
+            <Award size={15} /> Melhor atleta do mês (PDF)
+          </button>
+          <button
             onClick={() => exportarExcelCompleto({ membros, planos, pagamentosFeitos, custos, produtos, vendasProdutos, mesEscolhido })}
             className="flex items-center justify-center gap-2 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold px-4 py-2.5 rounded-lg"
           >
@@ -6568,6 +7138,13 @@ const exportarMembros = () => {
         <RelatorioEvolucaoTreino
           membros={membros} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
           onFechar={() => setAVerEvolucaoTreino(false)}
+        />
+      )}
+
+      {aVerMelhorAtleta && (
+        <MelhorAtleta
+          membros={membros} acessos={acessos} historicoCargas={historicoCargas} dadosGinasio={dadosGinasio}
+          onFechar={() => setAVerMelhorAtleta(false)}
         />
       )}
 
@@ -7181,7 +7758,131 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }
   );
 }
 
-function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudarSenha, onSolicitarAprovacao, minhasAdvertencias, mensagens, onEnviarMensagem, onMarcarMensagensLidas, atividades, reservasAtividades, onReservarAtividade, onCancelarReservaAtividade, minhasAvaliacoes, meuPlanoTreino, acessos, onRegistarEntrada, onRegistarSaida, avisos }) {
+// ---------------------------------------------------------------------
+// META PESSOAL DO ATLETA — o próprio atleta define um peso-alvo, e vê o
+// progresso desde a primeira avaliação registada até à mais recente.
+// ---------------------------------------------------------------------
+function MetaPessoal({ membro, minhasAvaliacoes, onDefinirMeta }) {
+  const [aEditar, setAEditar] = useState(false);
+  const [valor, setValor] = useState(membro.pesoObjetivo || "");
+
+  const avaliacoesOrdenadas = (minhasAvaliacoes || []).slice().sort((a, b) => a.data.localeCompare(b.data));
+  const primeiraAval = avaliacoesOrdenadas[0];
+  const pesoAtual = avaliacoesOrdenadas[avaliacoesOrdenadas.length - 1]?.peso;
+
+  const guardar = (e) => {
+    e.preventDefault();
+    onDefinirMeta(valor ? Number(valor) : null);
+    setAEditar(false);
+  };
+
+  let percentagem = null;
+  if (membro.pesoObjetivo && primeiraAval && pesoAtual !== undefined) {
+    const distanciaTotal = Math.abs(primeiraAval.peso - membro.pesoObjetivo);
+    const distanciaPercorrida = Math.abs(primeiraAval.peso - pesoAtual);
+    percentagem = distanciaTotal > 0 ? Math.min(100, Math.round((distanciaPercorrida / distanciaTotal) * 100)) : 100;
+  }
+
+  return (
+    <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-1.5">
+        <Target size={14} className="text-[#3F8F87]" /> A minha meta
+      </p>
+
+      {!membro.pesoObjetivo || aEditar ? (
+        <form onSubmit={guardar} className="flex items-center gap-2">
+          <input
+            type="number" step="0.1" value={valor} onChange={(e) => setValor(e.target.value)}
+            placeholder="Ex.: 75 (kg)"
+            className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm"
+          />
+          <button type="submit" className="text-xs font-semibold bg-[#3F8F87] hover:bg-[#357A73] text-white px-3 py-2 rounded-lg">Guardar</button>
+          {aEditar && <button type="button" onClick={() => setAEditar(false)} className="text-xs text-slate-400">Cancelar</button>}
+        </form>
+      ) : (
+        <div className="p-3 rounded-lg bg-[#EAF5F4] dark:bg-slate-900">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-sm">Peso-alvo: <strong>{membro.pesoObjetivo} kg</strong></p>
+            <button onClick={() => { setValor(membro.pesoObjetivo); setAEditar(true); }} className="text-xs font-semibold text-[#3F8F87]">Alterar</button>
+          </div>
+          {percentagem !== null ? (
+            <>
+              <div className="w-full bg-white dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                <div className="bg-[#3F8F87] h-2.5 rounded-full transition-all" style={{ width: `${percentagem}%` }} />
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">{percentagem}% do caminho — de {primeiraAval.peso} kg para {membro.pesoObjetivo} kg (atual: {pesoAtual} kg)</p>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Assim que tiveres pelo menos uma avaliação física registada, vais ver aqui o teu progresso até à meta.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// AVALIAÇÃO DO PERSONAL TRAINER — o atleta avalia o seu PT (1 a 5
+// estrelas), para o administrador perceber quem está a fazer bom trabalho
+// sem ter de perguntar diretamente a cada atleta.
+// ---------------------------------------------------------------------
+function AvaliacaoTrainer({ trainer, membroId, avaliacoesTrainer, onAvaliar }) {
+  const minhaAvaliacao = avaliacoesTrainer.find((a) => a.trainerId === trainer.id && a.membroId === membroId);
+  const [aEditar, setAEditar] = useState(false);
+  const [nota, setNota] = useState(minhaAvaliacao?.nota || 5);
+  const [comentario, setComentario] = useState(minhaAvaliacao?.comentario || "");
+
+  const submeter = (e) => {
+    e.preventDefault();
+    onAvaliar(trainer.id, nota, comentario.trim());
+    setAEditar(false);
+  };
+
+  return (
+    <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
+      <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-1.5">
+        <Star size={14} className="text-amber-500" /> O meu Personal Trainer — {trainer.nome}
+      </p>
+
+      {!minhaAvaliacao || aEditar ? (
+        <form onSubmit={submeter} className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 space-y-2">
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button type="button" key={n} onClick={() => setNota(n)}>
+                <Star size={22} className={n <= nota ? "text-amber-500 fill-amber-500" : "text-slate-300 dark:text-slate-600"} />
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={comentario} onChange={(e) => setComentario(e.target.value)} rows={2}
+            placeholder="Comentário (opcional)"
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm"
+          />
+          <div className="flex gap-2">
+            <button type="submit" className="text-xs font-semibold bg-[#3F8F87] hover:bg-[#357A73] text-white px-3 py-2 rounded-lg">
+              {minhaAvaliacao ? "Guardar alteração" : "Avaliar"}
+            </button>
+            {aEditar && <button type="button" onClick={() => setAEditar(false)} className="text-xs text-slate-400">Cancelar</button>}
+          </div>
+        </form>
+      ) : (
+        <div className="p-3 rounded-lg bg-[#EAF5F4] dark:bg-slate-900">
+          <div className="flex items-center gap-1 mb-1">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Star key={n} size={16} className={n <= minhaAvaliacao.nota ? "text-amber-500 fill-amber-500" : "text-slate-300 dark:text-slate-600"} />
+            ))}
+          </div>
+          {minhaAvaliacao.comentario && <p className="text-xs text-slate-600 dark:text-slate-300 mb-1.5">"{minhaAvaliacao.comentario}"</p>}
+          <button onClick={() => { setNota(minhaAvaliacao.nota); setComentario(minhaAvaliacao.comentario || ""); setAEditar(true); }} className="text-xs font-semibold text-[#3F8F87]">
+            Alterar avaliação
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudarSenha, onSolicitarAprovacao, minhasAdvertencias, mensagens, onEnviarMensagem, onMarcarMensagensLidas, atividades, reservasAtividades, onReservarAtividade, onCancelarReservaAtividade, minhasAvaliacoes, meuPlanoTreino, acessos, onRegistarEntrada, onRegistarSaida, avisos, onDefinirMetaPeso, trainers, avaliacoesTrainer, onAvaliarTrainer }) {
   const [aba, setAba] = useState("inicio");
   const [planoEscolhido, setPlanoEscolhido] = useState(null);
   const cartaoRef = useRef(null);
@@ -7523,6 +8224,17 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                 </div>
               )}
 
+              <MetaPessoal membro={membro} minhasAvaliacoes={minhasAvaliacoes} onDefinirMeta={onDefinirMetaPeso} />
+
+              {membro.trainerId && trainers.find((t) => t.id === membro.trainerId) && (
+                <AvaliacaoTrainer
+                  trainer={trainers.find((t) => t.id === membro.trainerId)}
+                  membroId={membro.id}
+                  avaliacoesTrainer={avaliacoesTrainer}
+                  onAvaliar={onAvaliarTrainer}
+                />
+              )}
+
               {meuPlanoTreino && meuPlanoTreino.exercicios?.length > 0 && (
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
                   <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-1.5">
@@ -7596,6 +8308,7 @@ const MENU_ADMIN = [
       { id: "atividades", label: "Plano de Atividades", icon: Dumbbell },
       { id: "trainers", label: "Personal Trainers", icon: Dumbbell },
       { id: "funcionarios", label: "Funcionários", icon: UserCog },
+      { id: "equipamentos", label: "Equipamentos", icon: Wrench },
       { id: "ponto", label: "Ponto (histórico)", icon: Clock },
     ],
   },
@@ -8060,6 +8773,7 @@ export default function CatumbelaGymApp() {
   const [contaAtual, setContaAtual] = useLocalOnly("contaAtual", null);
   const [tela, setTela] = useState("dashboard");
   const [escuro, setEscuro] = useState(false);
+  const [notificacoesPushAtivas, setNotificacoesPushAtivas] = useLocalOnly("notificacoesPushAtivas", false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [statusSync, setStatusSync] = useState("a-ligar"); // "a-ligar" | "ligado" | "offline"
   const [avisoArmazenamentoCheio, setAvisoArmazenamentoCheio] = useState(false);
@@ -8214,11 +8928,51 @@ export default function CatumbelaGymApp() {
   const [reservasAtividades, setReservasAtividades, adicionarReservaSegura, definirReservasSemGravar] = usePersistente("reservasAtividades", [], setStatusSync);
   const [avaliacoesFisicas, setAvaliacoesFisicas] = usePersistente("avaliacoesFisicas", [], setStatusSync);
   const [planosTreino, setPlanosTreino] = usePersistente("planosTreino", [], setStatusSync);
+  const [equipamentos, setEquipamentos] = usePersistente("equipamentos", [], setStatusSync);
+  const [avaliacoesTrainer, setAvaliacoesTrainer] = usePersistente("avaliacoesTrainer", [], setStatusSync);
   const [historicoCargas, setHistoricoCargas] = usePersistente("historicoCargas", [], setStatusSync);
   const [fechosTurno, setFechosTurno] = usePersistente("fechosTurno", [], setStatusSync);
   const [registosPonto, setRegistosPonto] = usePersistente("registosPonto", [], setStatusSync);
   const [mensagens, setMensagens, adicionarMensagemSegura] = usePersistente("mensagens", [], setStatusSync);
   const [avisos, setAvisos] = usePersistente("avisos", [], setStatusSync);
+
+  // NOTIFICAÇÕES PUSH DO NAVEGADOR — reais (não são links de WhatsApp),
+  // usando a Notification API. Funcionam enquanto este browser estiver
+  // aberto (mesmo em segundo plano) — não funcionam com o browser
+  // completamente fechado, porque isso exigiria um servidor próprio a
+  // enviar os alertas, que este sistema não tem.
+  const jaNotificados = useRef(new Set());
+  useEffect(() => {
+    if (!notificacoesPushAtivas || perfil !== "administrador" || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
+    const verificar = () => {
+      pagamentosPendentes.forEach((p) => {
+        const chaveNotif = `pagamento-${p.id}`;
+        if (!jaNotificados.current.has(chaveNotif)) {
+          jaNotificados.current.add(chaveNotif);
+          new Notification("💳 Pagamento a aprovar", { body: `${p.nomeMembro || "Um atleta"} — ${kz(p.valor)}`, tag: chaveNotif });
+        }
+      });
+      equipamentos.forEach((eq) => {
+        const dias = diasAteProximaManutencao(eq);
+        const chaveNotif = `equip-${eq.id}`;
+        if (dias !== null && dias < 0 && !jaNotificados.current.has(chaveNotif)) {
+          jaNotificados.current.add(chaveNotif);
+          new Notification("🔧 Manutenção atrasada", { body: `${eq.nome} — há ${Math.abs(dias)} dia(s)`, tag: chaveNotif });
+        }
+      });
+      produtos.forEach((p) => {
+        const chaveNotif = `stock-${p.id}`;
+        if (p.stock <= p.minimo && !jaNotificados.current.has(chaveNotif)) {
+          jaNotificados.current.add(chaveNotif);
+          new Notification("📦 Stock baixo", { body: `${p.nome} — restam ${p.stock}`, tag: chaveNotif });
+        }
+      });
+    };
+    verificar();
+    const intervalo = setInterval(verificar, 2 * 60 * 1000); // verifica a cada 2 minutos
+    return () => clearInterval(intervalo);
+  }, [notificacoesPushAtivas, perfil, pagamentosPendentes, equipamentos, produtos]);
 
   const registarAuditoria = (acao, detalhe) => {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
@@ -8424,6 +9178,23 @@ export default function CatumbelaGymApp() {
     }
 
     registarAuditoria("Editou dados do membro", dados.nome);
+  };
+
+  // O próprio atleta define o seu peso-alvo, na área dele — não mexe em
+  // mais nenhum dado, nem passa pela auditoria de edição do administrador.
+  const definirMetaPeso = (pesoObjetivo) => {
+    setMembros((atual) => atual.map((m) => (m.id === contaAtual?.membroId ? { ...m, pesoObjetivo } : m)));
+  };
+
+  // AVALIAÇÃO DO PERSONAL TRAINER — o atleta avalia o seu PT (1 a 5
+  // estrelas + comentário opcional). Um atleta só pode ter uma avaliação
+  // ativa por trainer — se avaliar de novo, substitui a anterior.
+  const avaliarTrainer = (trainerId, nota, comentario) => {
+    const membroId = contaAtual?.membroId;
+    setAvaliacoesTrainer((atual) => [
+      ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
+      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
+    ]);
   };
 
   // ELIMINAR = apaga mesmo tudo, incluindo o rasto financeiro (faturas,
@@ -8675,7 +9446,7 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId }) => {
+  const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
     const contadorAtual = faturas.filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`)).length;
@@ -8701,7 +9472,7 @@ export default function CatumbelaGymApp() {
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", data: new Date().toISOString().slice(0, 10) },
+        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -8813,6 +9584,7 @@ export default function CatumbelaGymApp() {
       valor: pendente.valor,
       metodo: "transferencia",
       tipoReceita: "mensalidade",
+      planoNome: pendente.planoNome || pendente.membro.plano,
     });
     setMembros((atual) =>
       atual.map((m) => {
@@ -8882,6 +9654,7 @@ export default function CatumbelaGymApp() {
         valor: plano.preco,
         metodo,
         tipoReceita: "mensalidade",
+        planoNome: novoPlanoNome,
       });
     }
     setMembros((atual) =>
@@ -9245,6 +10018,21 @@ export default function CatumbelaGymApp() {
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
   };
 
+  // MANUTENÇÃO DE EQUIPAMENTOS
+  const adicionarEquipamento = (dados) => {
+    setEquipamentos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((e) => e.id || 0)) + 1 }]);
+    registarAuditoria("Adicionou equipamento", dados.nome);
+  };
+  const atualizarEquipamento = (id, dados) => {
+    setEquipamentos((atual) => atual.map((e) => (e.id === id ? { ...e, ...dados } : e)));
+    registarAuditoria("Atualizou equipamento", dados.nome);
+  };
+  const removerEquipamento = (id) => {
+    const eq = equipamentos.find((e) => e.id === id);
+    setEquipamentos((atual) => atual.filter((e) => e.id !== id));
+    registarAuditoria("Removeu equipamento", eq?.nome || String(id));
+  };
+
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
     setAvisos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, data: new Date().toISOString().slice(0, 10) }]);
@@ -9450,6 +10238,10 @@ export default function CatumbelaGymApp() {
             onRegistarEntrada={registarEntrada}
             onRegistarSaida={registarSaida}
             avisos={avisos}
+            onDefinirMetaPeso={definirMetaPeso}
+            trainers={trainers}
+            avaliacoesTrainer={avaliacoesTrainer}
+            onAvaliarTrainer={avaliarTrainer}
           />
         )}
       </div>
@@ -9662,10 +10454,11 @@ export default function CatumbelaGymApp() {
               onAdicionarAvaliacao={adicionarAvaliacaoFisica}
               onRemoverAvaliacao={removerAvaliacaoFisica}
               onSalvarPlano={salvarPlanoTreino}
+              equipamentos={equipamentos}
             />
           )}
           {telaAtual === "dashboard" && (
-            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} />
+            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} />
           )}
           {telaAtual === "membros" && (
             <Membros
@@ -9682,11 +10475,13 @@ export default function CatumbelaGymApp() {
               onRemoverAdvertencia={removerAdvertencia}
               perfil={perfil}
               dadosGinasio={dadosGinasio}
+              historicoCargas={historicoCargas}
+              avaliacoesFisicas={avaliacoesFisicas}
             />
           )}
           {telaAtual === "planos" && perfil === "administrador" && <Planos planos={planos} onSave={salvarPlano} />}
           {telaAtual === "trainers" && (
-            <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} />
+            <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
             <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} />
@@ -9726,12 +10521,12 @@ export default function CatumbelaGymApp() {
             <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "acessos" && (
-            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} />
+            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} />}
           {telaAtual === "relatorios" && perfil === "administrador" && (
-            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} />
+            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} />}
           {telaAtual === "mensagens" && perfil === "administrador" && (
@@ -9751,6 +10546,9 @@ export default function CatumbelaGymApp() {
           {telaAtual === "ponto" && (
             <RegistoPonto contas={contas} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} />
           )}
+          {telaAtual === "equipamentos" && perfil === "administrador" && (
+            <Equipamentos equipamentos={equipamentos} onAdd={adicionarEquipamento} onUpdate={atualizarEquipamento} onRemove={removerEquipamento} />
+          )}
           {telaAtual === "avisos" && perfil === "administrador" && (
             <CentralAvisos avisos={avisos} onAdicionar={adicionarAviso} onRemover={removerAviso} />
           )}
@@ -9761,7 +10559,12 @@ export default function CatumbelaGymApp() {
             <PagamentosOnline dados={dadosGinasio} onSalvar={salvarDadosGinasio} />
           )}
           {telaAtual === "configuracoes" && perfil === "administrador" && (
-            <DadosGinasio dados={dadosGinasio} onSalvar={salvarDadosGinasio} contaAtual={contaAtual} />
+            <DadosGinasio
+              dados={dadosGinasio} onSalvar={salvarDadosGinasio} contaAtual={contaAtual}
+              notificacoesPushAtivas={notificacoesPushAtivas}
+              onAtivarPush={() => setNotificacoesPushAtivas(true)}
+              onDesativarPush={() => setNotificacoesPushAtivas(false)}
+            />
           )}
           {telaAtual === "meu-perfil" && (
             <MeuPerfil contaAtual={contaAtual} onMudarSenha={alterarPropriaSenha} />
