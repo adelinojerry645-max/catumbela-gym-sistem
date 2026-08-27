@@ -554,6 +554,17 @@ const linkWhatsApp = (telefone, mensagem) =>
 const linkSMS = (telefone, mensagem) =>
   `sms:${(telefone || "").replace(/\D/g, "")}?body=${encodeURIComponent(mensagem)}`;
 
+// Monta o texto do plano de treino para enviar por WhatsApp — lista cada
+// exercício com séries/repetições/carga, para o aluno poder consultar
+// mesmo sem entrar na conta dele no sistema.
+const mensagemPlanoTreino = (membro, plano) => {
+  const linhas = (plano.exercicios || []).map((ex, i) => {
+    const detalhes = [ex.series && `${ex.series} séries`, ex.repeticoes && `${ex.repeticoes} reps`, ex.carga && `${ex.carga}`].filter(Boolean).join(" · ");
+    return `${i + 1}. ${ex.nome}${detalhes ? ` — ${detalhes}` : ""}${ex.notas ? ` (${ex.notas})` : ""}`;
+  });
+  return `Olá ${membro.nome.split(" ")[0]}! Aqui está o teu plano de treino "${plano.nome}":\n\n${linhas.join("\n")}\n\nBom treino! 💪`;
+};
+
 // ---------------------------------------------------------------------
 // COMPONENTES DE APOIO
 // ---------------------------------------------------------------------
@@ -1007,8 +1018,9 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 // ---------------------------------------------------------------------
 // ADVERTÊNCIAS — registo de avisos a atletas que não cumprem as regras
 // ---------------------------------------------------------------------
-function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, podeRemover, onFechar, dadosGinasio }) {
+function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, onAprovar, onRejeitar, podeRemover, perfil, onFechar, dadosGinasio }) {
   const [motivo, setMotivo] = useState("");
+  const éAdministrador = perfil === "administrador";
 
   const submeter = (e) => {
     e.preventDefault();
@@ -1019,6 +1031,9 @@ function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, podeR
 
   const mensagemAviso = (a) =>
     `Olá ${membro.nome.split(" ")[0]}, aviso de ${dadosGinasio?.nome || "Catumbela Gym"}: recebeste uma advertência — "${a.motivo}" (${a.data}). Por favor, cumpre as regras do ginásio.`;
+
+  const pendentes = advertencias.filter((a) => a.estado === "pendente");
+  const aprovadas = advertencias.filter((a) => a.estado !== "pendente");
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -1032,13 +1047,36 @@ function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, podeR
         <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
           Regista aqui incumprimentos das regras do ginásio (comportamento, uso indevido de equipamento, etc.). Nem
           todos os membros entram na sua conta — por isso podes também avisar diretamente por WhatsApp ou SMS.
+          {!éAdministrador && " As advertências que registares aqui só ficam visíveis para o atleta depois de o administrador aprovar."}
         </p>
 
-        {advertencias.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 mb-4">Sem advertências registadas. 🎉</p>
+        {pendentes.length > 0 && (
+          <div className="space-y-2 mb-4">
+            <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wide">Por aprovar</p>
+            {pendentes.map((a) => (
+              <div key={a.id} className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700">
+                <p className="text-sm text-slate-700 dark:text-slate-200">{a.motivo}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{a.data} · {a.registadoPor} · <span className="text-amber-600 font-semibold">Aguarda aprovação do administrador</span></p>
+                {éAdministrador && (
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={() => onAprovar(a.id)} className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 ring-1 ring-emerald-200 dark:ring-emerald-800 px-2.5 py-1 rounded-full hover:bg-emerald-100">
+                      Aprovar
+                    </button>
+                    <button onClick={() => onRejeitar(a.id)} className="text-[11px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 px-2.5 py-1 rounded-full hover:bg-red-100">
+                      Rejeitar
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {aprovadas.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500 mb-4">Sem advertências aprovadas. 🎉</p>
         ) : (
           <div className="space-y-2 mb-4">
-            {advertencias.map((a) => (
+            {aprovadas.map((a) => (
               <div key={a.id} className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800">
                 <div className="flex items-start justify-between gap-2">
                   <div>
@@ -1085,7 +1123,7 @@ function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, podeR
             />
           </div>
           <button className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 rounded-lg text-sm">
-            <AlertTriangle size={16} /> Registar advertência
+            <AlertTriangle size={16} /> {éAdministrador ? "Registar advertência" : "Enviar advertência para aprovação"}
           </button>
         </form>
       </div>
@@ -1166,13 +1204,14 @@ function CanvasAssinatura({ onAssinar }) {
 
 const TEXTO_TERMO_RESPONSABILIDADE = `Declaro que estou em condições físicas adequadas para a prática de exercício físico neste ginásio, e que participo nas atividades por minha conta e risco. Comprometo-me a seguir as regras e normas de funcionamento do espaço, e a informar a equipa técnica de qualquer condição de saúde relevante antes de iniciar os treinos.`;
 
-function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAdicionarAdvertencia, onRemoverAdvertencia, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
+function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [aEliminar, setAEliminar] = useState(null);
   const [aCancelar, setACancelar] = useState(null);
   const [advertindoMembro, setAdvertindoMembro] = useState(null);
+  const [definindoMetaDe, setDefinindoMetaDe] = useState(null);
   const vazio = { nome: "", telefone: "", plano: planos[0]?.nome || "", foto: null, email: "", senha: "", dataInscricao: "", vencimento: "", taxaInscricao: "", metodoTaxaInscricao: "dinheiro", dataNascimento: "", assinaturaContrato: null };
   const [novo, setNovo] = useState(vazio);
 
@@ -1284,7 +1323,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
               {filtrados.map((m) => {
-                const minhasAdvertencias = advertencias.filter((a) => a.membroId === m.id);
+                const minhasAdvertencias = advertencias.filter((a) => a.membroId === m.id && a.estado !== "pendente");
                 return (
                 <tr key={m.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
                   <td className="py-2.5 text-slate-500 dark:text-slate-400 dark:text-slate-500">{m.numero}</td>
@@ -1315,6 +1354,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                       )}
                       <button onClick={() => setAdvertindoMembro(m)} title="Advertências" className="text-slate-400 hover:text-amber-600">
                         <AlertTriangle size={15} />
+                      </button>
+                      <button onClick={() => setDefinindoMetaDe(m)} title="Definir meta do atleta" className="text-slate-400 hover:text-[#3F8F87]">
+                        <Target size={15} />
                       </button>
                       <button onClick={() => setAVerEvolucaoDeMembro(m)} title="Imprimir evolução (peso e cargas)" className="text-slate-400 hover:text-blue-600">
                         <Printer size={15} />
@@ -1515,9 +1557,20 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
           advertencias={advertencias.filter((a) => a.membroId === advertindoMembro.id)}
           onAdicionar={(motivo) => onAdicionarAdvertencia(advertindoMembro.id, motivo)}
           onRemover={onRemoverAdvertencia}
+          onAprovar={onAprovarAdvertencia}
+          onRejeitar={onRejeitarAdvertencia}
           podeRemover={perfil === "administrador"}
+          perfil={perfil}
           onFechar={() => setAdvertindoMembro(null)}
           dadosGinasio={dadosGinasio}
+        />
+      )}
+
+      {definindoMetaDe && (
+        <ModalDefinirMeta
+          membro={definindoMetaDe}
+          onDefinir={(pesoObjetivo) => { onDefinirMeta(definindoMetaDe.id, pesoObjetivo); setDefinindoMetaDe(null); }}
+          onFechar={() => setDefinindoMetaDe(null)}
         />
       )}
 
@@ -2687,7 +2740,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
 // ---------------------------------------------------------------------
 // OS MEUS ALUNOS (vista do próprio Personal Trainer)
 // ---------------------------------------------------------------------
-function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, onFechar, equipamentos }) {
+function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, onDefinirMeta, onFechar, equipamentos }) {
   const [aba, setAba] = useState("avaliacao");
   const vazioAvaliacao = { peso: "", altura: "", gordura: "", peito: "", cintura: "", quadril: "", braco: "", coxa: "", notas: "" };
   const [novaAvaliacao, setNovaAvaliacao] = useState(vazioAvaliacao);
@@ -2695,6 +2748,7 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
   const [nomePlano, setNomePlano] = useState(planoTreino?.nome || "Treino do mês");
   const [exercicios, setExercicios] = useState(planoTreino?.exercicios || []);
   const [novoExercicio, setNovoExercicio] = useState({ nome: "", series: "", repeticoes: "", carga: "", notas: "", equipamentoId: "" });
+  const [metaValor, setMetaValor] = useState(membro.pesoObjetivo || "");
 
   const submeterAvaliacao = (e) => {
     e.preventDefault();
@@ -2707,6 +2761,12 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
     });
     setNovaAvaliacao(vazioAvaliacao);
   };
+
+  // No plano de treino só faz sentido escolher equipamento de TREINO
+  // (passadeiras, máquinas de musculação, etc.) — nunca ar condicionado,
+  // ventiladores ou outro equipamento do ginásio que não se usa para
+  // exercitar.
+  const equipamentosDeTreino = (equipamentos || []).filter((eq) => (eq.grupo || "treino") === "treino");
 
   const adicionarLinhaExercicio = () => {
     if (!novoExercicio.nome) return;
@@ -2729,14 +2789,41 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
         <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">{membro.nome}</h3>
         <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">{membro.numero} · {membro.plano}</p>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 flex-wrap">
           <button onClick={() => setAba("avaliacao")} className={`text-sm font-semibold px-3 py-1.5 rounded-lg ring-1 ${aba === "avaliacao" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
             Avaliação física
           </button>
           <button onClick={() => setAba("treino")} className={`text-sm font-semibold px-3 py-1.5 rounded-lg ring-1 ${aba === "treino" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
             Plano de treino
           </button>
+          {onDefinirMeta && (
+            <button onClick={() => setAba("meta")} className={`text-sm font-semibold px-3 py-1.5 rounded-lg ring-1 ${aba === "meta" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
+              Meta
+            </button>
+          )}
         </div>
+
+        {aba === "meta" && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Define aqui o peso-alvo deste atleta. A meta e o progresso ficam visíveis para ele na área de membro, mas só tu, o administrador ou a recepção podem alterá-la.
+            </p>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Peso-alvo (kg)</label>
+              <input
+                type="number" step="0.1" value={metaValor} onChange={(e) => setMetaValor(e.target.value)}
+                placeholder="Ex.: 75"
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm"
+              />
+            </div>
+            <button
+              onClick={() => onDefinirMeta(membro.id, metaValor ? Number(metaValor) : null)}
+              className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white text-sm font-semibold py-2 rounded-lg"
+            >
+              Guardar meta
+            </button>
+          </div>
+        )}
 
         {aba === "avaliacao" && (
           <div className="space-y-4">
@@ -2810,19 +2897,19 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
               })}
               {exercicios.length === 0 && <p className="text-xs text-slate-400 dark:text-slate-500">Ainda sem exercícios neste plano.</p>}
             </div>
-            {equipamentos.length > 0 && (
+            {equipamentosDeTreino.length > 0 && (
               <div>
                 <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Máquina/equipamento do ginásio (opcional)</label>
                 <select
                   value={novoExercicio.equipamentoId}
                   onChange={(e) => {
-                    const eq = equipamentos.find((eq) => eq.id === Number(e.target.value));
+                    const eq = equipamentosDeTreino.find((eq) => eq.id === Number(e.target.value));
                     setNovoExercicio({ ...novoExercicio, equipamentoId: e.target.value ? Number(e.target.value) : "", nome: eq ? eq.nome : novoExercicio.nome });
                   }}
                   className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs"
                 >
                   <option value="">Nenhuma (exercício livre/peso corporal)</option>
-                  {equipamentos.map((eq) => {
+                  {equipamentosDeTreino.map((eq) => {
                     const dias = diasAteProximaManutencao(eq);
                     const atrasado = dias !== null && dias < 0;
                     return <option key={eq.id} value={eq.id}>{eq.nome}{atrasado ? " — ⚠️ manutenção atrasada" : ""}</option>;
@@ -2846,6 +2933,15 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
             <button onClick={guardarPlano} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white text-sm font-semibold py-2 rounded-lg mt-2">
               Guardar plano de treino
             </button>
+            {membro.telefone && exercicios.length > 0 && (
+              <a
+                href={linkWhatsApp(membro.telefone, mensagemPlanoTreino(membro, { nome: nomePlano, exercicios }))}
+                target="_blank" rel="noreferrer"
+                className="w-full flex items-center justify-center gap-2 ring-1 ring-emerald-200 dark:ring-emerald-800 text-emerald-700 dark:text-emerald-400 text-sm font-semibold py-2 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+              >
+                <MessageCircle size={15} /> Enviar treino por WhatsApp
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -2853,7 +2949,7 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
   );
 }
 
-function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, equipamentos }) {
+function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdicionarAvaliacao, onRemoverAvaliacao, onSalvarPlano, onDefinirMeta, equipamentos }) {
   const alunos = trainer ? membros.filter((m) => m.trainerId === trainer.id) : [];
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
 
@@ -2904,6 +3000,7 @@ function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdici
           onAdicionarAvaliacao={onAdicionarAvaliacao}
           onRemoverAvaliacao={onRemoverAvaliacao}
           onSalvarPlano={onSalvarPlano}
+          onDefinirMeta={onDefinirMeta}
           onFechar={() => setAlunoSelecionado(null)}
           equipamentos={equipamentos}
         />
@@ -3115,7 +3212,13 @@ const ROTULO_PERFIL = {
 function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPonto }) {
   const [aRegistar, setARegistar] = useState(null); // conta selecionada, ou null
 
-  const funcionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
+  // Cada funcionário só pode marcar a SUA PRÓPRIA entrada/saída — mesmo
+  // partilhando o computador da receção, ninguém deve conseguir marcar
+  // presença (ou ausência) em nome de um colega. O administrador continua a
+  // ver a lista toda, só para acompanhar quem está no ginásio, mas mesmo
+  // ele só pode registar ponto da sua própria conta aqui.
+  const todosFuncionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
+  const funcionarios = perfil === "administrador" ? todosFuncionarios : todosFuncionarios.filter((c) => c.id === contaAtual?.id);
   const hojeStr = new Date().toLocaleDateString("pt-PT");
   // registarPonto já grava os registos mais recentes no início da lista —
   // não precisamos (nem devemos) inverter aqui, ou o estado de "está no
@@ -3131,24 +3234,28 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
   };
 
   const registar = (conta, tipo) => {
+    if (conta.id !== contaAtual?.id) return; // proteção extra: nunca registar ponto de outra pessoa
     onRegistarPonto({ funcionarioId: conta.id, funcionarioNome: conta.nome, tipo, data: hojeStr, hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) });
     setARegistar(null);
   };
 
   return (
     <div className="space-y-5">
-      <Card title="Quem está a trabalhar agora?">
+      <Card title={perfil === "administrador" ? "Quem está a trabalhar agora?" : "O meu ponto"}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {funcionarios.map((f) => {
             const dentro = estadoAtual(f.id) === "entrada";
+            const éAMinhaConta = f.id === contaAtual?.id;
             return (
               <button
                 key={f.id}
-                onClick={() => setARegistar(f)}
-                className={`flex items-center justify-between p-3 rounded-lg ring-1 text-left ${dentro ? "ring-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" : "ring-slate-200 dark:ring-slate-600"}`}
+                onClick={() => éAMinhaConta && setARegistar(f)}
+                disabled={!éAMinhaConta}
+                title={éAMinhaConta ? undefined : "Só podes marcar o teu próprio ponto"}
+                className={`flex items-center justify-between p-3 rounded-lg ring-1 text-left ${dentro ? "ring-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" : "ring-slate-200 dark:ring-slate-600"} ${!éAMinhaConta ? "opacity-70 cursor-default" : ""}`}
               >
                 <div>
-                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.nome}</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.nome}{éAMinhaConta ? " (tu)" : ""}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">{ROTULO_PERFIL[f.perfil]}</p>
                 </div>
                 <span className={`text-xs font-semibold px-2 py-1 rounded-full ${dentro ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-500"}`}>
@@ -3835,7 +3942,18 @@ function PlanoAtividades({ atividades, trainers, reservasAtividades, onAdicionar
 // a última manutenção, e avisa quando se aproxima a próxima — para nunca
 // haver equipamento parado por falta de revisão.
 // ---------------------------------------------------------------------
-const CATEGORIAS_EQUIPAMENTO = ["Cardio", "Musculação", "Peso livre", "Outro"];
+// Equipamentos dividem-se em dois GRUPOS: "treino" (o que se usa para
+// exercitar — cardio, musculação, peso livre) e "outro" (tudo o resto do
+// ginásio que também precisa de manutenção, como ar condicionado,
+// ventiladores, iluminação, etc.). Cada grupo tem as suas próprias
+// categorias, para não misturar uma passadeira com um ar condicionado na
+// mesma lista.
+const GRUPOS_EQUIPAMENTO = { treino: "Equipamento de treino", outro: "Outros equipamentos (AC, ventiladores, etc.)" };
+const CATEGORIAS_POR_GRUPO = {
+  treino: ["Cardio", "Musculação", "Peso livre", "Outro (treino)"],
+  outro: ["Ar condicionado", "Ventilador", "Iluminação", "Som/Música", "Segurança/Câmaras", "Outro"],
+};
+const CATEGORIAS_EQUIPAMENTO = CATEGORIAS_POR_GRUPO.treino; // mantido para compatibilidade com código antigo
 
 function diasAteProximaManutencao(equipamento) {
   if (!equipamento.dataUltimaManutencao) return null;
@@ -3848,33 +3966,47 @@ function diasAteProximaManutencao(equipamento) {
 }
 
 function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
-  const vazio = { nome: "", categoria: "Musculação", dataUltimaManutencao: new Date().toISOString().slice(0, 10), intervaloDias: 90, notas: "" };
+  const vazio = { nome: "", grupo: "treino", categoria: "Musculação", quantidade: 1, quantidadeEmManutencao: 0, dataUltimaManutencao: new Date().toISOString().slice(0, 10), intervaloDias: 90, notas: "" };
   const [novo, setNovo] = useState(vazio);
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
+  const [filtroGrupo, setFiltroGrupo] = useState("todos"); // "todos" | "treino" | "outro"
 
   const abrirEdicao = (eq) => {
     setEditandoId(eq.id);
-    setNovo({ nome: eq.nome, categoria: eq.categoria, dataUltimaManutencao: eq.dataUltimaManutencao, intervaloDias: eq.intervaloDias, notas: eq.notas || "" });
+    setNovo({
+      nome: eq.nome,
+      grupo: eq.grupo || "treino",
+      categoria: eq.categoria,
+      quantidade: eq.quantidade ?? 1,
+      quantidadeEmManutencao: eq.quantidadeEmManutencao ?? 0,
+      dataUltimaManutencao: eq.dataUltimaManutencao,
+      intervaloDias: eq.intervaloDias,
+      notas: eq.notas || "",
+    });
     setShowForm(true);
   };
 
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.nome) return;
-    if (editandoId) onUpdate(editandoId, novo);
-    else onAdd(novo);
+    // A quantidade em manutenção nunca pode ser maior do que a quantidade total do equipamento
+    const dados = { ...novo, quantidadeEmManutencao: Math.min(Number(novo.quantidadeEmManutencao) || 0, Number(novo.quantidade) || 1) };
+    if (editandoId) onUpdate(editandoId, dados);
+    else onAdd(dados);
     setNovo(vazio);
     setShowForm(false);
     setEditandoId(null);
   };
 
   const registarManutencaoFeitaHoje = (eq) => {
-    onUpdate(eq.id, { ...eq, dataUltimaManutencao: new Date().toISOString().slice(0, 10) });
+    onUpdate(eq.id, { ...eq, dataUltimaManutencao: new Date().toISOString().slice(0, 10), quantidadeEmManutencao: 0 });
   };
 
+  const filtrados = filtroGrupo === "todos" ? equipamentos : equipamentos.filter((eq) => (eq.grupo || "treino") === filtroGrupo);
+
   // Ordenados dos mais urgentes para os menos urgentes
-  const ordenados = equipamentos.slice().sort((a, b) => {
+  const ordenados = filtrados.slice().sort((a, b) => {
     const diasA = diasAteProximaManutencao(a);
     const diasB = diasAteProximaManutencao(b);
     if (diasA === null) return 1;
@@ -3884,7 +4016,7 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Manutenção de Equipamentos</h2>
         <button
           onClick={() => { setNovo(vazio); setEditandoId(null); setShowForm(true); }}
@@ -3894,22 +4026,46 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
         </button>
       </div>
 
+      <div className="flex gap-2">
+        {[
+          { id: "todos", label: "Todos" },
+          { id: "treino", label: GRUPOS_EQUIPAMENTO.treino },
+          { id: "outro", label: GRUPOS_EQUIPAMENTO.outro },
+        ].map((g) => (
+          <button
+            key={g.id}
+            onClick={() => setFiltroGrupo(g.id)}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-full ring-1 ${filtroGrupo === g.id ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
       {ordenados.length === 0 ? (
-        <Card><p className="text-sm text-slate-400 dark:text-slate-500">Ainda não registaste nenhum equipamento.</p></Card>
+        <Card><p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há equipamentos registados neste grupo.</p></Card>
       ) : (
         <div className="space-y-2">
           {ordenados.map((eq) => {
             const dias = diasAteProximaManutencao(eq);
             const atrasado = dias !== null && dias < 0;
             const aproximar = dias !== null && dias >= 0 && dias <= 7;
+            const qtdManutencao = eq.quantidadeEmManutencao || 0;
             const cor = atrasado ? "border-red-300 bg-red-50 dark:bg-red-900/10" : aproximar ? "border-amber-300 bg-amber-50 dark:bg-amber-900/10" : "border-slate-100 dark:border-slate-700";
             return (
               <div key={eq.id} className={`flex items-center justify-between p-3 rounded-xl ring-1 ${cor} dark:bg-slate-800`}>
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">{eq.nome} <span className="text-xs font-normal text-slate-400">· {eq.categoria}</span></p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Última manutenção: {eq.dataUltimaManutencao || "—"} · A cada {eq.intervaloDias} dias
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">
+                    {eq.nome} <span className="text-xs font-normal text-slate-400">· {eq.categoria} · {GRUPOS_EQUIPAMENTO[eq.grupo || "treino"]}</span>
                   </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Quantidade total: {eq.quantidade ?? 1} · Última manutenção: {eq.dataUltimaManutencao || "—"} · A cada {eq.intervaloDias} dias
+                  </p>
+                  {qtdManutencao > 0 && (
+                    <p className="text-xs font-semibold text-amber-600 mt-0.5">
+                      🔧 {qtdManutencao} de {eq.quantidade ?? 1} unidade(s) em manutenção neste momento
+                    </p>
+                  )}
                   {dias !== null && (
                     <p className={`text-xs font-semibold mt-0.5 ${atrasado ? "text-red-600" : aproximar ? "text-amber-600" : "text-emerald-600"}`}>
                       {atrasado ? `⚠️ Manutenção atrasada há ${Math.abs(dias)} dia(s)` : aproximar ? `Próxima manutenção em ${dias} dia(s)` : `Próxima manutenção em ${dias} dias — dentro do prazo`}
@@ -3931,7 +4087,7 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <form onSubmit={submeter} className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm space-y-3">
+          <form onSubmit={submeter} className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm space-y-3 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-1">
               <h3 className="font-bold text-slate-900 dark:text-slate-100">{editandoId ? "Editar equipamento" : "Novo equipamento"}</h3>
               <button type="button" onClick={() => setShowForm(false)}><X size={20} className="text-slate-400" /></button>
@@ -3942,10 +4098,36 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
                 className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" required />
             </div>
             <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Tipo de equipamento</label>
+              <select
+                value={novo.grupo}
+                onChange={(e) => {
+                  const grupo = e.target.value;
+                  setNovo({ ...novo, grupo, categoria: CATEGORIAS_POR_GRUPO[grupo][0] });
+                }}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm"
+              >
+                <option value="treino">{GRUPOS_EQUIPAMENTO.treino}</option>
+                <option value="outro">{GRUPOS_EQUIPAMENTO.outro}</option>
+              </select>
+            </div>
+            <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Categoria</label>
               <select value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
-                {CATEGORIAS_EQUIPAMENTO.map((c) => <option key={c} value={c}>{c}</option>)}
+                {CATEGORIAS_POR_GRUPO[novo.grupo].map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Quantidade total</label>
+                <input type="number" min="1" value={novo.quantidade} onChange={(e) => setNovo({ ...novo, quantidade: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Quantas em manutenção agora</label>
+                <input type="number" min="0" value={novo.quantidadeEmManutencao} onChange={(e) => setNovo({ ...novo, quantidadeEmManutencao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -5517,6 +5699,37 @@ function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onA
           </div>
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">Escreve o endereço do site acima para gerar o QR.</p>
+        )}
+      </Card>
+
+      <Card title={<span className="flex items-center gap-2"><UserIcon size={16} className="text-[#3F8F87]" /> QR / link de inscrição de novos membros</span>}>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+          Este QR (ou o link abaixo) abre o sistema já direto no formulário de "Torna-te membro" — ideal para colar
+          num cartaz, colocar no Instagram/WhatsApp ou mostrar num tablet à entrada. A pessoa preenche os dados,
+          escolhe o plano e cria logo a sua conta, sem precisar de vir à receção primeiro.
+        </p>
+        {form.siteUrl ? (
+          <div className="flex flex-col items-center gap-2 mt-1 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+            <QRCodeSVG valor={`${form.siteUrl}${form.siteUrl.includes("?") ? "&" : "?"}inscricao=1`} tamanho={160} />
+            <p className="text-xs text-slate-400 dark:text-slate-500">Aponta a câmara para te inscreveres</p>
+            <div className="w-full flex items-center gap-2 mt-2">
+              <input
+                readOnly
+                value={`${form.siteUrl}${form.siteUrl.includes("?") ? "&" : "?"}inscricao=1`}
+                onFocus={(e) => e.target.select()}
+                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(`${form.siteUrl}${form.siteUrl.includes("?") ? "&" : "?"}inscricao=1`)}
+                className="text-xs font-semibold text-[#3F8F87] ring-1 ring-[#8FC9C3] rounded-lg px-3 py-2 shrink-0"
+              >
+                Copiar link
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">Escreve o endereço do site acima para gerar este QR e o link.</p>
         )}
       </Card>
 
@@ -7762,19 +7975,13 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }
 // META PESSOAL DO ATLETA — o próprio atleta define um peso-alvo, e vê o
 // progresso desde a primeira avaliação registada até à mais recente.
 // ---------------------------------------------------------------------
-function MetaPessoal({ membro, minhasAvaliacoes, onDefinirMeta }) {
-  const [aEditar, setAEditar] = useState(false);
-  const [valor, setValor] = useState(membro.pesoObjetivo || "");
-
+// A meta (peso-alvo) do atleta é definida pelo personal trainer, pelo
+// administrador ou pela recepção — NUNCA pelo próprio membro. Aqui o
+// membro só VÊ a meta e o seu progresso; não há forma de a editar.
+function MetaPessoal({ membro, minhasAvaliacoes }) {
   const avaliacoesOrdenadas = (minhasAvaliacoes || []).slice().sort((a, b) => a.data.localeCompare(b.data));
   const primeiraAval = avaliacoesOrdenadas[0];
   const pesoAtual = avaliacoesOrdenadas[avaliacoesOrdenadas.length - 1]?.peso;
-
-  const guardar = (e) => {
-    e.preventDefault();
-    onDefinirMeta(valor ? Number(valor) : null);
-    setAEditar(false);
-  };
 
   let percentagem = null;
   if (membro.pesoObjetivo && primeiraAval && pesoAtual !== undefined) {
@@ -7789,22 +7996,13 @@ function MetaPessoal({ membro, minhasAvaliacoes, onDefinirMeta }) {
         <Target size={14} className="text-[#3F8F87]" /> A minha meta
       </p>
 
-      {!membro.pesoObjetivo || aEditar ? (
-        <form onSubmit={guardar} className="flex items-center gap-2">
-          <input
-            type="number" step="0.1" value={valor} onChange={(e) => setValor(e.target.value)}
-            placeholder="Ex.: 75 (kg)"
-            className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm"
-          />
-          <button type="submit" className="text-xs font-semibold bg-[#3F8F87] hover:bg-[#357A73] text-white px-3 py-2 rounded-lg">Guardar</button>
-          {aEditar && <button type="button" onClick={() => setAEditar(false)} className="text-xs text-slate-400">Cancelar</button>}
-        </form>
+      {!membro.pesoObjetivo ? (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Ainda não tens uma meta definida. Fala com o teu personal trainer, a recepção ou o administrador para a definirem contigo.
+        </p>
       ) : (
         <div className="p-3 rounded-lg bg-[#EAF5F4] dark:bg-slate-900">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-sm">Peso-alvo: <strong>{membro.pesoObjetivo} kg</strong></p>
-            <button onClick={() => { setValor(membro.pesoObjetivo); setAEditar(true); }} className="text-xs font-semibold text-[#3F8F87]">Alterar</button>
-          </div>
+          <p className="text-sm mb-1.5">Peso-alvo: <strong>{membro.pesoObjetivo} kg</strong></p>
           {percentagem !== null ? (
             <>
               <div className="w-full bg-white dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
@@ -7817,6 +8015,37 @@ function MetaPessoal({ membro, minhasAvaliacoes, onDefinirMeta }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Modal pequeno para o personal trainer, administrador ou recepção
+// definirem (ou alterarem) a meta de peso de um atleta.
+function ModalDefinirMeta({ membro, onDefinir, onFechar }) {
+  const [valor, setValor] = useState(membro.pesoObjetivo || "");
+
+  const submeter = (e) => {
+    e.preventDefault();
+    onDefinir(valor ? Number(valor) : null);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submeter} className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-xs space-y-3">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2"><Target size={16} className="text-[#3F8F87]" /> Meta — {membro.nome}</h3>
+          <button type="button" onClick={onFechar}><X size={20} className="text-slate-400" /></button>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Peso-alvo (kg)</label>
+          <input
+            type="number" step="0.1" value={valor} onChange={(e) => setValor(e.target.value)}
+            placeholder="Ex.: 75"
+            className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm"
+          />
+        </div>
+        <button className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">Guardar meta</button>
+      </form>
     </div>
   );
 }
@@ -7882,7 +8111,7 @@ function AvaliacaoTrainer({ trainer, membroId, avaliacoesTrainer, onAvaliar }) {
   );
 }
 
-function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudarSenha, onSolicitarAprovacao, minhasAdvertencias, mensagens, onEnviarMensagem, onMarcarMensagensLidas, atividades, reservasAtividades, onReservarAtividade, onCancelarReservaAtividade, minhasAvaliacoes, meuPlanoTreino, acessos, onRegistarEntrada, onRegistarSaida, avisos, onDefinirMetaPeso, trainers, avaliacoesTrainer, onAvaliarTrainer }) {
+function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudarSenha, onSolicitarAprovacao, minhasAdvertencias, mensagens, onEnviarMensagem, onMarcarMensagensLidas, atividades, reservasAtividades, onReservarAtividade, onCancelarReservaAtividade, minhasAvaliacoes, meuPlanoTreino, acessos, onRegistarEntrada, onRegistarSaida, avisos, trainers, avaliacoesTrainer, onAvaliarTrainer }) {
   const [aba, setAba] = useState("inicio");
   const [planoEscolhido, setPlanoEscolhido] = useState(null);
   const cartaoRef = useRef(null);
@@ -7895,7 +8124,8 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
     { id: "inicio", label: "Início", icon: LayoutDashboard },
     { id: "cartao", label: "Cartão", icon: QrCode },
     { id: "pagamentos", label: "Pagar", icon: CreditCard },
-    { id: "aulas", label: "Aulas", icon: Dumbbell },
+    { id: "treino", label: "Treino", icon: Dumbbell },
+    { id: "aulas", label: "Aulas", icon: Calendar },
     { id: "historico", label: "Histórico", icon: History },
     { id: "compras", label: "Compras", icon: ShoppingCart },
     { id: "mensagens", label: "Mensagens", icon: MessageSquare, badge: naoLidas },
@@ -8115,6 +8345,32 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
             </div>
           )}
 
+          {aba === "treino" && (
+            <div className="space-y-3">
+              {!meuPlanoTreino || !meuPlanoTreino.exercicios?.length ? (
+                <p className="text-sm text-slate-400 dark:text-slate-500">
+                  Ainda não tens nenhum plano de treino atribuído. Fala com o teu personal trainer para te montar um.
+                </p>
+              ) : (
+                <>
+                  <p className="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    <Dumbbell size={14} className="text-[#3F8F87]" /> {meuPlanoTreino.nome || "O meu plano de treino"}
+                  </p>
+                  <div className="space-y-1.5">
+                    {meuPlanoTreino.exercicios.map((ex) => (
+                      <div key={ex.id} className="text-sm p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+                        <span className="font-medium text-slate-900 dark:text-slate-100">{ex.nome}</span>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {ex.series} séries × {ex.repeticoes} reps{ex.carga ? ` · ${ex.carga}` : ""}{ex.notas ? ` · ${ex.notas}` : ""}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {aba === "aulas" && (
             <div className="space-y-3">
               {atividades.length === 0 ? (
@@ -8224,7 +8480,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                 </div>
               )}
 
-              <MetaPessoal membro={membro} minhasAvaliacoes={minhasAvaliacoes} onDefinirMeta={onDefinirMetaPeso} />
+              <MetaPessoal membro={membro} minhasAvaliacoes={minhasAvaliacoes} />
 
               {membro.trainerId && trainers.find((t) => t.id === membro.trainerId) && (
                 <AvaliacaoTrainer
@@ -8233,22 +8489,6 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                   avaliacoesTrainer={avaliacoesTrainer}
                   onAvaliar={onAvaliarTrainer}
                 />
-              )}
-
-              {meuPlanoTreino && meuPlanoTreino.exercicios?.length > 0 && (
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
-                  <p className="font-semibold text-slate-700 dark:text-slate-200 mb-2 flex items-center gap-1.5">
-                    <Dumbbell size={14} className="text-[#3F8F87]" /> {meuPlanoTreino.nome || "O meu plano de treino"}
-                  </p>
-                  <div className="space-y-1.5">
-                    {meuPlanoTreino.exercicios.map((ex) => (
-                      <div key={ex.id} className="text-xs p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
-                        <span className="font-medium text-slate-900 dark:text-slate-100">{ex.nome}</span>
-                        <span className="text-slate-500 dark:text-slate-400"> — {ex.series} séries × {ex.repeticoes} reps{ex.notas ? ` · ${ex.notas}` : ""}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               )}
 
               {contaAtual && onMudarSenha && (
@@ -8398,7 +8638,7 @@ const MENU_TRAINER = [
 // ---------------------------------------------------------------------
 // TELA DE LOGIN
 // ---------------------------------------------------------------------
-function Login({ contas, membros, dadosGinasio, onEntrar, onCriarAdmin, onRedefinirSenha, escuro, setEscuro }) {
+function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, onRedefinirSenha, onAutoInscrever, abrirInscricaoDireta, escuro, setEscuro }) {
   const existeAdmin = contas.some((c) => c.perfil === "administrador");
 
   const [email, setEmail] = useState("");
@@ -8421,6 +8661,46 @@ function Login({ contas, membros, dadosGinasio, onEntrar, onCriarAdmin, onRedefi
   const [confirmarNovaSenha, setConfirmarNovaSenha] = useState("");
   const [erroRecuperar, setErroRecuperar] = useState("");
   const [contaRecuperar, setContaRecuperar] = useState(null);
+
+  // Inscrição/subscrição direta de um novo membro, feita por ele próprio
+  // no ecrã de login — sem precisar de ir presencialmente à receção.
+  const [modoInscricao, setModoInscricao] = useState(!!abrirInscricaoDireta);
+  const planosDisponiveis = (planos || []).filter((p) => p.ativo !== false);
+  const [inscNome, setInscNome] = useState("");
+  const [inscTelefone, setInscTelefone] = useState("");
+  const [inscEmail, setInscEmail] = useState("");
+  const [inscSenha, setInscSenha] = useState("");
+  const [inscConfirmarSenha, setInscConfirmarSenha] = useState("");
+  const [inscPlanoId, setInscPlanoId] = useState(planosDisponiveis[0]?.id || "");
+  const [erroInscricao, setErroInscricao] = useState("");
+
+  const submeterInscricao = (e) => {
+    e.preventDefault();
+    if (!inscNome.trim() || !inscTelefone.trim() || !inscEmail.trim() || !inscSenha) {
+      setErroInscricao("Preenche todos os campos.");
+      return;
+    }
+    if (contas.some((c) => c.email.toLowerCase() === inscEmail.trim().toLowerCase())) {
+      setErroInscricao("Já existe uma conta com este e-mail. Tenta entrar ou recuperar a palavra-passe.");
+      return;
+    }
+    if (inscSenha.length < 6) {
+      setErroInscricao("A palavra-passe deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (inscSenha !== inscConfirmarSenha) {
+      setErroInscricao("As palavras-passe não coincidem.");
+      return;
+    }
+    setErroInscricao("");
+    onAutoInscrever({
+      nome: inscNome.trim(),
+      telefone: inscTelefone.trim(),
+      email: inscEmail.trim(),
+      senha: inscSenha,
+      planoId: inscPlanoId || null,
+    });
+  };
 
   const submeterLogin = (e) => {
     e.preventDefault();
@@ -8609,10 +8889,71 @@ function Login({ contas, membros, dadosGinasio, onEntrar, onCriarAdmin, onRedefi
               <button type="button" onClick={() => setModoRecuperar(true)} className="w-full text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:text-slate-300 pt-1">
                 Recuperar palavra-passe
               </button>
+              <button type="button" onClick={() => setModoInscricao(true)} className="w-full text-xs font-semibold text-[#3F8F87] hover:text-[#357A73] pt-1">
+                Ainda não és sócio? Torna-te membro agora
+              </button>
             </form>
           </div>
         )}
       </div>
+
+      {modoInscricao && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm relative max-h-[85vh] overflow-y-auto">
+            <button onClick={() => setModoInscricao(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+              <X size={18} />
+            </button>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Torna-te membro</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+              Cria já a tua conta e escolhe o teu plano. Depois de entrares, podes concluir o pagamento diretamente na tua área de membro.
+            </p>
+            <form onSubmit={submeterInscricao} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome completo</label>
+                <input value={inscNome} onChange={(e) => setInscNome(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone</label>
+                <input value={inscTelefone} onChange={(e) => setInscTelefone(e.target.value)} placeholder="9XX XXX XXX"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">E-mail</label>
+                <input type="email" value={inscEmail} onChange={(e) => setInscEmail(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Palavra-passe</label>
+                  <input type="password" value={inscSenha} onChange={(e) => setInscSenha(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Confirmar</label>
+                  <input type="password" value={inscConfirmarSenha} onChange={(e) => setInscConfirmarSenha(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+                </div>
+              </div>
+              {planosDisponiveis.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Escolhe o teu plano</label>
+                  <select value={inscPlanoId} onChange={(e) => setInscPlanoId(Number(e.target.value))}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+                    {planosDisponiveis.map((p) => (
+                      <option key={p.id} value={p.id}>{p.nome} — {kz(p.preco)}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {erroInscricao && <p className="text-xs text-red-500">{erroInscricao}</p>}
+              <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] text-white font-semibold py-2.5 rounded-lg text-sm mt-2">
+                <UserIcon size={16} /> Criar conta e continuar
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {modoRecuperar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -8781,6 +9122,25 @@ export default function CatumbelaGymApp() {
   const [avisoBackup, setAvisoBackup] = useState(false);
   const [atualizadoAgora, setAtualizadoAgora] = useState(false); // pisca brevemente quando chega uma atualização em tempo real de outro dispositivo
   const backupAutoDisparado = useRef(false);
+
+  // Detecta se a pessoa abriu o site através do QR/link de inscrição
+  // direta (ex.: https://.../?inscricao=1) — nesse caso o ecrã de login
+  // já deve abrir logo no formulário "Torna-te membro", em vez de mostrar
+  // primeiro o login normal e obrigar a procurar o botão.
+  const [abrirInscricaoDireta] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("inscricao") === "1";
+  });
+  useEffect(() => {
+    if (abrirInscricaoDireta && window.history?.replaceState) {
+      // Limpa o parâmetro do endereço depois de o ler, para não ficar
+      // preso no separador do navegador nem reabrir sempre que a página
+      // recarregar (ex.: depois do login).
+      const url = new URL(window.location.href);
+      url.searchParams.delete("inscricao");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [abrirInscricaoDireta]);
 
   // Depois de restaurar uma cópia de segurança, cada coleção força o envio
   // para o Supabase logo no primeiro carregamento (ver usePersistente). Uma
@@ -9037,6 +9397,43 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Repôs palavra-passe de utilizador", conta?.nome || "—");
   };
 
+  // Inscrição/subscrição direta feita pelo próprio visitante no ecrã de
+  // login — sem precisar de vir presencialmente à receção. Cria a conta de
+  // acesso e o registo de membro (ainda "sem-subscrição" até o pagamento do
+  // plano escolhido ser confirmado, tal como uma inscrição feita pela
+  // receção) e entra logo na área de membro, onde pode concluir o
+  // pagamento em "Pagar mensalidade".
+  const autoInscrever = ({ nome, telefone, email, senha, planoId }) => {
+    const planoEscolhido = planos.find((p) => p.id === planoId);
+    const maiorNumero = membros.reduce((max, m) => {
+      const n = parseInt((m.numero || "").replace("CG-", ""), 10);
+      return n > max ? n : max;
+    }, 0);
+    const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const novoIdMembro = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const hojeStr = new Date().toISOString().slice(0, 10);
+    const membroNovo = {
+      id: novoIdMembro,
+      numero,
+      nome,
+      telefone,
+      plano: planoEscolhido?.nome || null,
+      foto: null,
+      email,
+      dataInscricao: hojeStr,
+      dataNascimento: null,
+      vencimento: null,
+      estado: "sem-subscricao",
+      assinaturaContrato: null,
+      dataAssinaturaContrato: null,
+    };
+    const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    setMembros((atual) => [...atual, membroNovo]);
+    setContas((atual) => [...atual, novaConta]);
+    registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}`);
+    entrarComConta(novaConta);
+  };
+
   if (!autenticado) {
     return (
       <>
@@ -9049,12 +9446,15 @@ export default function CatumbelaGymApp() {
         <Login
           contas={contas}
           membros={membros}
+          planos={planos}
           dadosGinasio={dadosGinasio}
           escuro={escuro}
           setEscuro={setEscuro}
           onCriarAdmin={criarContaAdmin}
           onEntrar={entrarComConta}
           onRedefinirSenha={redefinirSenha}
+          onAutoInscrever={autoInscrever}
+          abrirInscricaoDireta={abrirInscricaoDireta}
         />
       </>
     );
@@ -9180,10 +9580,14 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Editou dados do membro", dados.nome);
   };
 
-  // O próprio atleta define o seu peso-alvo, na área dele — não mexe em
-  // mais nenhum dado, nem passa pela auditoria de edição do administrador.
-  const definirMetaPeso = (pesoObjetivo) => {
-    setMembros((atual) => atual.map((m) => (m.id === contaAtual?.membroId ? { ...m, pesoObjetivo } : m)));
+  // A meta é sempre definida por outra pessoa (personal trainer,
+  // administrador ou recepção) sobre o atleta — nunca pelo próprio membro.
+  // Por isso recebe sempre o membroId de quem está a definir a meta a
+  // outra pessoa, e não usa contaAtual.membroId.
+  const definirMetaPeso = (membroId, pesoObjetivo) => {
+    const membro = membros.find((m) => m.id === membroId);
+    setMembros((atual) => atual.map((m) => (m.id === membroId ? { ...m, pesoObjetivo } : m)));
+    registarAuditoria("Definiu meta de peso do atleta", `${membro?.nome || membroId} — ${pesoObjetivo ? pesoObjetivo + " kg" : "meta removida"}`);
   };
 
   // AVALIAÇÃO DO PERSONAL TRAINER — o atleta avalia o seu PT (1 a 5
@@ -9256,18 +9660,41 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Reativou membro cancelado", membro.nome);
   };
 
+  // Só o administrador emite uma advertência já "aprovada" (visível de
+  // imediato para o atleta). Quando é a recepção a registar, a advertência
+  // fica "pendente" — só o administrador consegue aprová-la (ou rejeitá-la)
+  // depois, em Advertências.
   const adicionarAdvertencia = (membroId, motivo) => {
     const membro = membros.find((m) => m.id === membroId);
+    const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
-    registarAuditoria("Emitiu advertência", `${membro?.nome || membroId} — ${motivo}`);
+    registarAuditoria(
+      estadoInicial === "aprovada" ? "Emitiu advertência" : "Enviou advertência para aprovação",
+      `${membro?.nome || membroId} — ${motivo}`
+    );
   };
 
   const removerAdvertencia = (id) => {
     setAdvertencias((atual) => atual.filter((a) => a.id !== id));
     registarAuditoria("Removeu advertência", `ID ${id}`);
+  };
+
+  // Aprovar/rejeitar são ações exclusivas do administrador — a UI já
+  // esconde estes botões de quem não é administrador, mas o estado real
+  // (perfil) é sempre validado aqui também, como segunda camada de proteção.
+  const aprovarAdvertencia = (id) => {
+    if (perfil !== "administrador") return;
+    setAdvertencias((atual) => atual.map((a) => (a.id === id ? { ...a, estado: "aprovada" } : a)));
+    registarAuditoria("Aprovou advertência", `ID ${id}`);
+  };
+
+  const rejeitarAdvertencia = (id) => {
+    if (perfil !== "administrador") return;
+    setAdvertencias((atual) => atual.filter((a) => a.id !== id));
+    registarAuditoria("Rejeitou advertência", `ID ${id}`);
   };
 
   const salvarPlano = (dados) => {
@@ -9804,8 +10231,14 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarCusto = (custo) => {
+    // Gera o id do custo ANTES de criar o movimento financeiro, para poder
+    // marcar o movimento com "custoId" — é essa marca que permite depois,
+    // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
+    // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
+    // a nenhum custo real.
+    const novoId = Math.max(0, ...custos.map((c) => c.id || 0)) + 1;
     setCustos((atual) => [
-      { ...custo, id: Math.max(0, ...atual.map((c) => c.id || 0)) + 1, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...custo, id: novoId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     // Liga automaticamente ao Caixa ou ao Banco (consoante escolhido), como
@@ -9816,14 +10249,20 @@ export default function CatumbelaGymApp() {
       valor: custo.valor,
       descricao: custo.descricao || custo.categoria,
       contaBancariaId: custo.contaBancariaId,
+      custoId: novoId,
     });
     registarAuditoria("Registou custo", `${custo.categoria} — ${kz(custo.valor)}`);
   };
 
+  // Apagar um custo tem de apagar também o movimento financeiro que ele
+  // gerou (no Caixa ou no Banco, conforme onde foi pago) — senão o saldo
+  // financeiro continuava a descontar um custo que já não existe.
   const removerCusto = (id) => {
     const custo = custos.find((c) => c.id === id);
     setCustos((atual) => atual.filter((c) => c.id !== id));
-    registarAuditoria("Removeu custo", `${custo?.categoria} — ${kz(custo?.valor || 0)}`);
+    setMovimentosCaixa((atual) => atual.filter((m) => m.custoId !== id));
+    setMovimentosBancarios((atual) => atual.filter((m) => m.custoId !== id));
+    registarAuditoria("Removeu custo", `${custo?.categoria} — ${kz(custo?.valor || 0)} (e o movimento financeiro ligado a ele)`);
   };
 
   // ORÇAMENTO (plano de compras)
@@ -10224,7 +10663,7 @@ export default function CatumbelaGymApp() {
             contaAtual={contaAtual}
             onMudarSenha={alterarPropriaSenha}
             onSolicitarAprovacao={solicitarAprovacao}
-            minhasAdvertencias={advertencias.filter((a) => a.membroId === meuMembro?.id)}
+            minhasAdvertencias={advertencias.filter((a) => a.membroId === meuMembro?.id && a.estado !== "pendente")}
             mensagens={mensagens}
             onEnviarMensagem={enviarMensagem}
             onMarcarMensagensLidas={marcarMensagensLidas}
@@ -10238,7 +10677,6 @@ export default function CatumbelaGymApp() {
             onRegistarEntrada={registarEntrada}
             onRegistarSaida={registarSaida}
             avisos={avisos}
-            onDefinirMetaPeso={definirMetaPeso}
             trainers={trainers}
             avaliacoesTrainer={avaliacoesTrainer}
             onAvaliarTrainer={avaliarTrainer}
@@ -10454,6 +10892,7 @@ export default function CatumbelaGymApp() {
               onAdicionarAvaliacao={adicionarAvaliacaoFisica}
               onRemoverAvaliacao={removerAvaliacaoFisica}
               onSalvarPlano={salvarPlanoTreino}
+              onDefinirMeta={definirMetaPeso}
               equipamentos={equipamentos}
             />
           )}
@@ -10473,6 +10912,9 @@ export default function CatumbelaGymApp() {
               onReativar={reativarMembro}
               onAdicionarAdvertencia={adicionarAdvertencia}
               onRemoverAdvertencia={removerAdvertencia}
+              onAprovarAdvertencia={aprovarAdvertencia}
+              onRejeitarAdvertencia={rejeitarAdvertencia}
+              onDefinirMeta={definirMetaPeso}
               perfil={perfil}
               dadosGinasio={dadosGinasio}
               historicoCargas={historicoCargas}
