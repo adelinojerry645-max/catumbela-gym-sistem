@@ -492,6 +492,13 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   return [valor, setValor, adicionarItemSeguro, definirSemGravar];
 }
 
+// Gera um identificador único para esta sessão/dispositivo — usado para
+// detetar quando outro aparelho entra na mesma conta (ver sessoesAtivas).
+function gerarTokenSessao() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 // Abre uma janela de impressão com o conteúdo de um elemento — o utilizador escolhe
 // "Guardar como PDF" ou imprimir diretamente, sem precisar de bibliotecas extra.
 const imprimirElemento = (titulo, elemento) => {
@@ -519,6 +526,7 @@ const imprimirElemento = (titulo, elemento) => {
     })
     .join("\n");
 
+  janela.document.open();
   janela.document.write(`
     <!doctype html>
     <html>
@@ -541,10 +549,59 @@ const imprimirElemento = (titulo, elemento) => {
     </html>
   `);
   janela.document.close();
-  janela.focus();
-  // Espera um pouco mais para as folhas de estilo ligadas por URL
-  // terminarem de carregar antes de imprimir.
-  setTimeout(() => janela.print(), 500);
+
+  // Só manda imprimir depois de a janela estar mesmo pronta — folhas de
+  // estilo ligadas por URL carregadas e todas as imagens (como o
+  // logótipo) já prontas. Chamar print() cedo demais, antes do layout
+  // assentar, é a causa mais comum de o PDF sair em branco ou sem
+  // formatação ao guardar.
+  let jaImprimiu = false;
+  const imprimirAgora = () => {
+    if (jaImprimiu) return;
+    jaImprimiu = true;
+    try {
+      janela.focus();
+      janela.print();
+    } catch {
+      // Se a janela já não existir (utilizador fechou-a entretanto), ignora.
+    }
+  };
+
+  const imprimirQuandoPronta = () => {
+    let imagens = [];
+    try {
+      imagens = Array.from(janela.document.images || []);
+    } catch {
+      imagens = [];
+    }
+    const semImagensPendentes = imagens.every((img) => img.complete);
+    const aguardarImagens = semImagensPendentes
+      ? Promise.resolve()
+      : Promise.all(
+          imagens.map(
+            (img) =>
+              new Promise((resolve) => {
+                img.addEventListener("load", resolve, { once: true });
+                img.addEventListener("error", resolve, { once: true });
+              })
+          )
+        );
+    aguardarImagens.then(() => {
+      // Mais dois frames para o motor de layout/CSS assentar antes de imprimir.
+      requestAnimationFrame(() => requestAnimationFrame(imprimirAgora));
+    });
+  };
+
+  if (janela.document.readyState === "complete") {
+    imprimirQuandoPronta();
+  } else {
+    janela.addEventListener("load", imprimirQuandoPronta, { once: true });
+  }
+  // Rede de segurança: se, por alguma razão (imagem externa muito lenta,
+  // evento "load" que não dispara em certos navegadores), nada do que está
+  // acima chegar a imprimir, força a impressão ao fim de alguns segundos
+  // em vez de deixar o utilizador com uma janela parada.
+  setTimeout(imprimirAgora, 3000);
 };
 
 // Prefixo Angola (+244) — ajusta se o ginásio operar noutro país
@@ -1015,12 +1072,84 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
   );
 }
 
+// Documento formal com o histórico de advertências de um membro — pensado
+// para imprimir (ou gerar PDF, via imprimirElemento) e entregar/mostrar
+// fisicamente ao atleta, com uma linha para ele assinar a tomar conhecimento.
+function DocumentoAdvertencias({ docRef, membro, advertencias, dadosGinasio }) {
+  const hoje = new Date().toLocaleDateString("pt-PT");
+  return (
+    <div ref={docRef} className="bg-white text-slate-800 p-6 text-xs" style={{ fontFamily: "Arial, sans-serif" }}>
+      <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3 mb-3">
+        <div className="flex items-start gap-3">
+          <img
+            src={dadosGinasio?.logo || LOGO_BASE64}
+            alt={dadosGinasio?.nome}
+            className="object-contain"
+            style={{ height: "56px", width: "auto", maxWidth: "140px", objectFit: "contain" }}
+          />
+          <div>
+            <p className="font-bold text-sm">{dadosGinasio?.nome || "Catumbela Gym"}</p>
+            {dadosGinasio?.morada && <p>{dadosGinasio.morada}{dadosGinasio.cidade ? `, ${dadosGinasio.cidade}` : ""}</p>}
+            {dadosGinasio?.telefone && <p>Telefone: {dadosGinasio.telefone}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="font-bold">REGISTO DE ADVERTÊNCIAS</p>
+          <p>Data de emissão: {hoje}</p>
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <p className="font-semibold">Membro</p>
+        <p className="font-bold">{membro.nome}</p>
+        <p>Nº de membro: {membro.numero}</p>
+      </div>
+
+      <table className="w-full border-collapse mb-3">
+        <thead>
+          <tr className="border-b border-t border-slate-800">
+            <th className="text-left py-1.5 pr-2">Data</th>
+            <th className="text-left py-1.5 pr-2">Motivo</th>
+            <th className="text-left py-1.5">Registado por</th>
+          </tr>
+        </thead>
+        <tbody>
+          {advertencias.map((a) => (
+            <tr key={a.id} className="border-b border-slate-200">
+              <td className="py-1.5 pr-2 align-top whitespace-nowrap">{a.data}</td>
+              <td className="py-1.5 pr-2 align-top">{a.motivo}</td>
+              <td className="py-1.5 align-top whitespace-nowrap">{a.registadoPor}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <p className="mb-8">
+        Declaro que tomei conhecimento da(s) advertência(s) acima registada(s) e comprometo-me a cumprir as regras
+        de funcionamento do ginásio.
+      </p>
+
+      <div className="flex justify-between gap-8 mt-10">
+        <div className="flex-1 text-center">
+          <div className="border-t border-slate-800 pt-1">Assinatura do membro</div>
+        </div>
+        <div className="flex-1 text-center">
+          <div className="border-t border-slate-800 pt-1">Assinatura do responsável ({dadosGinasio?.nome || "Catumbela Gym"})</div>
+        </div>
+      </div>
+
+      <p className="text-center text-[10px] text-slate-400 mt-6">{dadosGinasio?.nome || "Catumbela Gym"} — Documento processado por computador</p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------
 // ADVERTÊNCIAS — registo de avisos a atletas que não cumprem as regras
 // ---------------------------------------------------------------------
 function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, onAprovar, onRejeitar, podeRemover, perfil, onFechar, dadosGinasio }) {
   const [motivo, setMotivo] = useState("");
   const éAdministrador = perfil === "administrador";
+  const documentoRef = useRef(null);
 
   const submeter = (e) => {
     e.preventDefault();
@@ -1034,6 +1163,8 @@ function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, onApr
 
   const pendentes = advertencias.filter((a) => a.estado === "pendente");
   const aprovadas = advertencias.filter((a) => a.estado !== "pendente");
+
+  const imprimirAdvertencias = () => imprimirElemento(`Advertências — ${membro.nome}`, documentoRef.current);
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -1076,6 +1207,15 @@ function ModalAdvertencias({ membro, advertencias, onAdicionar, onRemover, onApr
           <p className="text-sm text-slate-400 dark:text-slate-500 mb-4">Sem advertências aprovadas. 🎉</p>
         ) : (
           <div className="space-y-2 mb-4">
+            <button
+              onClick={imprimirAdvertencias}
+              className="w-full flex items-center justify-center gap-2 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-700 dark:text-slate-200 font-semibold py-2 rounded-lg text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
+            >
+              <FileText size={14} /> Imprimir advertências (PDF) — para assinar/mostrar ao membro
+            </button>
+            <div className="absolute -left-[9999px] top-0">
+              <DocumentoAdvertencias docRef={documentoRef} membro={membro} advertencias={aprovadas} dadosGinasio={dadosGinasio} />
+            </div>
             {aprovadas.map((a) => (
               <div key={a.id} className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800">
                 <div className="flex items-start justify-between gap-2">
@@ -1333,6 +1473,11 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                       {minhasAdvertencias.length > 0 && (
                         <span title={`${minhasAdvertencias.length} advertência(s)`} className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded-full">
                           <AlertTriangle size={10} /> {minhasAdvertencias.length}
+                        </span>
+                      )}
+                      {!m.taxaInscricaoPaga && Number(m.taxaInscricaoPendente) > 0 && (
+                        <span title={`Taxa de inscrição pendente: ${kz(m.taxaInscricaoPendente)}`} className="flex items-center gap-0.5 text-[10px] font-bold text-orange-700 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-1.5 py-0.5 rounded-full">
+                          Taxa pendente
                         </span>
                       )}
                     </span>
@@ -5100,6 +5245,11 @@ function AprovacaoPagamentos({ pendentes, onAprovar, onRejeitar }) {
                     <p><span className="text-slate-500 dark:text-slate-400">Submetido por:</span> {p.submetidoPor}</p>
                     <p><span className="text-slate-500 dark:text-slate-400">Data:</span> {p.data}</p>
                   </div>
+                  {p.incluiTaxaInscricao && (
+                    <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-full px-2.5 py-1 inline-block mt-2">
+                      Inclui taxa de inscrição de {kz(p.valorTaxaInscricao)}
+                    </p>
+                  )}
                   <div className="flex gap-2 mt-4">
                     <button
                       onClick={() => onAprovar(p)}
@@ -5731,6 +5881,24 @@ function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onA
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">Escreve o endereço do site acima para gerar este QR e o link.</p>
         )}
+      </Card>
+
+      <Card title={<span className="flex items-center gap-2"><UserIcon size={16} className="text-[#3F8F87]" /> Taxa de inscrição (auto-inscrição)</span>}>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+          Valor da taxa de inscrição (matrícula) cobrado a quem se torna membro sozinho pelo QR/link acima. Fica
+          pendente na conta da pessoa e é pago junto com a primeira mensalidade em "Pagar mensalidade", por
+          transferência — a receção aprova como qualquer outro pagamento. Deixa em branco ou 0 para não cobrar.
+        </p>
+        <div className="max-w-xs">
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
+          <input
+            type="number" min={0}
+            value={form.taxaInscricaoPadrao ?? ""}
+            onChange={(e) => { tocouNoFormulario.current = true; setForm({ ...form, taxaInscricaoPadrao: e.target.value }); }}
+            placeholder="0"
+            className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          />
+        </div>
       </Card>
 
       <Card title={<span className="flex items-center gap-2"><Building2 size={16} className="text-[#3F8F87]" /> Dados da empresa</span>}>
@@ -7862,7 +8030,7 @@ function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransf
 // ---------------------------------------------------------------------
 // PAGAR POR TRANSFERÊNCIA (self-service do membro, com comprovativo)
 // ---------------------------------------------------------------------
-function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }) {
+function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, valorTaxaInscricao = 0, onSubmeter }) {
   const contas = obterContasBancarias(dadosGinasio);
   const [contaEscolhidaId, setContaEscolhidaId] = useState(contas[0]?.id || null);
   const [comprovativo, setComprovativo] = useState(null);
@@ -7870,6 +8038,8 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }
   const [enviado, setEnviado] = useState(false);
 
   const contaEscolhida = contas.find((c) => c.id === contaEscolhidaId) || contas[0];
+  const incluiTaxaInscricao = Number(valorTaxaInscricao) > 0;
+  const valorTotal = (plano?.preco || 0) + (incluiTaxaInscricao ? Number(valorTaxaInscricao) : 0);
 
   const carregarComprovativo = (e) => {
     const ficheiro = e.target.files?.[0];
@@ -7885,11 +8055,13 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }
     if (!comprovativo || !contaEscolhida) return;
     onSubmeter({
       membro,
-      valor: plano?.preco || 0,
+      valor: valorTotal,
       destino: contaEscolhida.tipo === "iban" ? "iban" : "telefone",
       comprovativo,
       origem: "membro",
       planoNome: plano?.nome,
+      incluiTaxaInscricao,
+      valorTaxaInscricao: incluiTaxaInscricao ? Number(valorTaxaInscricao) : 0,
     });
     setEnviado(true);
     setComprovativo(null);
@@ -7946,7 +8118,13 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, onSubmeter }
         ) : (
           <p>Nº de telefone (Express): {contaEscolhida.telefone}</p>
         )}
-        <p className="mt-1 font-semibold text-slate-700 dark:text-slate-200">Valor a transferir: {kz(plano?.preco || 0)}</p>
+        {incluiTaxaInscricao && (
+          <>
+            <p className="mt-1">Mensalidade ({plano?.nome}): {kz(plano?.preco || 0)}</p>
+            <p>Taxa de inscrição: {kz(Number(valorTaxaInscricao))}</p>
+          </>
+        )}
+        <p className="mt-1 font-semibold text-slate-700 dark:text-slate-200">Valor a transferir: {kz(valorTotal)}</p>
       </div>
 
       <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-lg py-3 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700">
@@ -8116,6 +8294,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
   const [planoEscolhido, setPlanoEscolhido] = useState(null);
   const cartaoRef = useRef(null);
   const plano = planos.find((p) => p.nome === membro.plano);
+  const temTaxaInscricaoPendente = !membro.taxaInscricaoPaga && Number(membro.taxaInscricaoPendente) > 0;
   const minhasCompras = compras.filter((c) => c.membroId === membro.id);
   const hojeStr = new Date().toISOString().slice(0, 10);
   const entradaAbertaHoje = acessos?.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida) || null;
@@ -8266,6 +8445,16 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                 <p className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">{membro.plano} — {kz(plano?.preco || 0)}</p>
               </div>
 
+              {temTaxaInscricaoPendente && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-2xl p-4">
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Taxa de inscrição pendente</p>
+                  <p className="text-sm text-slate-700 dark:text-slate-200 mt-0.5">
+                    Tens uma taxa de matrícula de <strong>{kz(membro.taxaInscricaoPendente)}</strong> por pagar — é
+                    incluída automaticamente no valor abaixo, junto com a mensalidade.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Escolher plano / subscrição</p>
                 <div className="space-y-2">
@@ -8293,6 +8482,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                 membro={membro}
                 plano={planoEscolhido || plano}
                 dadosGinasio={dadosGinasio}
+                valorTaxaInscricao={temTaxaInscricaoPendente ? membro.taxaInscricaoPendente : 0}
                 onSubmeter={onSolicitarAprovacao}
               />
 
@@ -8638,7 +8828,7 @@ const MENU_TRAINER = [
 // ---------------------------------------------------------------------
 // TELA DE LOGIN
 // ---------------------------------------------------------------------
-function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, onRedefinirSenha, onAutoInscrever, abrirInscricaoDireta, escuro, setEscuro }) {
+function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, onRedefinirSenha, onAutoInscrever, abrirInscricaoDireta, escuro, setEscuro, avisoSessaoEncerrada }) {
   const existeAdmin = contas.some((c) => c.perfil === "administrador");
 
   const [email, setEmail] = useState("");
@@ -8704,11 +8894,22 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
 
   const submeterLogin = (e) => {
     e.preventDefault();
-    const conta = contas.find(
-      (c) => c.email.toLowerCase() === email.toLowerCase() && c.senha === senha
-    );
+    const valorDigitado = email.trim();
+    // Aceita entrar tanto com e-mail como com número de telefone. O telefone só
+    // existe no registo do membro (não na conta), por isso: se não parecer um
+    // e-mail, procura o membro com esse telefone e usa a conta ligada a ele.
+    let conta = contas.find((c) => c.email.toLowerCase() === valorDigitado.toLowerCase() && c.senha === senha);
     if (!conta) {
-      setErro("E-mail ou palavra-passe incorretos.");
+      const digitosDigitados = valorDigitado.replace(/\D/g, "");
+      if (digitosDigitados.length >= 6) {
+        const membroCorrespondente = membros.find((m) => (m.telefone || "").replace(/\D/g, "") === digitosDigitados);
+        if (membroCorrespondente) {
+          conta = contas.find((c) => c.perfil === "membro" && c.membroId === membroCorrespondente.id && c.senha === senha);
+        }
+      }
+    }
+    if (!conta) {
+      setErro("E-mail/telefone ou palavra-passe incorretos.");
       return;
     }
     if (conta.desativada) {
@@ -8739,9 +8940,19 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
 
   const pedirRecuperacao = (e) => {
     e.preventDefault();
-    const conta = contas.find((c) => c.email.toLowerCase() === emailRecuperar.toLowerCase());
+    const valorDigitado = emailRecuperar.trim();
+    let conta = contas.find((c) => c.email.toLowerCase() === valorDigitado.toLowerCase());
     if (!conta) {
-      setErroRecuperar("Não encontrámos nenhuma conta com este e-mail.");
+      const digitosDigitados = valorDigitado.replace(/\D/g, "");
+      if (digitosDigitados.length >= 6) {
+        const membroCorrespondente = membros.find((m) => (m.telefone || "").replace(/\D/g, "") === digitosDigitados);
+        if (membroCorrespondente) {
+          conta = contas.find((c) => c.perfil === "membro" && c.membroId === membroCorrespondente.id);
+        }
+      }
+    }
+    if (!conta) {
+      setErroRecuperar("Não encontrámos nenhuma conta com este e-mail/telefone.");
       return;
     }
     setErroRecuperar("");
@@ -8861,14 +9072,20 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_20px_40px_-16px_rgba(15,23,42,0.20)]">
+            {avisoSessaoEncerrada && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-lg px-3 py-2 mb-3">
+                A tua sessão foi terminada porque esta conta entrou noutro dispositivo. Só pode haver uma sessão
+                ativa de cada vez — entra novamente se foste tu.
+              </p>
+            )}
             <form onSubmit={submeterLogin} className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">E-mail</label>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">E-mail ou telefone</label>
                 <input
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="nome@catumbelagym.ao"
+                  placeholder="nome@catumbelagym.ao ou 923 000 000"
                   className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1] focus:border-[#5AAFA8]"
                 />
               </div>
@@ -8946,6 +9163,12 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
                   </select>
                 </div>
               )}
+              {Number(dadosGinasio?.taxaInscricaoPadrao) > 0 && (
+                <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-lg px-3 py-2">
+                  Esta inscrição tem uma taxa de matrícula de <strong>{kz(Number(dadosGinasio.taxaInscricaoPadrao))}</strong>,
+                  paga junto com a primeira mensalidade depois de entrares na tua área de membro.
+                </p>
+              )}
               {erroInscricao && <p className="text-xs text-red-500">{erroInscricao}</p>}
               <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] text-white font-semibold py-2.5 rounded-lg text-sm mt-2">
                 <UserIcon size={16} /> Criar conta e continuar
@@ -8965,9 +9188,9 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
             {etapaRecuperar === "email" && (
               <>
                 <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Recuperar palavra-passe</h3>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Indica o e-mail da tua conta.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Indica o e-mail ou telefone da tua conta.</p>
                 <form onSubmit={pedirRecuperacao} className="space-y-3">
-                  <input type="email" placeholder="nome@catumbelagym.ao" value={emailRecuperar} onChange={(e) => setEmailRecuperar(e.target.value)}
+                  <input type="text" placeholder="nome@catumbelagym.ao ou 923 000 000" value={emailRecuperar} onChange={(e) => setEmailRecuperar(e.target.value)}
                     className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
                   {erroRecuperar && <p className="text-xs text-red-500">{erroRecuperar}</p>}
                   <button className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg text-sm">
@@ -9112,6 +9335,11 @@ export default function CatumbelaGymApp() {
   const [autenticado, setAutenticado] = useLocalOnly("autenticado", false);
   const [perfil, setPerfil] = useLocalOnly("perfil", null);
   const [contaAtual, setContaAtual] = useLocalOnly("contaAtual", null);
+  // Identifica ESTE dispositivo/separador de forma única — usado para saber
+  // se a sessão aqui ainda é a "oficial" da conta ou se foi substituída por
+  // um login mais recente noutro aparelho (ver sessoesAtivas mais abaixo).
+  const [meuTokenSessao, setMeuTokenSessao] = useLocalOnly("meuTokenSessao", null);
+  const [avisoSessaoEncerrada, setAvisoSessaoEncerrada] = useState(false);
   const [tela, setTela] = useState("dashboard");
   const [escuro, setEscuro] = useState(false);
   const [notificacoesPushAtivas, setNotificacoesPushAtivas] = useLocalOnly("notificacoesPushAtivas", false);
@@ -9192,6 +9420,34 @@ export default function CatumbelaGymApp() {
       if (timeoutAtualizadoRef.current) clearTimeout(timeoutAtualizadoRef.current);
     };
   }, []);
+
+  // Um único registo por conta: qual foi o último "token" de sessão a
+  // entrar nessa conta. Sincronizado entre dispositivos — quando um
+  // dispositivo entra numa conta, escreve aqui o seu próprio token; todos
+  // os outros dispositivos com essa conta aberta veem a alteração em tempo
+  // real e, ao repararem que já não têm o token mais recente, terminam a
+  // sessão automaticamente (ver efeito logo a seguir). Garante uma sessão
+  // ativa de cada vez por conta, em qualquer dispositivo.
+  const [sessoesAtivas, setSessoesAtivas] = usePersistente("sessoesAtivas", {}, setStatusSync);
+
+  // UMA SESSÃO ATIVA POR CONTA: se, entretanto, outro dispositivo entrou
+  // nesta mesma conta (o que atualiza sessoesAtivas[contaAtual.id] com um
+  // token diferente do nosso), este dispositivo deixa de ser a sessão
+  // "oficial" — termina-a aqui e mostra um aviso, para nunca haver dois
+  // aparelhos a mexer na mesma conta ao mesmo tempo sem se saber.
+  useEffect(() => {
+    if (!autenticado || !contaAtual || !meuTokenSessao) return;
+    const tokenAtivo = sessoesAtivas?.[contaAtual.id]?.token;
+    if (tokenAtivo && tokenAtivo !== meuTokenSessao) {
+      setAutenticado(false);
+      setPerfil(null);
+      setContaAtual(null);
+      setTela("dashboard");
+      setAvisoSessaoEncerrada(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessoesAtivas, autenticado, contaAtual?.id, meuTokenSessao]);
+
   const [membros, setMembros] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
 
   // Corrige automaticamente o estado "ativo"/"vencido" com base na data real,
@@ -9360,6 +9616,9 @@ export default function CatumbelaGymApp() {
   const criarContaAdmin = ({ nome, email, senha }) => {
     const conta = { id: 1, nome, email, senha, perfil: "administrador" };
     setContas([conta]);
+    const token = gerarTokenSessao();
+    setMeuTokenSessao(token);
+    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: new Date().toISOString() } }));
     setPerfil("administrador");
     setContaAtual(conta);
     setTela("dashboard");
@@ -9367,6 +9626,13 @@ export default function CatumbelaGymApp() {
   };
 
   const entrarComConta = (conta) => {
+    // Regista esta sessão como a "oficial" da conta — se havia outro
+    // dispositivo aberto na mesma conta, ele deteta este novo token
+    // (sessoesAtivas sincroniza em tempo real) e termina a sessão dele.
+    const token = gerarTokenSessao();
+    setMeuTokenSessao(token);
+    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: new Date().toISOString() } }));
+    setAvisoSessaoEncerrada(false);
     setPerfil(conta.perfil);
     setContaAtual(conta);
     setTela(conta.perfil === "personal_trainer" ? "meus-alunos" : "dashboard");
@@ -9412,6 +9678,10 @@ export default function CatumbelaGymApp() {
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
     const novoIdMembro = Math.max(0, ...membros.map((m) => m.id)) + 1;
     const hojeStr = new Date().toISOString().slice(0, 10);
+    // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
+    // de inscrição definida em Configurações — fica pendente e é cobrada
+    // junto com a primeira mensalidade, em "Pagar mensalidade".
+    const taxaInscricaoPendente = Number(dadosGinasio?.taxaInscricaoPadrao) > 0 ? Number(dadosGinasio.taxaInscricaoPadrao) : 0;
     const membroNovo = {
       id: novoIdMembro,
       numero,
@@ -9426,11 +9696,13 @@ export default function CatumbelaGymApp() {
       estado: "sem-subscricao",
       assinaturaContrato: null,
       dataAssinaturaContrato: null,
+      taxaInscricaoPendente,
+      taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
     const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
-    registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}`);
+    registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
     entrarComConta(novaConta);
   };
 
@@ -9455,6 +9727,7 @@ export default function CatumbelaGymApp() {
           onRedefinirSenha={redefinirSenha}
           onAutoInscrever={autoInscrever}
           abrirInscricaoDireta={abrirInscricaoDireta}
+          avisoSessaoEncerrada={avisoSessaoEncerrada}
         />
       </>
     );
@@ -9801,11 +10074,20 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Reativou conta", conta?.nome);
   };
 
-  // ELIMINAR = apaga mesmo a conta — irreversível
+  // ELIMINAR = apaga mesmo a conta — irreversível. Tal como acontece ao
+  // eliminar um membro ou um custo, apaga também o rasto financeiro que
+  // este funcionário deixou no Caixa/Banco (movimentos e fechos de turno
+  // registados em nome dele) — senão ficavam lá valores "de ninguém" a
+  // contar para os saldos.
   const removerConta = (id) => {
     const conta = contas.find((c) => c.id === id);
     setContas(contas.filter((c) => c.id !== id));
-    registarAuditoria("Eliminou conta de acesso", conta?.nome);
+    if (conta) {
+      setMovimentosCaixa((atual) => atual.filter((m) => m.registadoPor !== conta.nome));
+      setMovimentosBancarios((atual) => atual.filter((m) => m.registadoPor !== conta.nome));
+      setFechosTurno((atual) => atual.filter((f) => f.nomeFuncionario !== conta.nome));
+    }
+    registarAuditoria("Eliminou conta de acesso e os movimentos financeiros ligados a ela", conta?.nome);
   };
 
   const finalizarVenda = ({ itens, total, metodo, membro, contaBancariaId }) => {
@@ -9959,7 +10241,7 @@ export default function CatumbelaGymApp() {
     return documento;
   };
 
-  const solicitarAprovacao = ({ membro, valor, destino, comprovativo, origem, planoNome }) => {
+  const solicitarAprovacao = ({ membro, valor, destino, comprovativo, origem, planoNome, incluiTaxaInscricao, valorTaxaInscricao }) => {
     // "origem" distingue se foi o próprio membro a submeter (self-service, sem ninguém
     // verificar antes) ou se foi um funcionário a registar em nome de alguém presencialmente
     // (nesse caso o funcionário já verificou o comprovativo pessoalmente).
@@ -9977,6 +10259,8 @@ export default function CatumbelaGymApp() {
       comprovativo,
       origem: origemFinal,
       planoNome: planoNome || membro?.plano,
+      incluiTaxaInscricao: !!incluiTaxaInscricao,
+      valorTaxaInscricao: incluiTaxaInscricao ? Number(valorTaxaInscricao) || 0 : 0,
       submetidoPor: nomeAtor,
       submetidoPorNome: contaAtual?.nome || membro?.nome || "—",
       data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
@@ -9984,7 +10268,7 @@ export default function CatumbelaGymApp() {
     adicionarPagamentoPendenteSeguro(novoPendente);
     registarAuditoria(
       `Submeteu transferência de ${kz(valor)} para aprovação`,
-      `Membro: ${membro.numero} · Via: ${destino === "iban" ? "IBAN" : "Telefone"} · Origem: ${nomeAtor}`
+      `Membro: ${membro.numero} · Via: ${destino === "iban" ? "IBAN" : "Telefone"} · Origem: ${nomeAtor}${incluiTaxaInscricao ? ` · Inclui taxa de inscrição: ${kz(Number(valorTaxaInscricao) || 0)}` : ""}`
     );
   };
 
@@ -9997,6 +10281,12 @@ export default function CatumbelaGymApp() {
     base.setDate(base.getDate() + (plano ? plano.duracaoDias : 30));
     const novoVencimento = dataLocalISO(base);
     const hojeStr = new Date().toISOString().slice(0, 10);
+    // Se este pagamento incluir a taxa de inscrição (típico de quem se
+    // inscreveu sozinho pelo QR/link), separa o valor: a mensalidade gera o
+    // recibo normal de "mensalidade", e a taxa gera o seu próprio recibo de
+    // "inscrição" — mantém a contabilidade (Resumo mensal) correta por tipo.
+    const valorTaxa = pendente.incluiTaxaInscricao ? Number(pendente.valorTaxaInscricao) || 0 : 0;
+    const valorMensalidade = pendente.valor - valorTaxa;
     // Gera o recibo pela mesma via central de todo o sistema — numeração
     // partilhada, entra no histórico, e conta no Caixa/Banco certo consoante
     // o método (aqui é sempre transferência, por isso vai para o Banco).
@@ -10006,13 +10296,24 @@ export default function CatumbelaGymApp() {
       itens: [{
         referencia: `PLANO-${(pendente.planoNome || pendente.membro.plano).toUpperCase()}`,
         descricao: `Plano ${pendente.planoNome || pendente.membro.plano} (transferência aprovada)`,
-        qtd: 1, precoUnit: pendente.valor, total: pendente.valor,
+        qtd: 1, precoUnit: valorMensalidade, total: valorMensalidade,
       }],
-      valor: pendente.valor,
+      valor: valorMensalidade,
       metodo: "transferencia",
       tipoReceita: "mensalidade",
       planoNome: pendente.planoNome || pendente.membro.plano,
     });
+    let documentoTaxa = null;
+    if (valorTaxa > 0) {
+      documentoTaxa = gerarDocumentoFaturacao({
+        tipo: "RECIBO",
+        membro: pendente.membro,
+        itens: [{ referencia: "TAXA-INSCRICAO", descricao: "Taxa de inscrição (transferência aprovada)", qtd: 1, precoUnit: valorTaxa, total: valorTaxa }],
+        valor: valorTaxa,
+        metodo: "transferencia",
+        tipoReceita: "inscricao",
+      });
+    }
     setMembros((atual) =>
       atual.map((m) => {
         if (m.id !== pendente.membro.id) return m;
@@ -10024,12 +10325,13 @@ export default function CatumbelaGymApp() {
           plano: pendente.planoNome || m.plano,
           estado: novoVencimento < hojeStr ? "vencido" : "ativo",
           vencimento: novoVencimento,
+          ...(valorTaxa > 0 ? { taxaInscricaoPaga: true, taxaInscricaoPendente: 0 } : {}),
         };
       })
     );
     registarAuditoria(
       `Aprovou transferência de ${kz(pendente.valor)}`,
-      `Membro: ${pendente.membro.numero} · Submetido por: ${pendente.submetidoPor} · Recibo ${documento.numero} · Comprovativo verificado`
+      `Membro: ${pendente.membro.numero} · Submetido por: ${pendente.submetidoPor} · Recibo ${documento.numero}${documentoTaxa ? ` · Recibo de inscrição ${documentoTaxa.numero}` : ""} · Comprovativo verificado`
     );
   };
 
