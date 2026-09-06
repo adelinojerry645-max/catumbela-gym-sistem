@@ -692,6 +692,64 @@ function StatCard({ icon: Icon, label, value, sub, tone }) {
 // de navegar com muitos membros, mostra um campo de texto que filtra a
 // lista em tempo real, com o membro escolhido a ficar bem visível.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// SELETOR DE DATA POR DIA/MÊS/ANO — em vez do <input type="date"> nativo
+// do browser, que em alguns telemóveis (sobretudo Safari/iOS) mostra
+// comportamentos inconsistentes quando outro campo perto muda ao mesmo
+// tempo (ex.: uma checkbox), fazendo a data "saltar" de volta para hoje.
+// Estes três seletores são geridos inteiramente pelo React, sem depender
+// de nenhum calendário nativo — nunca têm esse problema.
+// ---------------------------------------------------------------------
+function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4, anosAFrente = 1 }) {
+  const hoje = new Date();
+  const temValor = !!valor;
+  const [ano, mes, dia] = valor ? valor.split("-").map(Number) : [hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate()];
+
+  const mudar = (novoDia, novoMes, novoAno) => {
+    const diasNoMes = new Date(novoAno, novoMes, 0).getDate();
+    const diaValido = Math.min(novoDia, diasNoMes);
+    const dataFormatada = `${novoAno}-${String(novoMes).padStart(2, "0")}-${String(diaValido).padStart(2, "0")}`;
+    onMudar(dataFormatada);
+  };
+
+  const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const diasNoMesAtual = new Date(ano, mes, 0).getDate();
+
+  if (opcional && !temValor) {
+    return (
+      <button
+        type="button"
+        onClick={() => onMudar(new Date().toISOString().slice(0, 10))}
+        className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 text-xs text-left"
+      >
+        Deixa em branco (toca para definir uma data)
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <select value={dia} onChange={(e) => mudar(Number(e.target.value), mes, ano)}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {Array.from({ length: diasNoMesAtual }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <select value={mes} onChange={(e) => mudar(dia, Number(e.target.value), ano)}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {nomesMeses.map((nome, i) => <option key={i} value={i + 1}>{nome}</option>)}
+      </select>
+      <select value={ano} onChange={(e) => mudar(dia, mes, Number(e.target.value))}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {Array.from({ length: anosAtras + anosAFrente + 1 }, (_, i) => hoje.getFullYear() - anosAtras + i).map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+      {opcional && (
+        <button type="button" onClick={() => onMudar(null)} className="text-[11px] text-red-500 underline decoration-dotted">
+          Limpar
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SeletorMembroPesquisavel({ membros, valor, onEscolher, placeholder = "Pesquisar atleta por nome ou número..." }) {
   const [pesquisa, setPesquisa] = useState("");
   const [aberto, setAberto] = useState(false);
@@ -1426,13 +1484,6 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
       .catch(() => alert("Não foi possível processar esta imagem. Tenta outra."));
   };
 
-  const calcularVencimento = (dataBase, nomePlano) => {
-    const plano = planos.find((p) => p.nome === nomePlano);
-    const d = new Date((dataBase || new Date().toISOString().slice(0, 10)) + "T00:00:00");
-    d.setDate(d.getDate() + (plano ? plano.duracaoDias : 30));
-    return dataLocalISO(d);
-  };
-
   const abrirNovo = () => {
     setEditandoId(null);
     const hoje = new Date().toISOString().slice(0, 10);
@@ -1639,8 +1690,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Data de nascimento (opcional)</label>
-                <input type="date" value={novo.dataNascimento} onChange={(e) => setNovo({ ...novo, dataNascimento: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <div className="mt-1">
+                  <SeletorDataDiaMesAno valor={novo.dataNascimento} onMudar={(novaData) => setNovo({ ...novo, dataNascimento: novaData })} opcional anosAtras={90} anosAFrente={0} />
+                </div>
               </div>
               {editandoId ? (
                 <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
@@ -1666,37 +1718,17 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
               {perfil === "administrador" && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2">
-                  Data de inscrição real (se te esqueceste de registar no dia certo) e, se aplicável, o plano e o
-                  vencimento de quem já vinha com uma subscrição paga de antes. <strong>Preencher isto aqui não gera
-                  recibo nem conta como receita</strong> — é só para refletires o estado real de um atleta que já
-                  pagava antes de começares a usar o sistema. Só o administrador vê este bloco.
+                  Data de inscrição real (se te esqueceste de registar no dia certo). Para atletas que já vinham com
+                  uma subscrição paga de antes de começares a usar o sistema, ativa isso depois em <strong>Subscrições</strong> —
+                  escolhe o plano, muda a data de início para quando ele começou de verdade (mesmo que seja um dia já
+                  passado), e marca "Não gerar recibo agora" para não contar esse dinheiro como receita nova.
                 </p>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data de inscrição</label>
-                    <input
-                      type="date"
-                      value={novo.dataInscricao}
-                      onChange={(e) => setNovo((n) => ({ ...n, dataInscricao: e.target.value, vencimento: n.vencimento ? calcularVencimento(e.target.value, n.plano) : n.vencimento }))}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Vencimento (opcional)</label>
-                    <input type="date" value={novo.vencimento} onChange={(e) => setNovo({ ...novo, vencimento: e.target.value })}
-                      placeholder="Deixa em branco"
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data de inscrição</label>
+                  <div className="mt-1">
+                    <SeletorDataDiaMesAno valor={novo.dataInscricao} onMudar={(novaData) => setNovo((n) => ({ ...n, dataInscricao: novaData }))} />
                   </div>
                 </div>
-                {novo.vencimento && (
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Plano que já tinha</label>
-                    <select value={novo.plano} onChange={(e) => setNovo({ ...novo, plano: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
-                      <option value="">Selecionar plano...</option>
-                      {planos.map((p) => <option key={p.nome} value={p.nome}>{p.nome}</option>)}
-                    </select>
-                  </div>
-                )}
               </div>
               )}
 
@@ -4365,8 +4397,9 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Última manutenção</label>
-                <input type="date" value={novo.dataUltimaManutencao} onChange={(e) => setNovo({ ...novo, dataUltimaManutencao: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+                <div className="mt-1">
+                  <SeletorDataDiaMesAno valor={novo.dataUltimaManutencao} onMudar={(novaData) => setNovo({ ...novo, dataUltimaManutencao: novaData })} anosAtras={2} />
+                </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">A cada quantos dias</label>
@@ -4694,14 +4727,9 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                         <td colSpan={6} className="py-3 px-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
                             <label className="text-slate-500 dark:text-slate-400 font-medium">Data de início do novo período:</label>
-                            <input
-                              type="date"
-                              value={dataInicio}
-                              onChange={(e) => setDataInicio(e.target.value)}
-                              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
-                            />
+                            <SeletorDataDiaMesAno valor={dataInicio} onMudar={setDataInicio} />
                             <span className="text-slate-400 dark:text-slate-500">
-                              Se pagou hoje mas o plano só começa noutro dia, muda esta data.
+                              Se pagou hoje mas o plano só começa noutro dia (inclusive dias já passados), muda esta data.
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs">
