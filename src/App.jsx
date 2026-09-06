@@ -687,6 +687,65 @@ function StatCard({ icon: Icon, label, value, sub, tone }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// SELETOR DE MEMBRO PESQUISÁVEL — em vez de um <select> gigante e difícil
+// de navegar com muitos membros, mostra um campo de texto que filtra a
+// lista em tempo real, com o membro escolhido a ficar bem visível.
+// ---------------------------------------------------------------------
+function SeletorMembroPesquisavel({ membros, valor, onEscolher, placeholder = "Pesquisar atleta por nome ou número..." }) {
+  const [pesquisa, setPesquisa] = useState("");
+  const [aberto, setAberto] = useState(false);
+  const membroEscolhido = membros.find((m) => m.id === Number(valor));
+
+  const filtrados = useMemo(() => {
+    const q = pesquisa.trim().toLowerCase();
+    if (!q) return membros.slice(0, 20);
+    return membros.filter((m) => m.nome.toLowerCase().includes(q) || m.numero.toLowerCase().includes(q)).slice(0, 20);
+  }, [membros, pesquisa]);
+
+  if (membroEscolhido && !aberto) {
+    return (
+      <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900">
+        <span className="text-sm text-slate-900 dark:text-white">{membroEscolhido.nome} <span className="text-slate-400">· {membroEscolhido.numero}</span></span>
+        <button type="button" onClick={() => { onEscolher(""); setPesquisa(""); setAberto(true); }} className="text-xs font-semibold text-[#3F8F87]">Trocar</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+        <input
+          value={pesquisa}
+          onChange={(e) => setPesquisa(e.target.value)}
+          onFocus={() => setAberto(true)}
+          placeholder={placeholder}
+          className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+        />
+      </div>
+      {aberto && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-600 rounded-lg shadow-lg">
+          {filtrados.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-slate-400">Nenhum atleta encontrado.</p>
+          ) : (
+            filtrados.map((m) => (
+              <button
+                type="button"
+                key={m.id}
+                onClick={() => { onEscolher(String(m.id)); setPesquisa(""); setAberto(false); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white"
+              >
+                {m.nome} <span className="text-slate-400">· {m.numero}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Card({ title, action, children, className = "" }) {
   return (
     <div className={`bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_6px_16px_-8px_rgba(15,23,42,0.10)] ${className}`}>
@@ -1344,7 +1403,7 @@ function CanvasAssinatura({ onAssinar }) {
 
 const TEXTO_TERMO_RESPONSABILIDADE = `Declaro que estou em condições físicas adequadas para a prática de exercício físico neste ginásio, e que participo nas atividades por minha conta e risco. Comprometo-me a seguir as regras e normas de funcionamento do espaço, e a informar a equipa técnica de qualquer condição de saúde relevante antes de iniciar os treinos.`;
 
-function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
+function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAlternarSuspensao, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -1509,6 +1568,17 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                       <button onClick={() => abrirEdicao(m)} title="Editar" className="text-slate-400 hover:text-[#3F8F87]">
                         <Pencil size={15} />
                       </button>
+                      {m.estado !== "cancelado" && (
+                        m.estado === "suspenso" ? (
+                          <button onClick={() => onAlternarSuspensao(m.id)} title="Reativar (volta ao estado do vencimento)" className="text-blue-500 hover:text-blue-700">
+                            <ToggleRight size={16} />
+                          </button>
+                        ) : (
+                          <button onClick={() => onAlternarSuspensao(m.id)} title="Marcar como inativo/suspenso" className="text-slate-400 hover:text-amber-600">
+                            <ToggleLeft size={16} />
+                          </button>
+                        )
+                      )}
                       {m.estado === "cancelado" ? (
                         <button onClick={() => onReativar(m.id)} title="Reativar membro" className="text-blue-500 hover:text-blue-700">
                           <PlayCircle size={15} />
@@ -2087,6 +2157,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   const [leitorAberto, setLeitorAberto] = useState(false);
   const [erroLeitor, setErroLeitor] = useState("");
   const [naoEncontrado, setNaoEncontrado] = useState("");
+  const [pesquisaProduto, setPesquisaProduto] = useState("");
   const docRef = useRef(null);
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
@@ -2187,13 +2258,27 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       {/* Produtos */}
       <div className="lg:col-span-2">
-        <div className="flex justify-end mb-3">
-          <button onClick={abrirLeitor} className="flex items-center gap-1.5 text-sm font-semibold text-[#3F8F87] ring-1 ring-[#8FC9C3] rounded-lg px-3 py-2 hover:bg-[#EAF5F4] dark:hover:bg-slate-700">
-            <ScanLine size={16} /> Ler código de barras
+        <div className="flex items-center gap-2 mb-3">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <input
+              value={pesquisaProduto}
+              onChange={(e) => setPesquisaProduto(e.target.value)}
+              placeholder="Pesquisar produto por nome ou código..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <button onClick={abrirLeitor} className="flex items-center gap-1.5 text-sm font-semibold text-[#3F8F87] ring-1 ring-[#8FC9C3] rounded-lg px-3 py-2 hover:bg-[#EAF5F4] dark:hover:bg-slate-700 shrink-0">
+            <ScanLine size={16} /> Ler código
           </button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {produtos.map((p) => (
+          {produtos
+            .filter((p) => {
+              const q = pesquisaProduto.trim().toLowerCase();
+              return !q || p.nome.toLowerCase().includes(q) || p.codigo.toLowerCase().includes(q);
+            })
+            .map((p) => (
             <button
               key={p.id}
               onClick={() => adicionar(p)}
@@ -2238,11 +2323,14 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
 
             <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Membro (opcional)</label>
-              <select value={membroId} onChange={(e) => setMembroId(e.target.value)}
-                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
-                <option value="">Cliente sem cadastro</option>
-                {membros.map((m) => <option key={m.id} value={m.id}>{m.nome} — {m.numero}</option>)}
-              </select>
+              <div className="mt-1">
+                <SeletorMembroPesquisavel
+                  membros={membros}
+                  valor={membroId}
+                  onEscolher={(id) => setMembroId(id)}
+                  placeholder="Pesquisar cliente (opcional)..."
+                />
+              </div>
             </div>
 
             <div>
@@ -4477,6 +4565,13 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   const [semPagamentoAgora, setSemPagamentoAgora] = useState(false);
   const [ultimoRecibo, setUltimoRecibo] = useState(null);
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
+  const [pesquisa, setPesquisa] = useState("");
+
+  const membrosFiltrados = useMemo(() => {
+    const q = pesquisa.trim().toLowerCase();
+    if (!q) return membros;
+    return membros.filter((m) => m.nome.toLowerCase().includes(q) || m.numero.toLowerCase().includes(q));
+  }, [membros, pesquisa]);
 
   const abrirEdicao = (membro) => {
     setEditandoId(membro.id);
@@ -4510,6 +4605,15 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   return (
     <div className="space-y-4">
       <Card title={<span className="flex items-center gap-2"><ClipboardList size={16} className="text-[#3F8F87]" /> Subscrições ativas</span>}>
+        <div className="relative mb-4">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          <input
+            value={pesquisa}
+            onChange={(e) => setPesquisa(e.target.value)}
+            placeholder="Pesquisar por nome ou número..."
+            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -4523,7 +4627,10 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-              {membros.map((m) => {
+              {membrosFiltrados.length === 0 && (
+                <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">Nenhum membro encontrado.</td></tr>
+              )}
+              {membrosFiltrados.map((m) => {
                 const plano = planos.find((p) => p.nome === m.plano);
                 const dias = diasRestantes(m.vencimento);
                 const aEditar = editandoId === m.id;
@@ -4913,11 +5020,13 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 
             <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Membro / Cliente</label>
-              <select value={membroId} onChange={(e) => { setMembroId(e.target.value); setItensSelecionados([]); }}
-                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
-                <option value="">Selecionar membro...</option>
-                {membros.map((m) => <option key={m.id} value={m.id}>{m.nome} — {m.numero}</option>)}
-              </select>
+              <div className="mt-1">
+                <SeletorMembroPesquisavel
+                  membros={membros}
+                  valor={membroId}
+                  onEscolher={(id) => { setMembroId(id); setItensSelecionados([]); }}
+                />
+              </div>
             </div>
 
             {membro && (
@@ -6251,7 +6360,7 @@ function Auditoria({ registos }) {
             <div key={i} className="py-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.utilizador}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{r.hora}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">{r.data ? `${r.data} · ${r.hora}` : r.hora}</p>
               </div>
               <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{r.acao}</p>
               {r.detalhe && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{r.detalhe}</p>}
@@ -9592,8 +9701,9 @@ export default function CatumbelaGymApp() {
 
   const registarAuditoria = (acao, detalhe) => {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
+    const agora = new Date();
     setAuditLog((atual) => [
-      { utilizador: nomeAtor, acao, detalhe, hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { utilizador: nomeAtor, acao, detalhe, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
   };
@@ -9933,6 +10043,31 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Reativou membro cancelado", membro.nome);
   };
 
+  // Suspender/reativar manualmente — diferente de "Cancelar" (que é mais
+  // permanente e serve para quem sai mesmo do ginásio). Isto é para o
+  // administrador marcar um atleta como inativo pontualmente (ex.: pediu
+  // para não ser cobrado por uns tempos), sem mexer no vencimento nem no
+  // plano — ao reativar, volta exatamente ao estado que o vencimento dele
+  // já diria (ativo/vencido), sem precisar de o admin adivinhar qual era.
+  const alternarSuspensao = (id) => {
+    const membro = membros.find((m) => m.id === id);
+    if (!membro) return;
+    const aSuspender = membro.estado !== "suspenso";
+    setMembros((atual) =>
+      atual.map((m) => {
+        if (m.id !== id) return m;
+        if (aSuspender) {
+          return { ...m, estadoAntesSuspender: m.estado, estado: "suspenso" };
+        }
+        const hojeStr = new Date().toISOString().slice(0, 10);
+        const { estadoAntesSuspender, ...resto } = m;
+        const estadoRestaurado = !m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo";
+        return { ...resto, estado: estadoRestaurado };
+      })
+    );
+    registarAuditoria(aSuspender ? "Suspendeu membro manualmente" : "Reativou membro suspenso", membro.nome);
+  };
+
   // Só o administrador emite uma advertência já "aprovada" (visível de
   // imediato para o atleta). Quando é a recepção a registar, a advertência
   // fica "pendente" — só o administrador consegue aprová-la (ou rejeitá-la)
@@ -10219,7 +10354,34 @@ export default function CatumbelaGymApp() {
     setPagamentosFeitos((atual) => atual.filter((p) => p.numero !== numero));
     setMovimentosCaixa((atual) => atual.filter((m) => m.origemNumero !== numero));
     setMovimentosBancarios((atual) => atual.filter((m) => m.origemNumero !== numero));
-    registarAuditoria("Eliminou documento e desfez os seus efeitos financeiros", `${numero} — ${doc?.membro?.nome || "—"}`);
+    // Se este recibo foi o que estendeu a subscrição de algum membro (seja
+    // por Subscrições ou diretamente por Faturação), a eliminação tem de
+    // desfazer essa extensão também — senão o membro fica "Ativo" com um
+    // vencimento que já não corresponde a nenhum pagamento real. Sem isto,
+    // eliminar um recibo por engano deixava o atleta ativo para sempre.
+    // Repara: mesmo que "vencimentoAnterior" seja vazio (era a PRIMEIRA
+    // subscrição de sempre do atleta), continua a ser preciso reverter — o
+    // atleta deve voltar a "sem subscrição", não ficar ativo às escuras.
+    const membroAfetado = membros.find((m) => m.ultimoReciboNumero === numero);
+    if (membroAfetado) {
+      setMembros((atual) =>
+        atual.map((m) => {
+          if (m.id !== membroAfetado.id) return m;
+          const hojeStr = new Date().toISOString().slice(0, 10);
+          const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
+          const novoVencimento = vencimentoAnterior || null;
+          const novoPlano = planoAnterior || null;
+          const novoEstado = !novoVencimento ? "sem-subscricao" : novoVencimento < hojeStr ? "vencido" : "ativo";
+          return { ...resto, plano: novoPlano, vencimento: novoVencimento, estado: novoEstado };
+        })
+      );
+      registarAuditoria(
+        "Eliminou documento e reverteu a subscrição do atleta",
+        `${numero} — ${membroAfetado.nome} volta a ${membroAfetado.vencimentoAnterior ? `vencer em ${membroAfetado.vencimentoAnterior}` : "sem subscrição"}`
+      );
+    } else {
+      registarAuditoria("Eliminou documento e desfez os seus efeitos financeiros", `${numero} — ${doc?.membro?.nome || "—"}`);
+    }
   };
 
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
@@ -10450,24 +10612,28 @@ export default function CatumbelaGymApp() {
   const cancelarRenovacao = (membroId) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro || !membro.vencimentoAnterior) return;
-    // Se esta alteração gerou um recibo, desfaz-o também (receita, Caixa/Banco) —
-    // senão o "cancelar" só corrigia o membro e deixava o dinheiro a contar à mesma.
+    // Se esta alteração gerou um recibo, eliminá-lo já trata de reverter o
+    // membro também (eliminarFatura agora faz isso sozinho, para o mesmo
+    // acontecer seja qual for o sítio de onde se elimina um recibo). Só
+    // precisamos de reverter o membro manualmente aqui se NÃO houve recibo
+    // nenhum (ex.: alteração feita com "sem pagamento agora").
     if (membro.ultimoReciboNumero) {
       eliminarFatura(membro.ultimoReciboNumero);
+    } else {
+      setMembros((atual) =>
+        atual.map((m) => {
+          if (m.id !== membroId) return m;
+          const hojeStr = new Date().toISOString().slice(0, 10);
+          const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
+          return {
+            ...resto,
+            plano: planoAnterior || m.plano,
+            vencimento: vencimentoAnterior,
+            estado: vencimentoAnterior < hojeStr ? "vencido" : "ativo",
+          };
+        })
+      );
     }
-    setMembros((atual) =>
-      atual.map((m) => {
-        if (m.id !== membroId) return m;
-        const hojeStr = new Date().toISOString().slice(0, 10);
-        const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
-        return {
-          ...resto,
-          plano: planoAnterior || m.plano,
-          vencimento: vencimentoAnterior,
-          estado: vencimentoAnterior < hojeStr ? "vencido" : "ativo",
-        };
-      })
-    );
     registarAuditoria("Cancelou última alteração de subscrição (e o recibo associado, se houve)", membro.nome);
   };
 
@@ -11212,6 +11378,7 @@ export default function CatumbelaGymApp() {
               onRemove={removerMembro}
               onCancelar={cancelarMembro}
               onReativar={reativarMembro}
+              onAlternarSuspensao={alternarSuspensao}
               onAdicionarAdvertencia={adicionarAdvertencia}
               onRemoverAdvertencia={removerAdvertencia}
               onAprovarAdvertencia={aprovarAdvertencia}
