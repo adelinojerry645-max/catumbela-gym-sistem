@@ -7,7 +7,7 @@ import {
   Sun, Moon, MessageCircle, Phone, Trash2, Camera, FileText, Dumbbell,
   ShieldCheck, KeyRound, Menu, Save, LogIn, DoorClosed, Wallet as WalletIcon,
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
-  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target,
+  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
 } from "lucide-react";
 import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
@@ -141,114 +141,167 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
   const total = itens.reduce((s, i) => s + i.total, 0);
   const rotuloMetodo = { dinheiro: "Numerário", tpa: "TPA", express: "MULTICAIXA Express", referencia: "Referência", transferencia: "Transferência Bancária" };
   const contasBancarias = obterContasBancarias(dadosGinasio || {});
-  const rotuloNatureza = tipo === "FATURA" ? "Factura" : tipo === "FATURA PROFORMA" ? "Factura Proforma" : "Recibo";
+  const rotuloNatureza = tipo === "FATURA" ? "Factura" : tipo === "FATURA PROFORMA" ? "Factura Proforma" : "Factura Recibo";
 
   return (
     <div
       ref={docRef}
-      className="bg-white text-slate-800 p-8"
-      style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", width: "210mm", minHeight: "297mm", boxSizing: "border-box" }}
+      className="bg-white text-slate-900"
+      style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", width: "210mm", minHeight: "297mm", boxSizing: "border-box", padding: "14mm" }}
     >
-      {/* Cabeçalho: logótipo + dados do ginásio à esquerda, identificação do documento à direita */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <img
-            src={dadosGinasio.logo || LOGO_BASE64}
-            alt={dadosGinasio.nome}
-            className="object-contain mb-2"
-            style={{ height: "50px", width: "auto", maxWidth: "160px", objectFit: "contain" }}
-          />
-          <p className="font-bold text-sm mt-1">{dadosGinasio.nome}</p>
-          {dadosGinasio.morada && <p>{dadosGinasio.morada}</p>}
-          {dadosGinasio.cidade && <p>{dadosGinasio.cidade}</p>}
-          <p>Angola</p>
-          {dadosGinasio.nif && <p className="text-[10px] mt-0.5">Nr. Contribuinte: {dadosGinasio.nif}</p>}
-        </div>
+      {/* Cabeçalho: logótipo grande à esquerda, identificação do documento à direita */}
+      <div className="flex items-start justify-between mb-5">
+        <img
+          src={dadosGinasio.logo || LOGO_BASE64}
+          alt={dadosGinasio.nome}
+          style={{ height: "80px", width: "auto", maxWidth: "220px", objectFit: "contain" }}
+        />
         <div className="text-right">
-          <p className="text-base font-semibold">{rotuloNatureza} Nº: {numero}</p>
-          <p className="text-[10px] mt-1">Natureza:: {rotuloNatureza}</p>
+          <p style={{ fontSize: "17px", fontWeight: 700 }}>{rotuloNatureza} Nº: {numero}</p>
+          <p className="text-[11px] mt-1">Natureza: {rotuloNatureza}</p>
+          <p className="text-[11px]">ORIGINAL</p>
         </div>
       </div>
 
-      {/* Cliente — bloco à direita, como numa fatura formal */}
-      <div className="flex justify-end mb-5">
+      {/* Empresa (esquerda) e Cliente (direita) lado a lado */}
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <p style={{ fontWeight: 700, fontSize: "13px" }}>{dadosGinasio.nome?.toUpperCase()}</p>
+          {dadosGinasio.morada && <p className="text-[11px]">{dadosGinasio.morada}</p>}
+          {dadosGinasio.cidade && <p className="text-[11px]">{dadosGinasio.cidade}</p>}
+          <p className="text-[11px]">Angola</p>
+          {dadosGinasio.nif && <p className="text-[11px] mt-1">Nº Contribuinte: {dadosGinasio.nif}</p>}
+          {dadosGinasio.telefone && <p className="text-[11px]">Telefone: {dadosGinasio.telefone}</p>}
+          {dadosGinasio.email && <p className="text-[11px]">Email: {dadosGinasio.email}</p>}
+        </div>
         <div className="text-right">
-          <p className="font-semibold text-[10px]">Exmo(s) Senhor(es)</p>
-          <p className="font-bold text-sm">{cliente.nome}</p>
-          {cliente.telefone && <p>{cliente.telefone}</p>}
-          <p>Angola</p>
+          <p className="text-[11px]" style={{ fontWeight: 600 }}>Exmo(s) Senhor(es)</p>
+          <p style={{ fontWeight: 700, fontSize: "13px" }}>{cliente.nome}</p>
+          {cliente.telefone && <p className="text-[11px]">{cliente.telefone}</p>}
+          <p className="text-[11px]">Angola</p>
         </div>
       </div>
 
       {/* Barra de metadados */}
-      <table className="w-full border-collapse mb-3 text-[10px]">
+      <table className="w-full border-collapse mb-3" style={{ fontSize: "10px" }}>
         <thead>
-          <tr className="border-b border-t border-slate-800">
-            <th className="text-left py-1.5 pr-2 font-semibold">V/Nº</th>
-            <th className="text-left py-1.5 pr-2 font-semibold">CLIENTE</th>
-            <th className="text-left py-1.5 pr-2 font-semibold">CONDIÇÃO DE PAGAMENTO</th>
-            <th className="text-left py-1.5 pr-2 font-semibold">DATA EMISSÃO</th>
-            <th className="text-left py-1.5 font-semibold">PÁG.</th>
+          <tr style={{ borderTop: "2px solid #0f172a", borderBottom: "1px solid #0f172a" }}>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>V/Nº CONTRIB.</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>CLIENTE V/REFª</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>VEND.</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>CONDIÇÃO DE PAGAMENTO</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>DATA EMISSÃO</th>
+            <th className="text-left py-1.5" style={{ fontWeight: 700 }}>PÁG.</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td className="py-1.5 pr-2">{cliente.numero}</td>
             <td className="py-1.5 pr-2">{cliente.numero}</td>
+            <td className="py-1.5 pr-2">1</td>
             <td className="py-1.5 pr-2">{metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}</td>
-            <td className="py-1.5 pr-2">{data}{hora ? ` ${hora}` : ""}</td>
+            <td className="py-1.5 pr-2">{data}</td>
             <td className="py-1.5">1 / 1</td>
           </tr>
         </tbody>
       </table>
 
       {/* Tabela de itens */}
-      <table className="w-full border-collapse mb-3 text-[10px]">
+      <table className="w-full border-collapse mb-1" style={{ fontSize: "10px" }}>
         <thead>
-          <tr className="border-b border-t-2 border-slate-800">
-            <th className="text-left py-1.5 pr-2">REFERÊNCIA</th>
-            <th className="text-left py-1.5 pr-2">DESCRIÇÃO</th>
-            <th className="text-right py-1.5 pr-2">QTD.</th>
-            <th className="text-right py-1.5 pr-2">P.UNIT</th>
-            <th className="text-right py-1.5">TOTAL</th>
+          <tr style={{ borderTop: "2px solid #0f172a", borderBottom: "1px solid #0f172a" }}>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>REFERÊNCIA</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>DESCRIÇÃO</th>
+            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>QTD.</th>
+            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>UNI.</th>
+            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>P.UNIT (S/IMP.)</th>
+            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>DESC (%)</th>
+            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>IVA (%)</th>
+            <th className="text-right py-1.5" style={{ fontWeight: 700 }}>TOTAL</th>
           </tr>
         </thead>
         <tbody>
           {itens.map((i, idx) => (
-            <tr key={idx} className="border-b border-slate-200">
+            <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
               <td className="py-1.5 pr-2">{i.referencia}</td>
               <td className="py-1.5 pr-2">{i.descricao}</td>
-              <td className="py-1.5 pr-2 text-right">{i.qtd}</td>
+              <td className="py-1.5 pr-2 text-right">{i.qtd.toFixed(2)}</td>
+              <td className="py-1.5 pr-2">UND</td>
               <td className="py-1.5 pr-2 text-right">{kz(i.precoUnit)}</td>
+              <td className="py-1.5 pr-2 text-right">0,00%</td>
+              <td className="py-1.5 pr-2 text-right">0,00</td>
               <td className="py-1.5 text-right">{kz(i.total)}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Resumo */}
-      <div className="flex justify-end mb-3">
-        <div className="w-64 text-[10px]">
-          <div className="flex justify-between py-1"><span>MERCADORIAS/SERVIÇOS</span><span>{kz(total)}</span></div>
-          <div className="flex justify-between py-1"><span>DESCONTO</span><span>0,00 Kz</span></div>
-          <div className="flex justify-between py-2 font-bold text-sm border-t-2 border-slate-800 mt-1 pt-2">
-            <span>TOTAL DO DOCUMENTO</span><span>{kz(total)}</span>
+      <p className="text-[9px] text-slate-500 mb-4">
+        Processado por programa informático · IVA Regime de não sujeição
+      </p>
+
+      {/* Resumo de impostos (esquerda) e totais (direita), lado a lado */}
+      <div className="flex justify-between items-start gap-8 mb-3">
+        <div className="flex-1">
+          <p style={{ fontWeight: 700, fontSize: "10px" }} className="mb-1">RESUMO DE IMPOSTOS</p>
+          <table className="w-full border-collapse" style={{ fontSize: "9.5px" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #0f172a" }}>
+                <th className="text-left py-1 pr-1" style={{ fontWeight: 700 }}>DESIGNAÇÃO</th>
+                <th className="text-right py-1 pr-1" style={{ fontWeight: 700 }}>INCIDÊNCIA</th>
+                <th className="text-right py-1 pr-1" style={{ fontWeight: 700 }}>IMPOSTO</th>
+                <th className="text-left py-1" style={{ fontWeight: 700 }}>MOTIVO ISENÇÃO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="py-1 pr-1">NS Não Sujeito</td>
+                <td className="py-1 pr-1 text-right">{kz(total)}</td>
+                <td className="py-1 pr-1 text-right">0,00</td>
+                <td className="py-1">IVA-Regime de não sujeição</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p style={{ fontWeight: 700, fontSize: "10px" }} className="mt-4 mb-1">DETALHES PAGAMENTO</p>
+          <table className="w-full border-collapse" style={{ fontSize: "9.5px" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #0f172a" }}>
+                <th className="text-left py-1 pr-1" style={{ fontWeight: 700 }}>DESCRIÇÃO</th>
+                <th className="text-right py-1" style={{ fontWeight: 700 }}>TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="py-1 pr-1">{metodo ? (rotuloMetodo[metodo] || metodo) : "Numerário"}</td>
+                <td className="py-1 text-right">{kz(total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ width: "220px" }}>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>MERCADORIA / SERVIÇOS</span><span>{kz(total)}</span></div>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>DESCONTO GLOBAL</span><span>0,00</span></div>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>DESCONTOS LINHA</span><span>0,00</span></div>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>LÍQUIDO</span><span>{kz(total)}</span></div>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>IMPOSTO</span><span>0,00</span></div>
+          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>ARREDONDAMENTO</span><span>0,00</span></div>
+          <div className="flex justify-between items-baseline mt-2 pt-2" style={{ borderTop: "2px solid #0f172a" }}>
+            <span style={{ fontWeight: 700, fontSize: "13px" }}>TOTAL (Kwanza)</span>
+            <span style={{ fontWeight: 700, fontSize: "15px" }}>{kz(total)}</span>
           </div>
+          <p className="text-right text-[9px] mt-1">Extenso: {numeroPorExtenso(total)} kwanzas</p>
         </div>
       </div>
 
-      <p className="mb-4 text-[10px]">
-        <span className="font-semibold">Extenso: </span>
-        {numeroPorExtenso(total)} kwanzas
-      </p>
-
       {/* Coordenadas bancárias — todas as contas configuradas */}
       {contasBancarias.length > 0 && (
-        <div className="border-t border-slate-300 pt-2 mt-2 text-[10px]">
-          <p className="font-semibold mb-1">DADOS BANCÁRIOS</p>
+        <div className="pt-2 mt-2 text-[10px]" style={{ borderTop: "1px solid #cbd5e1" }}>
+          <p style={{ fontWeight: 700 }} className="mb-1">COORDENADAS BANCÁRIAS</p>
           {contasBancarias.map((c, i) => (
             <p key={i}>
-              {c.tipo === "express" ? `MULTICAIXA Express: ${c.telefone}` : `${c.iban} — ${c.banco}`}
+              {c.tipo === "express" ? `MULTICAIXA Express: ${c.telefone}` : `${c.banco}: ${c.iban}`}
             </p>
           ))}
         </div>
@@ -2362,29 +2415,16 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                 onClick={() => imprimirElemento(`Recibo ${recibo.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                Imprimir
+                PDF / Imprimir
               </button>
               {recibo.membro.telefone && (
-                <button
-                  disabled={aGerarPDF}
-                  onClick={async () => {
-                    setAGerarPDF(true);
-                    try {
-                      const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${recibo.numero}.pdf`, `Recibo ${recibo.numero}`);
-                      if (resultado === "descarregado") {
-                        alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
-                        window.open(linkWhatsApp(recibo.membro.telefone, `Olá ${recibo.membro.nome.split(" ")[0]}, envio o recibo ${recibo.numero} em anexo.`), "_blank");
-                      }
-                    } catch (erro) {
-                      alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
-                    } finally {
-                      setAGerarPDF(false);
-                    }
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
+                <a
+                  href={linkWhatsApp(recibo.membro.telefone, `Recibo ${recibo.numero} — ${kz(recibo.valor)} recebido. Obrigado! ${dadosGinasio.nome} 💪`)}
+                  target="_blank" rel="noreferrer"
+                  className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
                 >
-                  {aGerarPDF ? "A gerar PDF..." : <><FileText size={15} /> Enviar PDF do recibo</>}
-                </button>
+                  Enviar por WhatsApp
+                </a>
               )}
             </div>
             <button onClick={reiniciar} className="mt-4 text-sm font-semibold text-[#3F8F87] hover:underline">
@@ -2660,29 +2700,16 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                 onClick={() => imprimirElemento(`Recibo ${concluida.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                Recibo — Imprimir
+                Recibo — PDF / Imprimir
               </button>
               {concluida.membro?.telefone && (
-                <button
-                  disabled={aGerarPDF}
-                  onClick={async () => {
-                    setAGerarPDF(true);
-                    try {
-                      const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${concluida.numero}.pdf`, `Recibo ${concluida.numero}`);
-                      if (resultado === "descarregado") {
-                        alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
-                        window.open(linkWhatsApp(concluida.membro.telefone, `Olá ${concluida.membro.nome.split(" ")[0]}, envio o recibo ${concluida.numero} em anexo.`), "_blank");
-                      }
-                    } catch (erro) {
-                      alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
-                    } finally {
-                      setAGerarPDF(false);
-                    }
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
+                <a
+                  href={linkWhatsApp(concluida.membro.telefone, `Recibo ${concluida.numero} — ${kz(concluida.valor)}. Obrigado pela compra! ${dadosGinasio.nome} 💪`)}
+                  target="_blank" rel="noreferrer"
+                  className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
                 >
-                  {aGerarPDF ? "A gerar PDF..." : "Enviar PDF"}
-                </button>
+                  Enviar
+                </a>
               )}
             </div>
           </div>
@@ -5562,34 +5589,20 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                 onClick={() => imprimirElemento(`${gerada.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                Imprimir
+                PDF / Imprimir
               </button>
-              <button
-                disabled={aGerarPDF}
-                onClick={async () => {
-                  setAGerarPDF(true);
-                  try {
-                    const resultado = await partilharOuDescarregarPDF(
-                      docRef.current,
-                      `${gerada.numero}.pdf`,
-                      `${gerada.numero} — ${dadosGinasio.nome}`
-                    );
-                    if (resultado === "descarregado") {
-                      alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
-                      if (gerada.membro?.telefone) {
-                        window.open(linkWhatsApp(gerada.membro.telefone, `Olá ${gerada.membro.nome.split(" ")[0]}, envio o documento ${gerada.numero} em anexo.`), "_blank");
-                      }
-                    }
-                  } catch (erro) {
-                    alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
-                  } finally {
-                    setAGerarPDF(false);
-                  }
-                }}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
+              <a
+                href={linkWhatsApp(
+                  gerada.membro.telefone,
+                  `Olá ${gerada.membro.nome.split(" ")[0]}, segue o resumo do seu documento ${gerada.numero} (${dadosGinasio.nome}):\n\n` +
+                    gerada.itens.map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") +
+                    `\n\nTotal: ${kz(gerada.valor)}\nObrigado pela preferência!`
+                )}
+                target="_blank" rel="noreferrer"
+                className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
               >
-                {aGerarPDF ? "A gerar PDF..." : <><FileText size={15} /> Enviar PDF do documento</>}
-              </button>
+                Enviar por WhatsApp
+              </a>
             </div>
           </div>
         )}
@@ -6750,12 +6763,16 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
 // realmente entrou). Separado do relatório mensal, que é mais para
 // análise financeira geral.
 // ---------------------------------------------------------------------
-function RelatorioDiario({ pagamentosFeitos, faturas }) {
+function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   const [dia, setDia] = useState(new Date().toISOString().slice(0, 10));
 
   const pagamentosDoDia = useMemo(
     () => pagamentosFeitos.filter((p) => p.data === dia),
     [pagamentosFeitos, dia]
+  );
+  const acessosDoDia = useMemo(
+    () => acessos.filter((a) => a.data === dia).sort((a, b) => (a.entrada > b.entrada ? 1 : -1)),
+    [acessos, dia]
   );
 
   const comFatura = (p) => {
@@ -6774,6 +6791,50 @@ function RelatorioDiario({ pagamentosFeitos, faturas }) {
 
   const rotuloMetodo = { dinheiro: "Dinheiro", tpa: "TPA", express: "Express", referencia: "Referência", transferencia: "Transferência" };
 
+  const exportar = () => {
+    const livro = XLSX.utils.book_new();
+    const folhaVendas = criarFolhaOrganizada(
+      vendasPOS.map((p) => ({
+        Hora: p.hora, Cliente: p.membroNome,
+        Itens: p.itens.map((i) => i.descricao).join(", "),
+        Método: rotuloMetodo[p.metodo] || p.metodo, "Valor (Kz)": p.valor,
+      })),
+      "Vendas POS"
+    );
+    XLSX.utils.book_append_sheet(livro, folhaVendas, "Vendas POS");
+
+    const folhaSubs = criarFolhaOrganizada(
+      subscricoes.map((p) => ({
+        Hora: p.hora, Membro: p.membroNome, Plano: p.planoNome || "—",
+        Método: rotuloMetodo[p.metodo] || p.metodo, "Valor (Kz)": p.valor,
+      })),
+      "Subscrições"
+    );
+    XLSX.utils.book_append_sheet(livro, folhaSubs, "Subscrições");
+
+    if (outros.length > 0) {
+      const folhaOutros = criarFolhaOrganizada(
+        outros.map((p) => ({
+          Hora: p.hora, Cliente: p.membroNome,
+          Descrição: p.itens.map((i) => i.descricao).join(", "),
+          Método: rotuloMetodo[p.metodo] || p.metodo, "Valor (Kz)": p.valor,
+        })),
+        "Outros"
+      );
+      XLSX.utils.book_append_sheet(livro, folhaOutros, "Outros pagamentos");
+    }
+
+    const folhaAcessos = criarFolhaOrganizada(
+      acessosDoDia.map((a) => ({
+        Nome: a.membro, "Nº": a.numero, Entrada: a.entrada, Saída: a.saida || "Ainda no ginásio",
+      })),
+      "Acessos"
+    );
+    XLSX.utils.book_append_sheet(livro, folhaAcessos, "Acessos do dia");
+
+    XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Diario-${dia}.xlsx`);
+  };
+
   const linhaTabela = (p, idx) => (
     <tr key={idx} className="border-b border-slate-50 dark:border-slate-700">
       <td className="py-1.5">{p.hora || "—"}</td>
@@ -6787,19 +6848,28 @@ function RelatorioDiario({ pagamentosFeitos, faturas }) {
   return (
     <div className="space-y-4">
       <Card>
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Dia:</label>
-          <input
-            type="date" value={dia} onChange={(e) => setDia(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
-          />
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Dia:</label>
+            <input
+              type="date" value={dia} onChange={(e) => setDia(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <button
+            onClick={exportar}
+            className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg"
+          >
+            <Download size={16} /> Exportar para Excel
+          </button>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Subscrições</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalSubscricoes)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total do dia</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Acessos ao ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{acessosDoDia.length}</p></Card>
       </div>
 
       <Card title={`Vendas POS do dia (${vendasPOS.length})`}>
@@ -6839,6 +6909,35 @@ function RelatorioDiario({ pagamentosFeitos, faturas }) {
                 </tr>
               </thead>
               <tbody>{subscricoes.map(linhaTabela)}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Acessos do dia (${acessosDoDia.length})`}>
+        {acessosDoDia.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém fez check-in neste dia.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Nome</th>
+                  <th className="pb-2 font-medium">Nº</th>
+                  <th className="pb-2 font-medium">Entrada</th>
+                  <th className="pb-2 font-medium">Saída</th>
+                </tr>
+              </thead>
+              <tbody>
+                {acessosDoDia.map((a) => (
+                  <tr key={a.id} className="border-b border-slate-50 dark:border-slate-700">
+                    <td className="py-1.5">{a.membro}</td>
+                    <td className="py-1.5">{a.numero}</td>
+                    <td className="py-1.5">{a.entrada}</td>
+                    <td className="py-1.5">{a.saida || <span className="text-emerald-600 font-medium">Ainda no ginásio</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         )}
@@ -8365,7 +8464,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 // cada uma com entradas/saídas (depósito, levantamento, transferência,
 // recibos, custos pagos), e o total gerado por cada funcionário.
 // ---------------------------------------------------------------------
-function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, fechosTurno }) {
+function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, fechosTurno }) {
   const [aba, setAba] = useState("resumo"); // "resumo" | "banco" | "caixa"
 
   const totalPorPessoa = useMemo(() => {
@@ -8503,6 +8602,7 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           movimentos={movimentosCaixa}
           onAdicionar={(m) => onAdicionarMovimento("caixa", m)}
           onAdicionarTransferencia={onAdicionarTransferencia}
+          onRemover={(id) => onRemoverMovimento("caixa", id)}
           usaContaBancaria={false}
           dadosGinasio={dadosGinasio}
         />
@@ -8514,6 +8614,7 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           movimentos={movimentosBancarios}
           onAdicionar={(m) => onAdicionarMovimento("banco", m)}
           onAdicionarTransferencia={onAdicionarTransferencia}
+          onRemover={(id) => onRemoverMovimento("banco", id)}
           usaContaBancaria={true}
           dadosGinasio={dadosGinasio}
         />
@@ -8523,7 +8624,7 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
 }
 
 // Ledger genérico de entradas/saídas — usado tanto para Caixa como para Banco
-function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, usaContaBancaria, dadosGinasio }) {
+function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, onRemover, usaContaBancaria, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
   const todasContasBancarias = obterContasBancarias(dadosGinasio);
   const contasBancarias = usaContaBancaria ? todasContasBancarias : [];
@@ -8584,9 +8685,22 @@ function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransf
                 </p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{m.data} · {m.registadoPor}</p>
               </div>
-              <span className={`font-semibold ${m.direcao === "entrada" ? "text-emerald-600" : "text-red-500"}`}>
-                {m.direcao === "entrada" ? "+" : "−"}{kz(m.valor)}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`font-semibold ${m.direcao === "entrada" ? "text-emerald-600" : "text-red-500"}`}>
+                  {m.direcao === "entrada" ? "+" : "−"}{kz(m.valor)}
+                </span>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Eliminar este movimento (${m.subtipo} — ${kz(m.valor)})?${m.origemTransferencia ? " Isto remove os dois lados (Caixa e Banco)." : ""}`)) {
+                      onRemover(m.id);
+                    }
+                  }}
+                  title="Eliminar movimento"
+                  className="text-slate-300 hover:text-red-500"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -11601,6 +11715,28 @@ export default function CatumbelaGymApp() {
     );
   };
 
+  // Eliminar movimentos de caixa/banco — só o administrador tem acesso a
+  // este ecrã. Se o movimento for uma transferência (depósito/levantamento,
+  // que atualiza os DOIS lados ao mesmo tempo), elimina os dois de uma vez —
+  // senão o saldo do Caixa e do Banco ficavam desequilibrados entre si.
+  const removerMovimento = (ledger, id) => {
+    const lista = ledger === "banco" ? movimentosBancarios : movimentosCaixa;
+    const movimento = lista.find((m) => m.id === id);
+    if (!movimento) return;
+    if (movimento.origemTransferencia) {
+      setMovimentosCaixa((atual) => atual.filter((m) => m.origemTransferencia !== movimento.origemTransferencia));
+      setMovimentosBancarios((atual) => atual.filter((m) => m.origemTransferencia !== movimento.origemTransferencia));
+    } else if (ledger === "banco") {
+      setMovimentosBancarios((atual) => atual.filter((m) => m.id !== id));
+    } else {
+      setMovimentosCaixa((atual) => atual.filter((m) => m.id !== id));
+    }
+    registarAuditoria(
+      `Eliminou movimento de ${ledger === "banco" ? "banco" : "caixa"}`,
+      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}`
+    );
+  };
+
   const registarEntrada = (membro) => {
     const agora = new Date();
     const novoAcesso = {
@@ -11957,6 +12093,7 @@ export default function CatumbelaGymApp() {
               dadosGinasio={dadosGinasio}
               onAdicionarMovimento={adicionarMovimento}
               onAdicionarTransferencia={registarTransferenciaCaixaBanco}
+              onRemoverMovimento={removerMovimento}
               fechosTurno={fechosTurno}
             />
           )}
@@ -11984,7 +12121,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
-            <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} />
+            <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
           {telaAtual === "relatorios" && perfil === "administrador" && (
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
