@@ -143,171 +143,188 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
   const contasBancarias = obterContasBancarias(dadosGinasio || {});
   const rotuloNatureza = tipo === "FATURA" ? "Factura" : tipo === "FATURA PROFORMA" ? "Factura Proforma" : "Factura Recibo";
 
+  // Tudo aqui é CSS inline (style={{}}), de propósito — nenhuma classe do
+  // Tailwind. Quando este documento é impresso/gerado em PDF, abre numa
+  // janela nova só com HTML puro; se o layout dependesse de classes
+  // Tailwind (que vêm de uma folha de estilo externa, nem sempre copiada
+  // com sucesso para essa janela), o documento perdia todo o
+  // posicionamento lado-a-lado e caía numa coluna só, ilegível. Estilo
+  // inline funciona sempre, em qualquer sítio, sem exceção.
+  const th = { textAlign: "left", padding: "4px 8px 4px 0", fontWeight: 700 };
+  const thR = { ...th, textAlign: "right" };
+  const td = { padding: "4px 8px 4px 0", verticalAlign: "top" };
+  const tdR = { ...td, textAlign: "right" };
+
   return (
     <div
       ref={docRef}
-      className="bg-white text-slate-900"
-      style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", width: "210mm", minHeight: "297mm", boxSizing: "border-box", padding: "14mm" }}
+      style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", width: "210mm", minHeight: "297mm", boxSizing: "border-box", padding: "14mm", backgroundColor: "#ffffff", color: "#0f172a" }}
     >
       {/* Cabeçalho: logótipo grande à esquerda, identificação do documento à direita */}
-      <div className="flex items-start justify-between mb-5">
-        <img
-          src={dadosGinasio.logo || LOGO_BASE64}
-          alt={dadosGinasio.nome}
-          style={{ height: "80px", width: "auto", maxWidth: "220px", objectFit: "contain" }}
-        />
-        <div className="text-right">
-          <p style={{ fontSize: "17px", fontWeight: 700 }}>{rotuloNatureza} Nº: {numero}</p>
-          <p className="text-[11px] mt-1">Natureza: {rotuloNatureza}</p>
-          <p className="text-[11px]">ORIGINAL</p>
-        </div>
-      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px" }}><tbody><tr>
+        <td style={{ verticalAlign: "top", textAlign: "left" }}>
+          <img
+            src={dadosGinasio.logo || LOGO_BASE64}
+            alt={dadosGinasio.nome}
+            style={{ height: "80px", width: "auto", maxWidth: "220px", objectFit: "contain", display: "block" }}
+          />
+        </td>
+        <td style={{ verticalAlign: "top", textAlign: "right" }}>
+          <p style={{ fontSize: "17px", fontWeight: 700, margin: 0 }}>{rotuloNatureza} Nº: {numero}</p>
+          <p style={{ fontSize: "11px", margin: "4px 0 0 0" }}>Natureza: {rotuloNatureza}</p>
+          <p style={{ fontSize: "11px", margin: 0 }}>ORIGINAL</p>
+        </td>
+      </tr></tbody></table>
 
       {/* Empresa (esquerda) e Cliente (direita) lado a lado */}
-      <div className="flex items-start justify-between mb-5">
-        <div>
-          <p style={{ fontWeight: 700, fontSize: "13px" }}>{dadosGinasio.nome?.toUpperCase()}</p>
-          {dadosGinasio.morada && <p className="text-[11px]">{dadosGinasio.morada}</p>}
-          {dadosGinasio.cidade && <p className="text-[11px]">{dadosGinasio.cidade}</p>}
-          <p className="text-[11px]">Angola</p>
-          {dadosGinasio.nif && <p className="text-[11px] mt-1">Nº Contribuinte: {dadosGinasio.nif}</p>}
-          {dadosGinasio.telefone && <p className="text-[11px]">Telefone: {dadosGinasio.telefone}</p>}
-          {dadosGinasio.email && <p className="text-[11px]">Email: {dadosGinasio.email}</p>}
-        </div>
-        <div className="text-right">
-          <p className="text-[11px]" style={{ fontWeight: 600 }}>Exmo(s) Senhor(es)</p>
-          <p style={{ fontWeight: 700, fontSize: "13px" }}>{cliente.nome}</p>
-          {cliente.telefone && <p className="text-[11px]">{cliente.telefone}</p>}
-          <p className="text-[11px]">Angola</p>
-        </div>
-      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "20px" }}><tbody><tr>
+        <td style={{ verticalAlign: "top", textAlign: "left", width: "50%" }}>
+          <p style={{ fontWeight: 700, fontSize: "13px", margin: 0 }}>{dadosGinasio.nome?.toUpperCase()}</p>
+          {dadosGinasio.morada && <p style={{ fontSize: "11px", margin: "2px 0" }}>{dadosGinasio.morada}</p>}
+          {dadosGinasio.cidade && <p style={{ fontSize: "11px", margin: "2px 0" }}>{dadosGinasio.cidade}</p>}
+          <p style={{ fontSize: "11px", margin: "2px 0" }}>Angola</p>
+          {dadosGinasio.nif && <p style={{ fontSize: "11px", margin: "6px 0 0 0" }}>Nº Contribuinte: {dadosGinasio.nif}</p>}
+          {dadosGinasio.telefone && <p style={{ fontSize: "11px", margin: "2px 0" }}>Telefone: {dadosGinasio.telefone}</p>}
+          {dadosGinasio.email && <p style={{ fontSize: "11px", margin: "2px 0" }}>Email: {dadosGinasio.email}</p>}
+        </td>
+        <td style={{ verticalAlign: "top", textAlign: "right", width: "50%" }}>
+          <p style={{ fontSize: "11px", fontWeight: 600, margin: 0 }}>Exmo(s) Senhor(es)</p>
+          <p style={{ fontWeight: 700, fontSize: "13px", margin: "2px 0" }}>{cliente.nome}</p>
+          {cliente.telefone && <p style={{ fontSize: "11px", margin: "2px 0" }}>{cliente.telefone}</p>}
+          <p style={{ fontSize: "11px", margin: "2px 0" }}>Angola</p>
+        </td>
+      </tr></tbody></table>
 
       {/* Barra de metadados */}
-      <table className="w-full border-collapse mb-3" style={{ fontSize: "10px" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px", fontSize: "10px" }}>
         <thead>
           <tr style={{ borderTop: "2px solid #0f172a", borderBottom: "1px solid #0f172a" }}>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>V/Nº CONTRIB.</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>CLIENTE V/REFª</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>VEND.</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>CONDIÇÃO DE PAGAMENTO</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>DATA EMISSÃO</th>
-            <th className="text-left py-1.5" style={{ fontWeight: 700 }}>PÁG.</th>
+            <th style={th}>V/Nº CONTRIB.</th>
+            <th style={th}>CLIENTE V/REFª</th>
+            <th style={th}>VEND.</th>
+            <th style={th}>CONDIÇÃO DE PAGAMENTO</th>
+            <th style={th}>DATA EMISSÃO</th>
+            <th style={{ ...th, paddingRight: 0 }}>PÁG.</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td className="py-1.5 pr-2">{cliente.numero}</td>
-            <td className="py-1.5 pr-2">{cliente.numero}</td>
-            <td className="py-1.5 pr-2">1</td>
-            <td className="py-1.5 pr-2">{metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}</td>
-            <td className="py-1.5 pr-2">{data}</td>
-            <td className="py-1.5">1 / 1</td>
+            <td style={td}>{cliente.numero}</td>
+            <td style={td}>{cliente.numero}</td>
+            <td style={td}>1</td>
+            <td style={td}>{metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}</td>
+            <td style={td}>{data}</td>
+            <td style={{ ...td, paddingRight: 0 }}>1 / 1</td>
           </tr>
         </tbody>
       </table>
 
       {/* Tabela de itens */}
-      <table className="w-full border-collapse mb-1" style={{ fontSize: "10px" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "4px", fontSize: "10px" }}>
         <thead>
           <tr style={{ borderTop: "2px solid #0f172a", borderBottom: "1px solid #0f172a" }}>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>REFERÊNCIA</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>DESCRIÇÃO</th>
-            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>QTD.</th>
-            <th className="text-left py-1.5 pr-2" style={{ fontWeight: 700 }}>UNI.</th>
-            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>P.UNIT (S/IMP.)</th>
-            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>DESC (%)</th>
-            <th className="text-right py-1.5 pr-2" style={{ fontWeight: 700 }}>IVA (%)</th>
-            <th className="text-right py-1.5" style={{ fontWeight: 700 }}>TOTAL</th>
+            <th style={th}>REFERÊNCIA</th>
+            <th style={th}>DESCRIÇÃO</th>
+            <th style={thR}>QTD.</th>
+            <th style={th}>UNI.</th>
+            <th style={thR}>P.UNIT (S/IMP.)</th>
+            <th style={thR}>DESC (%)</th>
+            <th style={thR}>IVA (%)</th>
+            <th style={{ ...thR, paddingRight: 0 }}>TOTAL</th>
           </tr>
         </thead>
         <tbody>
           {itens.map((i, idx) => (
             <tr key={idx} style={{ borderBottom: "1px solid #e2e8f0" }}>
-              <td className="py-1.5 pr-2">{i.referencia}</td>
-              <td className="py-1.5 pr-2">{i.descricao}</td>
-              <td className="py-1.5 pr-2 text-right">{i.qtd.toFixed(2)}</td>
-              <td className="py-1.5 pr-2">UND</td>
-              <td className="py-1.5 pr-2 text-right">{kz(i.precoUnit)}</td>
-              <td className="py-1.5 pr-2 text-right">0,00%</td>
-              <td className="py-1.5 pr-2 text-right">0,00</td>
-              <td className="py-1.5 text-right">{kz(i.total)}</td>
+              <td style={td}>{i.referencia}</td>
+              <td style={td}>{i.descricao}</td>
+              <td style={tdR}>{i.qtd.toFixed(2)}</td>
+              <td style={td}>UND</td>
+              <td style={tdR}>{kz(i.precoUnit)}</td>
+              <td style={tdR}>0,00%</td>
+              <td style={tdR}>0,00</td>
+              <td style={{ ...tdR, paddingRight: 0 }}>{kz(i.total)}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <p className="text-[9px] text-slate-500 mb-4">
+      <p style={{ fontSize: "9px", color: "#64748b", margin: "0 0 16px 0" }}>
         Processado por programa informático · IVA Regime de não sujeição
       </p>
 
-      {/* Resumo de impostos (esquerda) e totais (direita), lado a lado */}
-      <div className="flex justify-between items-start gap-8 mb-3">
-        <div className="flex-1">
-          <p style={{ fontWeight: 700, fontSize: "10px" }} className="mb-1">RESUMO DE IMPOSTOS</p>
-          <table className="w-full border-collapse" style={{ fontSize: "9.5px" }}>
+      {/* Resumo de impostos + detalhes pagamento (esquerda) e totais (direita), lado a lado */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px" }}><tbody><tr>
+        <td style={{ verticalAlign: "top", width: "62%", paddingRight: "24px" }}>
+          <p style={{ fontWeight: 700, fontSize: "10px", margin: "0 0 4px 0" }}>RESUMO DE IMPOSTOS</p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "9.5px" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid #0f172a" }}>
-                <th className="text-left py-1 pr-1" style={{ fontWeight: 700 }}>DESIGNAÇÃO</th>
-                <th className="text-right py-1 pr-1" style={{ fontWeight: 700 }}>INCIDÊNCIA</th>
-                <th className="text-right py-1 pr-1" style={{ fontWeight: 700 }}>IMPOSTO</th>
-                <th className="text-left py-1" style={{ fontWeight: 700 }}>MOTIVO ISENÇÃO</th>
+                <th style={th}>DESIGNAÇÃO</th>
+                <th style={thR}>INCIDÊNCIA</th>
+                <th style={thR}>IMPOSTO</th>
+                <th style={{ ...th, paddingRight: 0 }}>MOTIVO ISENÇÃO</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="py-1 pr-1">NS Não Sujeito</td>
-                <td className="py-1 pr-1 text-right">{kz(total)}</td>
-                <td className="py-1 pr-1 text-right">0,00</td>
-                <td className="py-1">IVA-Regime de não sujeição</td>
+                <td style={td}>NS Não Sujeito</td>
+                <td style={tdR}>{kz(total)}</td>
+                <td style={tdR}>0,00</td>
+                <td style={{ ...td, paddingRight: 0 }}>IVA-Regime de não sujeição</td>
               </tr>
             </tbody>
           </table>
 
-          <p style={{ fontWeight: 700, fontSize: "10px" }} className="mt-4 mb-1">DETALHES PAGAMENTO</p>
-          <table className="w-full border-collapse" style={{ fontSize: "9.5px" }}>
+          <p style={{ fontWeight: 700, fontSize: "10px", margin: "16px 0 4px 0" }}>DETALHES PAGAMENTO</p>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "9.5px" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid #0f172a" }}>
-                <th className="text-left py-1 pr-1" style={{ fontWeight: 700 }}>DESCRIÇÃO</th>
-                <th className="text-right py-1" style={{ fontWeight: 700 }}>TOTAL</th>
+                <th style={th}>DESCRIÇÃO</th>
+                <th style={{ ...thR, paddingRight: 0 }}>TOTAL</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="py-1 pr-1">{metodo ? (rotuloMetodo[metodo] || metodo) : "Numerário"}</td>
-                <td className="py-1 text-right">{kz(total)}</td>
+                <td style={td}>{metodo ? (rotuloMetodo[metodo] || metodo) : "Numerário"}</td>
+                <td style={{ ...tdR, paddingRight: 0 }}>{kz(total)}</td>
               </tr>
             </tbody>
           </table>
-        </div>
+        </td>
 
-        <div style={{ width: "220px" }}>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>MERCADORIA / SERVIÇOS</span><span>{kz(total)}</span></div>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>DESCONTO GLOBAL</span><span>0,00</span></div>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>DESCONTOS LINHA</span><span>0,00</span></div>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>LÍQUIDO</span><span>{kz(total)}</span></div>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>IMPOSTO</span><span>0,00</span></div>
-          <div className="flex justify-between py-1" style={{ fontSize: "10px" }}><span>ARREDONDAMENTO</span><span>0,00</span></div>
-          <div className="flex justify-between items-baseline mt-2 pt-2" style={{ borderTop: "2px solid #0f172a" }}>
-            <span style={{ fontWeight: 700, fontSize: "13px" }}>TOTAL (Kwanza)</span>
-            <span style={{ fontWeight: 700, fontSize: "15px" }}>{kz(total)}</span>
-          </div>
-          <p className="text-right text-[9px] mt-1">Extenso: {numeroPorExtenso(total)} kwanzas</p>
-        </div>
-      </div>
+        <td style={{ verticalAlign: "top", width: "38%" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "10px" }}>
+            <tbody>
+              <tr><td style={{ padding: "3px 0" }}>MERCADORIA / SERVIÇOS</td><td style={{ padding: "3px 0", textAlign: "right" }}>{kz(total)}</td></tr>
+              <tr><td style={{ padding: "3px 0" }}>DESCONTO GLOBAL</td><td style={{ padding: "3px 0", textAlign: "right" }}>0,00</td></tr>
+              <tr><td style={{ padding: "3px 0" }}>DESCONTOS LINHA</td><td style={{ padding: "3px 0", textAlign: "right" }}>0,00</td></tr>
+              <tr><td style={{ padding: "3px 0" }}>LÍQUIDO</td><td style={{ padding: "3px 0", textAlign: "right" }}>{kz(total)}</td></tr>
+              <tr><td style={{ padding: "3px 0" }}>IMPOSTO</td><td style={{ padding: "3px 0", textAlign: "right" }}>0,00</td></tr>
+              <tr><td style={{ padding: "3px 0" }}>ARREDONDAMENTO</td><td style={{ padding: "3px 0", textAlign: "right" }}>0,00</td></tr>
+              <tr style={{ borderTop: "2px solid #0f172a" }}>
+                <td style={{ padding: "8px 0 0 0", fontWeight: 700, fontSize: "13px" }}>TOTAL (Kwanza)</td>
+                <td style={{ padding: "8px 0 0 0", fontWeight: 700, fontSize: "15px", textAlign: "right" }}>{kz(total)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style={{ textAlign: "right", fontSize: "9px", margin: "4px 0 0 0" }}>Extenso: {numeroPorExtenso(total)} kwanzas</p>
+        </td>
+      </tr></tbody></table>
 
       {/* Coordenadas bancárias — todas as contas configuradas */}
       {contasBancarias.length > 0 && (
-        <div className="pt-2 mt-2 text-[10px]" style={{ borderTop: "1px solid #cbd5e1" }}>
-          <p style={{ fontWeight: 700 }} className="mb-1">COORDENADAS BANCÁRIAS</p>
+        <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "8px", marginTop: "8px", fontSize: "10px" }}>
+          <p style={{ fontWeight: 700, margin: "0 0 4px 0" }}>COORDENADAS BANCÁRIAS</p>
           {contasBancarias.map((c, i) => (
-            <p key={i}>
+            <p key={i} style={{ margin: "2px 0" }}>
               {c.tipo === "express" ? `MULTICAIXA Express: ${c.telefone}` : `${c.banco}: ${c.iban}`}
             </p>
           ))}
         </div>
       )}
 
-      <p className="text-center text-[9px] text-slate-400 mt-6">
+      <p style={{ textAlign: "center", fontSize: "9px", color: "#94a3b8", marginTop: "24px" }}>
         {dadosGinasio.nome} — Documento processado por computador · {tipo === "FATURA PROFORMA" ? "Este documento não serve de fatura." : ""}
       </p>
     </div>
@@ -2367,6 +2384,11 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                     .filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban"))
                     .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                 </select>
+                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                    Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
+                  </p>
+                )}
               </div>
             )}
 
@@ -2655,10 +2677,13 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                     .filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban"))
                     .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                 </select>
+                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                    Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
+                  </p>
+                )}
               </div>
             )}
-
-            {metodo === "tpa" && <MostrarQRTPA dadosGinasio={dadosGinasio} />}
 
             <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700">
               <span className="text-sm text-slate-500 dark:text-slate-400">Total</span>
@@ -5222,24 +5247,6 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   );
 }
 
-// Mostra o QR do TPA (se já foi carregado em Pagamentos Online) sempre que
-// o método de pagamento "TPA" for escolhido — para o cliente escanear.
-function MostrarQRTPA({ dadosGinasio }) {
-  if (!dadosGinasio.qrTPA) {
-    return (
-      <p className="text-xs text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
-        Ainda não carregaste o QR do teu terminal TPA (Configurações → Pagamentos Online).
-      </p>
-    );
-  }
-  return (
-    <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 flex items-center gap-3">
-      <img src={dadosGinasio.qrTPA} alt="QR do TPA" className="w-20 h-20 object-contain rounded-lg ring-1 ring-slate-200 dark:ring-slate-700 bg-white" />
-      <p className="text-xs text-slate-500 dark:text-slate-400">Mostra este código ao cliente para pagar pelo TPA.</p>
-    </div>
-  );
-}
-
 function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
   const [aba, setAba] = useState("emitir"); // "emitir" | "historico"
   const [tipo, setTipo] = useState("FATURA"); // FATURA | PROFORMA | RECIBO
@@ -5450,10 +5457,13 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                         .filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban"))
                         .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                     </select>
+                    {obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                        Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
+                      </p>
+                    )}
                   </div>
                 )}
-
-                {tipo === "RECIBO" && metodoPagamento === "tpa" && <MostrarQRTPA dadosGinasio={dadosGinasio} />}
 
                 {faturaOrigemNumero && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 -mb-1">
@@ -6086,7 +6096,7 @@ function QRTPAEditor({ dados, onSalvar }) {
 // EDITOR DE CONTAS BANCÁRIAS/EXPRESS — suporta várias contas, em vários
 // bancos, todas disponíveis para os membros escolherem ao pagar.
 // ---------------------------------------------------------------------
-function ContasBancariasEditor({ form, setForm, tocouNoFormulario }) {
+function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const vazio = { tipo: "iban", banco: "", titular: form.nome || "", iban: "", telefone: "", moeda: "AOA", swift: "" };
@@ -6109,18 +6119,29 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario }) {
   const guardar = () => {
     if (!novo.banco) return;
     tocouNoFormulario.current = true;
+    // Grava logo, aqui mesmo — não espera pelo botão "Guardar dados" no
+    // fundo da página. Sem isto, a conta parecia adicionada (aparecia na
+    // lista), mas ficava só na memória do formulário; se a pessoa saísse
+    // desta página sem clicar em "Guardar dados", a conta desaparecia sem
+    // aviso nenhum — e era exatamente isso que estava a confundir quem
+    // depois ia usar o TPA e não encontrava a conta na lista.
+    let formAtualizado;
     if (editandoId) {
-      setForm((f) => ({ ...f, contasBancarias: (f.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) }));
+      formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
     } else {
       const id = Math.max(0, ...contas.map((c) => (typeof c.id === "number" ? c.id : 0))) + 1;
-      setForm((f) => ({ ...f, contasBancarias: [...(f.contasBancarias || []), { ...novo, id }] }));
+      formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id }] };
     }
+    setForm(formAtualizado);
+    onSalvar(formAtualizado);
     setShowForm(false);
   };
 
   const remover = (id) => {
     tocouNoFormulario.current = true;
-    setForm((f) => ({ ...f, contasBancarias: (f.contasBancarias || []).filter((c) => c.id !== id) }));
+    const formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).filter((c) => c.id !== id) };
+    setForm(formAtualizado);
+    onSalvar(formAtualizado);
   };
 
   return (
@@ -6379,7 +6400,7 @@ function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onA
         </div>
       </Card>
 
-      <ContasBancariasEditor form={form} setForm={setForm} tocouNoFormulario={tocouNoFormulario} />
+      <ContasBancariasEditor form={form} setForm={setForm} tocouNoFormulario={tocouNoFormulario} onSalvar={onSalvar} />
 
       <div className="flex items-center gap-3">
         <button className="flex items-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold px-6 py-2.5 rounded-lg text-sm">
