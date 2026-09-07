@@ -144,7 +144,11 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
   const rotuloNatureza = tipo === "FATURA" ? "Factura" : tipo === "FATURA PROFORMA" ? "Factura Proforma" : "Recibo";
 
   return (
-    <div ref={docRef} className="bg-white text-slate-800 p-8" style={{ fontFamily: "Arial, sans-serif", fontSize: "11px" }}>
+    <div
+      ref={docRef}
+      className="bg-white text-slate-800 p-8"
+      style={{ fontFamily: "Arial, sans-serif", fontSize: "11px", width: "210mm", minHeight: "297mm", boxSizing: "border-box" }}
+    >
       {/* Cabeçalho: logótipo + dados do ginásio à esquerda, identificação do documento à direita */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -677,9 +681,16 @@ async function gerarFicheiroPDF(elemento, nomeFicheiro) {
 // (que inclui o WhatsApp, entre outras apps) já com o ficheiro anexado.
 // No computador, a partilha de ficheiros não é suportada pela maioria dos
 // browsers, por isso descarrega o PDF e mostra instruções claras.
+// Deteta telemóvel/tablet — em computador (Windows/Mac/Linux), o menu de
+// partilha nativo do sistema raramente inclui o WhatsApp como opção (mostra
+// antes OneDrive, Correio, etc.), o que confundia mais do que ajudava. Em
+// telemóvel, esse mesmo menu inclui sempre o WhatsApp a sério.
+const ehTelemovelOuTablet = () =>
+  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+
 async function partilharOuDescarregarPDF(elemento, nomeFicheiro, tituloPartilha) {
   const ficheiro = await gerarFicheiroPDF(elemento, nomeFicheiro);
-  if (navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
+  if (ehTelemovelOuTablet() && navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
     try {
       await navigator.share({ files: [ficheiro], title: tituloPartilha });
       return "partilhado";
@@ -832,6 +843,54 @@ function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4,
           Limpar
         </button>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// PRÉ-VISUALIZAÇÃO ESCALADA — o documento (fatura/recibo) tem largura
+// real fixa de A4 (210mm), necessária para o PDF sair sem distorção. Mas
+// isso é mais largo do que muitos cartões da interface (ex.: numa grelha
+// de duas colunas). Em vez de cortar ou obrigar a arrastar para o lado,
+// isto encolhe visualmente o documento para caber, sem tocar no tamanho
+// real por trás — o PDF continua a ser gerado a partir do tamanho A4
+// verdadeiro, só a pré-visualização no ecrã é que fica mais pequena.
+// ---------------------------------------------------------------------
+function PreviewDocumentoEscalado({ children }) {
+  const contentorRef = useRef(null);
+  const [escala, setEscala] = useState(1);
+  const [alturaEscalada, setAlturaEscalada] = useState(null);
+
+  useEffect(() => {
+    const recalcular = () => {
+      const larguraDisponivel = contentorRef.current?.offsetWidth || 0;
+      // Vai buscar a largura do DOCUMENTO REAL (o neto, não o wrapper de
+      // escala em si — que já teria a sua própria largura ajustada em % e
+      // sempre bateria certo consigo mesmo, nunca calculando a escala certa).
+      const elementoReal = contentorRef.current?.querySelector('[style*="210mm"]');
+      const larguraReal = elementoReal?.offsetWidth || 1;
+      const alturaReal = elementoReal?.offsetHeight || 0;
+      if (larguraDisponivel > 0 && larguraReal > 1) {
+        const novaEscala = Math.min(1, larguraDisponivel / larguraReal);
+        setEscala(novaEscala);
+        setAlturaEscalada(alturaReal * novaEscala);
+      }
+    };
+    recalcular();
+    const observador = new ResizeObserver(recalcular);
+    if (contentorRef.current) observador.observe(contentorRef.current);
+    window.addEventListener("resize", recalcular);
+    return () => {
+      observador.disconnect();
+      window.removeEventListener("resize", recalcular);
+    };
+  }, [children]);
+
+  return (
+    <div ref={contentorRef} className="w-full overflow-hidden" style={{ height: alturaEscalada ? `${alturaEscalada}px` : "auto" }}>
+      <div style={{ transform: `scale(${escala})`, transformOrigin: "top left", width: `${100 / escala}%` }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -2131,6 +2190,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
   const [descricao, setDescricao] = useState("Entrada avulsa");
   const [valor, setValor] = useState("");
   const [metodo, setMetodo] = useState("dinheiro");
+  const [contaBancariaId, setContaBancariaId] = useState("");
   const [comprovativo, setComprovativo] = useState(null);
   const [recibo, setRecibo] = useState(null);
   const [aGerarPDF, setAGerarPDF] = useState(false);
@@ -2160,6 +2220,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       descricao: descricao || "Entrada avulsa",
       valor: Number(valor),
       metodo,
+      contaBancariaId: (metodo === "transferencia" || metodo === "express" || metodo === "tpa") ? contaBancariaId : undefined,
       comprovativo,
     });
     setRecibo(documento);
@@ -2241,6 +2302,21 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
               </div>
             )}
 
+            {(metodo === "transferencia" || metodo === "express" || metodo === "tpa") && (
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {metodo === "express" ? "Qual número Express recebeu?" : metodo === "tpa" ? "De qual banco é o terminal TPA?" : "Qual conta bancária recebeu?"}
+                </label>
+                <select value={contaBancariaId} onChange={(e) => setContaBancariaId(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                  <option value="">Selecionar...</option>
+                  {obterContasBancarias(dadosGinasio)
+                    .filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                    .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                </select>
+              </div>
+            )}
+
             <button
               onClick={confirmar}
               disabled={!nome || !valor}
@@ -2251,7 +2327,10 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
           </div>
         ) : (
           <div>
-            <div className="ring-1 ring-slate-200 rounded-xl overflow-hidden">
+            <div className="hidden">
+              {/* renderizado fora de ecrã só para gerar o PDF/impressão, no
+                  tamanho A4 real — a pré-visualização abaixo é uma cópia
+                  visual à parte, escalada para caber no ecrã. */}
               <DocumentoFinanceiro
                 docRef={docRef}
                 tipo="RECIBO"
@@ -2263,6 +2342,20 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                 dadosGinasio={dadosGinasio}
                 itens={recibo.itens}
               />
+            </div>
+            <div className="ring-1 ring-slate-200 rounded-xl">
+              <PreviewDocumentoEscalado>
+                <DocumentoFinanceiro
+                  tipo="RECIBO"
+                  numero={recibo.numero}
+                  data={recibo.data}
+                  hora={recibo.hora}
+                  cliente={recibo.membro}
+                  metodo={recibo.metodo}
+                  dadosGinasio={dadosGinasio}
+                  itens={recibo.itens}
+                />
+              </PreviewDocumentoEscalado>
             </div>
             <div className="flex gap-2 mt-4">
               <button
@@ -2279,7 +2372,8 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                     try {
                       const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${recibo.numero}.pdf`, `Recibo ${recibo.numero}`);
                       if (resultado === "descarregado") {
-                        alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                        alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
+                        window.open(linkWhatsApp(recibo.membro.telefone, `Olá ${recibo.membro.nome.split(" ")[0]}, envio o recibo ${recibo.numero} em anexo.`), "_blank");
                       }
                     } catch (erro) {
                       alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
@@ -2509,10 +2603,10 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
               </div>
             </div>
 
-            {(metodo === "transferencia" || metodo === "express") && (
+            {(metodo === "transferencia" || metodo === "express" || metodo === "tpa") && (
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                  Qual {metodo === "express" ? "número Express" : "conta bancária"} recebeu?
+                  {metodo === "express" ? "Qual número Express recebeu?" : metodo === "tpa" ? "De qual banco é o terminal TPA?" : "Qual conta bancária recebeu?"}
                 </label>
                 <select value={contaBancariaId} onChange={(e) => setContaBancariaId(e.target.value)}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
@@ -2576,7 +2670,8 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                     try {
                       const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${concluida.numero}.pdf`, `Recibo ${concluida.numero}`);
                       if (resultado === "descarregado") {
-                        alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                        alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
+                        window.open(linkWhatsApp(concluida.membro.telefone, `Olá ${concluida.membro.nome.split(" ")[0]}, envio o recibo ${concluida.numero} em anexo.`), "_blank");
                       }
                     } catch (erro) {
                       alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
@@ -4977,12 +5072,17 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
 // HISTÓRICO DE FATURAS E RECIBOS — todos os documentos já emitidos,
 // pesquisável, para veres o que já se tirou e reimprimir (2ª via).
 // ---------------------------------------------------------------------
-function HistoricoFaturas({ faturas, onVer, onEliminar, perfil }) {
+function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   const [pesquisa, setPesquisa] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("TODOS");
   const [aEliminar, setAEliminar] = useState(null);
 
-  const filtrados = faturas.filter((f) => {
+  // Uma recepcionista só vê os documentos que ELA emitiu — não o valor que
+  // outros funcionários (ou outras recepcionistas) fizeram. Só o
+  // administrador vê o histórico completo.
+  const faturasVisiveis = perfil === "administrador" ? faturas : faturas.filter((f) => f.registadoPor === nomeAtual);
+
+  const filtrados = faturasVisiveis.filter((f) => {
     const bateTipo = filtroTipo === "TODOS" || f.tipo === filtroTipo;
     const q = pesquisa.trim().toLowerCase();
     const bateTexto = !q || f.membro.nome.toLowerCase().includes(q) || f.numero.toLowerCase().includes(q);
@@ -4990,7 +5090,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil }) {
   });
 
   return (
-    <Card title={`Histórico de documentos (${faturas.length})`}>
+    <Card title={`Histórico de documentos (${faturasVisiveis.length})`}>
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <input
           value={pesquisa}
@@ -5009,7 +5109,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil }) {
 
       {filtrados.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">
-          {faturas.length === 0 ? "Ainda não emitiste nenhum documento." : "Nenhum documento corresponde à pesquisa."}
+          {faturasVisiveis.length === 0 ? "Ainda não emitiste nenhum documento." : "Nenhum documento corresponde à pesquisa."}
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -5113,7 +5213,7 @@ function MostrarQRTPA({ dadosGinasio }) {
   );
 }
 
-function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil }) {
+function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
   const [aba, setAba] = useState("emitir"); // "emitir" | "historico"
   const [tipo, setTipo] = useState("FATURA"); // FATURA | PROFORMA | RECIBO
   const [membroId, setMembroId] = useState("");
@@ -5159,7 +5259,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       itens: itensSelecionados.map((i) => ({ ...i, total: i.qtd * i.precoUnit })),
       valor: total,
       metodo: tipo === "RECIBO" ? metodoPagamento : undefined,
-      contaBancariaId: tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express") ? contaBancariaId : undefined,
+      contaBancariaId: tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express" || metodoPagamento === "tpa") ? contaBancariaId : undefined,
       faturaOrigemNumero: tipo === "RECIBO" ? faturaOrigemNumero : undefined,
     };
     const gravado = onGerarFatura(documento); // devolve o documento já com número e data reais
@@ -5201,6 +5301,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
         <HistoricoFaturas
           faturas={faturas}
           perfil={perfil}
+          nomeAtual={nomeAtual}
           onEliminar={onEliminarFatura}
           onVer={(f) => {
             setGerada(f);
@@ -5310,10 +5411,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                   </div>
                 )}
 
-                {tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express") && (
+                {tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express" || metodoPagamento === "tpa") && (
                   <div>
                     <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      Qual {metodoPagamento === "express" ? "número Express" : "conta bancária"} recebeu?
+                      {metodoPagamento === "express" ? "Qual número Express recebeu?" : metodoPagamento === "tpa" ? "De qual banco é o terminal TPA?" : "Qual conta bancária recebeu?"}
                     </label>
                     <select value={contaBancariaId} onChange={(e) => setContaBancariaId(e.target.value)}
                       className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
@@ -5428,7 +5529,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
           <p className="text-sm text-slate-400 dark:text-slate-500">Gera um documento para veres a pré-visualização.</p>
         ) : (
           <div>
-            <div className="ring-1 ring-slate-200 rounded-xl overflow-hidden">
+            <div className="hidden">
+              {/* renderizado fora de ecrã só para gerar o PDF/impressão, no
+                  tamanho A4 real — a pré-visualização abaixo é uma cópia
+                  visual à parte, escalada para caber no ecrã. */}
               <DocumentoFinanceiro
                 docRef={docRef}
                 tipo={gerada.tipo === "FATURA" ? "FATURA" : gerada.tipo === "PROFORMA" ? "FATURA PROFORMA" : "RECIBO"}
@@ -5439,6 +5543,19 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                 itens={gerada.itens}
                 dadosGinasio={dadosGinasio}
               />
+            </div>
+            <div className="ring-1 ring-slate-200 rounded-xl">
+              <PreviewDocumentoEscalado>
+                <DocumentoFinanceiro
+                  tipo={gerada.tipo === "FATURA" ? "FATURA" : gerada.tipo === "PROFORMA" ? "FATURA PROFORMA" : "RECIBO"}
+                  numero={gerada.numero}
+                  data={gerada.data}
+                  hora={gerada.hora}
+                  cliente={gerada.membro}
+                  itens={gerada.itens}
+                  dadosGinasio={dadosGinasio}
+                />
+              </PreviewDocumentoEscalado>
             </div>
             <div className="flex gap-2 mt-4">
               <button
@@ -5458,7 +5575,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                       `${gerada.numero} — ${dadosGinasio.nome}`
                     );
                     if (resultado === "descarregado") {
-                      alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                      alert("PDF descarregado. A seguir vai abrir o WhatsApp — é só anexares o ficheiro que acabaste de guardar (normalmente na pasta Transferências).");
+                      if (gerada.membro?.telefone) {
+                        window.open(linkWhatsApp(gerada.membro.telefone, `Olá ${gerada.membro.nome.split(" ")[0]}, envio o documento ${gerada.numero} em anexo.`), "_blank");
+                      }
                     }
                   } catch (erro) {
                     alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
@@ -6619,6 +6739,128 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
             )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// RELATÓRIO DIÁRIO — vendas POS e subscrições de um dia à escolha, para
+// controlo (confirmar que o dinheiro registado bate certo com o que
+// realmente entrou). Separado do relatório mensal, que é mais para
+// análise financeira geral.
+// ---------------------------------------------------------------------
+function RelatorioDiario({ pagamentosFeitos, faturas }) {
+  const [dia, setDia] = useState(new Date().toISOString().slice(0, 10));
+
+  const pagamentosDoDia = useMemo(
+    () => pagamentosFeitos.filter((p) => p.data === dia),
+    [pagamentosFeitos, dia]
+  );
+
+  const comFatura = (p) => {
+    const f = faturas.find((doc) => doc.numero === p.numero);
+    return { ...p, membroNome: f?.membro?.nome || "—", hora: f?.hora || "", itens: f?.itens || [] };
+  };
+
+  const vendasPOS = pagamentosDoDia.filter((p) => p.tipo === "venda").map(comFatura);
+  const subscricoes = pagamentosDoDia.filter((p) => p.tipo === "mensalidade" || p.tipo === "inscricao").map(comFatura);
+  const outros = pagamentosDoDia.filter((p) => p.tipo !== "venda" && p.tipo !== "mensalidade" && p.tipo !== "inscricao").map(comFatura);
+
+  const totalVendas = vendasPOS.reduce((s, p) => s + p.valor, 0);
+  const totalSubscricoes = subscricoes.reduce((s, p) => s + p.valor, 0);
+  const totalOutros = outros.reduce((s, p) => s + p.valor, 0);
+  const totalDia = totalVendas + totalSubscricoes + totalOutros;
+
+  const rotuloMetodo = { dinheiro: "Dinheiro", tpa: "TPA", express: "Express", referencia: "Referência", transferencia: "Transferência" };
+
+  const linhaTabela = (p, idx) => (
+    <tr key={idx} className="border-b border-slate-50 dark:border-slate-700">
+      <td className="py-1.5">{p.hora || "—"}</td>
+      <td className="py-1.5">{p.membroNome}</td>
+      <td className="py-1.5">{p.itens.map((i) => i.descricao).join(", ") || (p.planoNome ? `Plano ${p.planoNome}` : "—")}</td>
+      <td className="py-1.5">{rotuloMetodo[p.metodo] || p.metodo}</td>
+      <td className="py-1.5 text-right font-medium">{kz(p.valor)}</td>
+    </tr>
+  );
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Dia:</label>
+          <input
+            type="date" value={dia} onChange={(e) => setDia(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          />
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Subscrições</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalSubscricoes)}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total do dia</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
+      </div>
+
+      <Card title={`Vendas POS do dia (${vendasPOS.length})`}>
+        {vendasPOS.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma venda neste dia.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Hora</th>
+                  <th className="pb-2 font-medium">Cliente</th>
+                  <th className="pb-2 font-medium">Itens</th>
+                  <th className="pb-2 font-medium">Método</th>
+                  <th className="pb-2 font-medium text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody>{vendasPOS.map(linhaTabela)}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Subscrições do dia (${subscricoes.length})`}>
+        {subscricoes.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma subscrição neste dia.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Hora</th>
+                  <th className="pb-2 font-medium">Membro</th>
+                  <th className="pb-2 font-medium">Plano</th>
+                  <th className="pb-2 font-medium">Método</th>
+                  <th className="pb-2 font-medium text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody>{subscricoes.map(linhaTabela)}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {outros.length > 0 && (
+        <Card title={`Outros pagamentos do dia (${outros.length})`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Hora</th>
+                  <th className="pb-2 font-medium">Cliente</th>
+                  <th className="pb-2 font-medium">Descrição</th>
+                  <th className="pb-2 font-medium">Método</th>
+                  <th className="pb-2 font-medium text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody>{outros.map(linhaTabela)}</tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   );
@@ -9160,6 +9402,7 @@ const MENU_ADMIN = [
     grupo: "RELATÓRIOS",
     itens: [
       { id: "notificacoes", label: "Notificações", icon: Bell },
+      { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
     ],
@@ -10607,6 +10850,7 @@ export default function CatumbelaGymApp() {
       estado: tipo === "FATURA" ? "emitida" : undefined,
       data: new Date().toLocaleDateString("pt-PT"),
       hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      registadoPor: contaAtual?.nome || "—",
     };
     setFaturas((atual) => {
       let novo = [documento, ...atual];
@@ -10689,7 +10933,7 @@ export default function CatumbelaGymApp() {
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
   // Regista-se logo (staff já viu o comprovativo presencialmente, se houver),
   // sem passar pela fila de aprovação, que é só para self-service de membros.
-  const registarPagamentoAvulso = ({ nome, telefone, descricao, valor, metodo, comprovativo }) => {
+  const registarPagamentoAvulso = ({ nome, telefone, descricao, valor, metodo, contaBancariaId, comprovativo }) => {
     const clienteAvulso = { nome, numero: "AVULSO", telefone: telefone || "" };
     const documento = gerarDocumentoFaturacao({
       tipo: "RECIBO",
@@ -10697,6 +10941,7 @@ export default function CatumbelaGymApp() {
       itens: [{ referencia: "AVULSO", descricao, qtd: 1, precoUnit: valor, total: valor }],
       valor,
       metodo,
+      contaBancariaId,
       tipoReceita: "avulso",
     });
     if (comprovativo) {
@@ -11725,7 +11970,7 @@ export default function CatumbelaGymApp() {
             <PlanoAtividades atividades={atividades} trainers={trainers} reservasAtividades={reservasAtividades} onAdicionar={adicionarAtividade} onAtualizar={atualizarAtividade} onRemover={removerAtividade} />
           )}
           {telaAtual === "faturacao" && (perfil === "administrador" || perfil === "recepcionista") && (
-            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} />
+            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} />
           )}
           {telaAtual === "pos" && (
             <VendasPOS produtos={produtos} membros={membros} dadosGinasio={dadosGinasio} onFinalizar={finalizarVenda} />
@@ -11738,6 +11983,9 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} />}
+          {telaAtual === "relatorio-diario" && perfil === "administrador" && (
+            <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} />
+          )}
           {telaAtual === "relatorios" && perfil === "administrador" && (
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
           )}
