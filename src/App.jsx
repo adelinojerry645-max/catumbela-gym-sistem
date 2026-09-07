@@ -140,48 +140,73 @@ function numeroPorExtenso(valor) {
 function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens, metodo, dadosGinasio }) {
   const total = itens.reduce((s, i) => s + i.total, 0);
   const rotuloMetodo = { dinheiro: "Numerário", tpa: "TPA", express: "MULTICAIXA Express", referencia: "Referência", transferencia: "Transferência Bancária" };
+  const contasBancarias = obterContasBancarias(dadosGinasio || {});
+  const rotuloNatureza = tipo === "FATURA" ? "Factura" : tipo === "FATURA PROFORMA" ? "Factura Proforma" : "Recibo";
 
   return (
-    <div ref={docRef} className="bg-white text-slate-800 p-6 text-xs" style={{ fontFamily: "Arial, sans-serif" }}>
-      {/* Cabeçalho: dados do ginásio + identificação do documento */}
-      <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3 mb-3">
-        <div className="flex items-start gap-3">
+    <div ref={docRef} className="bg-white text-slate-800 p-8" style={{ fontFamily: "Arial, sans-serif", fontSize: "11px" }}>
+      {/* Cabeçalho: logótipo + dados do ginásio à esquerda, identificação do documento à direita */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
           <img
             src={dadosGinasio.logo || LOGO_BASE64}
             alt={dadosGinasio.nome}
-            className="object-contain"
-            style={{ height: "56px", width: "auto", maxWidth: "140px", objectFit: "contain" }}
+            className="object-contain mb-2"
+            style={{ height: "50px", width: "auto", maxWidth: "160px", objectFit: "contain" }}
           />
-          <div>
-            <p className="font-bold text-sm">{dadosGinasio.nome}</p>
-            {dadosGinasio.morada && <p>{dadosGinasio.morada}{dadosGinasio.cidade ? `, ${dadosGinasio.cidade}` : ""}</p>}
-            {dadosGinasio.nif && <p>Nº Contribuinte: {dadosGinasio.nif}</p>}
-            {dadosGinasio.telefone && <p>Telefone: {dadosGinasio.telefone}</p>}
-            {dadosGinasio.email && <p>Email: {dadosGinasio.email}</p>}
-          </div>
+          <p className="font-bold text-sm mt-1">{dadosGinasio.nome}</p>
+          {dadosGinasio.morada && <p>{dadosGinasio.morada}</p>}
+          {dadosGinasio.cidade && <p>{dadosGinasio.cidade}</p>}
+          <p>Angola</p>
+          {dadosGinasio.nif && <p className="text-[10px] mt-0.5">Nr. Contribuinte: {dadosGinasio.nif}</p>}
         </div>
         <div className="text-right">
-          <p className="font-bold">{tipo} Nº: {numero}</p>
-          <p>Data emissão: {data}{hora ? ` às ${hora}` : ""}</p>
+          <p className="text-base font-semibold">{rotuloNatureza} Nº: {numero}</p>
+          <p className="text-[10px] mt-1">Natureza:: {rotuloNatureza}</p>
         </div>
       </div>
 
-      {/* Cliente */}
-      <div className="mb-3">
-        <p className="font-semibold">Exmo(s) Senhor(es)</p>
-        <p className="font-bold">{cliente.nome}</p>
-        <p>Nº de membro: {cliente.numero}</p>
+      {/* Cliente — bloco à direita, como numa fatura formal */}
+      <div className="flex justify-end mb-5">
+        <div className="text-right">
+          <p className="font-semibold text-[10px]">Exmo(s) Senhor(es)</p>
+          <p className="font-bold text-sm">{cliente.nome}</p>
+          {cliente.telefone && <p>{cliente.telefone}</p>}
+          <p>Angola</p>
+        </div>
       </div>
 
-      {/* Tabela de itens */}
-      <table className="w-full border-collapse mb-3">
+      {/* Barra de metadados */}
+      <table className="w-full border-collapse mb-3 text-[10px]">
         <thead>
           <tr className="border-b border-t border-slate-800">
-            <th className="text-left py-1.5 pr-2">Referência</th>
-            <th className="text-left py-1.5 pr-2">Descrição</th>
-            <th className="text-right py-1.5 pr-2">Qtd.</th>
-            <th className="text-right py-1.5 pr-2">P. Unit.</th>
-            <th className="text-right py-1.5">Total</th>
+            <th className="text-left py-1.5 pr-2 font-semibold">V/Nº</th>
+            <th className="text-left py-1.5 pr-2 font-semibold">CLIENTE</th>
+            <th className="text-left py-1.5 pr-2 font-semibold">CONDIÇÃO DE PAGAMENTO</th>
+            <th className="text-left py-1.5 pr-2 font-semibold">DATA EMISSÃO</th>
+            <th className="text-left py-1.5 font-semibold">PÁG.</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="py-1.5 pr-2">{cliente.numero}</td>
+            <td className="py-1.5 pr-2">{cliente.numero}</td>
+            <td className="py-1.5 pr-2">{metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}</td>
+            <td className="py-1.5 pr-2">{data}{hora ? ` ${hora}` : ""}</td>
+            <td className="py-1.5">1 / 1</td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Tabela de itens */}
+      <table className="w-full border-collapse mb-3 text-[10px]">
+        <thead>
+          <tr className="border-b border-t-2 border-slate-800">
+            <th className="text-left py-1.5 pr-2">REFERÊNCIA</th>
+            <th className="text-left py-1.5 pr-2">DESCRIÇÃO</th>
+            <th className="text-right py-1.5 pr-2">QTD.</th>
+            <th className="text-right py-1.5 pr-2">P.UNIT</th>
+            <th className="text-right py-1.5">TOTAL</th>
           </tr>
         </thead>
         <tbody>
@@ -199,33 +224,35 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
 
       {/* Resumo */}
       <div className="flex justify-end mb-3">
-        <div className="w-56">
-          <div className="flex justify-between py-1"><span>Mercadoria / Serviços</span><span>{kz(total)}</span></div>
-          <div className="flex justify-between py-1"><span>Desconto</span><span>0,00 Kz</span></div>
-          <div className="flex justify-between py-1 font-bold border-t border-slate-800 mt-1 pt-1">
-            <span>TOTAL</span><span>{kz(total)}</span>
+        <div className="w-64 text-[10px]">
+          <div className="flex justify-between py-1"><span>MERCADORIAS/SERVIÇOS</span><span>{kz(total)}</span></div>
+          <div className="flex justify-between py-1"><span>DESCONTO</span><span>0,00 Kz</span></div>
+          <div className="flex justify-between py-2 font-bold text-sm border-t-2 border-slate-800 mt-1 pt-2">
+            <span>TOTAL DO DOCUMENTO</span><span>{kz(total)}</span>
           </div>
         </div>
       </div>
 
-      <p className="mb-3">
+      <p className="mb-4 text-[10px]">
         <span className="font-semibold">Extenso: </span>
         {numeroPorExtenso(total)} kwanzas
       </p>
 
-      {metodo && (
-        <p className="mb-3"><span className="font-semibold">Método de pagamento:</span> {rotuloMetodo[metodo] || metodo}</p>
+      {/* Coordenadas bancárias — todas as contas configuradas */}
+      {contasBancarias.length > 0 && (
+        <div className="border-t border-slate-300 pt-2 mt-2 text-[10px]">
+          <p className="font-semibold mb-1">DADOS BANCÁRIOS</p>
+          {contasBancarias.map((c, i) => (
+            <p key={i}>
+              {c.tipo === "express" ? `MULTICAIXA Express: ${c.telefone}` : `${c.iban} — ${c.banco}`}
+            </p>
+          ))}
+        </div>
       )}
 
-      {/* Coordenadas bancárias */}
-      <div className="border-t border-slate-300 pt-2 mt-2">
-        <p className="font-semibold mb-1">Coordenadas bancárias</p>
-        <p>Banco: {dadosGinasio.banco}</p>
-        <p>IBAN: {dadosGinasio.iban}</p>
-        <p>MULTICAIXA Express: {dadosGinasio.telefonePix}</p>
-      </div>
-
-      <p className="text-center text-[10px] text-slate-400 mt-4">{dadosGinasio.nome} — Documento processado por computador</p>
+      <p className="text-center text-[9px] text-slate-400 mt-6">
+        {dadosGinasio.nome} — Documento processado por computador · {tipo === "FATURA PROFORMA" ? "Este documento não serve de fatura." : ""}
+      </p>
     </div>
   );
 }
@@ -611,6 +638,65 @@ const linkWhatsApp = (telefone, mensagem) =>
 const linkSMS = (telefone, mensagem) =>
   `sms:${(telefone || "").replace(/\D/g, "")}?body=${encodeURIComponent(mensagem)}`;
 
+// ---------------------------------------------------------------------
+// GERAR PDF A SÉRIO (ficheiro, não só a janela de impressão) — usa
+// html2canvas + jsPDF, carregadas por CDN no index.html. Devolve um
+// ficheiro (Blob) pronto a descarregar ou a partilhar.
+// Precisa de internet para as bibliotecas terem carregado primeiro.
+// ---------------------------------------------------------------------
+async function gerarFicheiroPDF(elemento, nomeFicheiro) {
+  if (!window.html2canvas || !window.jspdf) {
+    throw new Error("As bibliotecas de PDF ainda não carregaram — confirma a tua ligação à internet e tenta outra vez.");
+  }
+  const canvas = await window.html2canvas(elemento, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit: "mm", format: "a4" });
+  const larguraA4 = 210;
+  const alturaA4 = 297;
+  const alturaImagem = (canvas.height * larguraA4) / canvas.width;
+  let alturaRestante = alturaImagem;
+  let posicaoY = 0;
+  const imagemPNG = canvas.toDataURL("image/png");
+
+  // Se o conteúdo for mais alto que uma página A4, continua nas páginas
+  // seguintes — sem isto, faturas com muitos itens ficavam cortadas.
+  pdf.addImage(imagemPNG, "PNG", 0, posicaoY, larguraA4, alturaImagem);
+  alturaRestante -= alturaA4;
+  while (alturaRestante > 0) {
+    posicaoY = alturaRestante - alturaImagem;
+    pdf.addPage();
+    pdf.addImage(imagemPNG, "PNG", 0, posicaoY, larguraA4, alturaImagem);
+    alturaRestante -= alturaA4;
+  }
+
+  const blob = pdf.output("blob");
+  return new File([blob], nomeFicheiro, { type: "application/pdf" });
+}
+
+// Partilha o PDF a sério — no telemóvel, abre o menu de partilha nativo
+// (que inclui o WhatsApp, entre outras apps) já com o ficheiro anexado.
+// No computador, a partilha de ficheiros não é suportada pela maioria dos
+// browsers, por isso descarrega o PDF e mostra instruções claras.
+async function partilharOuDescarregarPDF(elemento, nomeFicheiro, tituloPartilha) {
+  const ficheiro = await gerarFicheiroPDF(elemento, nomeFicheiro);
+  if (navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
+    try {
+      await navigator.share({ files: [ficheiro], title: tituloPartilha });
+      return "partilhado";
+    } catch (erro) {
+      if (erro?.name === "AbortError") return "cancelado"; // utilizador fechou o menu de partilha
+      // Se a partilha falhar por outro motivo, cai para descarregar.
+    }
+  }
+  const url = URL.createObjectURL(ficheiro);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = nomeFicheiro;
+  link.click();
+  URL.revokeObjectURL(url);
+  return "descarregado";
+}
+
 // Monta o texto do plano de treino para enviar por WhatsApp — lista cada
 // exercício com séries/repetições/carga, para o aluno poder consultar
 // mesmo sem entrar na conta dele no sistema.
@@ -692,6 +778,64 @@ function StatCard({ icon: Icon, label, value, sub, tone }) {
 // de navegar com muitos membros, mostra um campo de texto que filtra a
 // lista em tempo real, com o membro escolhido a ficar bem visível.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// SELETOR DE DATA POR DIA/MÊS/ANO — em vez do <input type="date"> nativo
+// do browser, que em alguns telemóveis (sobretudo Safari/iOS) mostra
+// comportamentos inconsistentes quando outro campo perto muda ao mesmo
+// tempo (ex.: uma checkbox), fazendo a data "saltar" de volta para hoje.
+// Estes três seletores são geridos inteiramente pelo React, sem depender
+// de nenhum calendário nativo — nunca têm esse problema.
+// ---------------------------------------------------------------------
+function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4, anosAFrente = 1 }) {
+  const hoje = new Date();
+  const temValor = !!valor;
+  const [ano, mes, dia] = valor ? valor.split("-").map(Number) : [hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate()];
+
+  const mudar = (novoDia, novoMes, novoAno) => {
+    const diasNoMes = new Date(novoAno, novoMes, 0).getDate();
+    const diaValido = Math.min(novoDia, diasNoMes);
+    const dataFormatada = `${novoAno}-${String(novoMes).padStart(2, "0")}-${String(diaValido).padStart(2, "0")}`;
+    onMudar(dataFormatada);
+  };
+
+  const nomesMeses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  const diasNoMesAtual = new Date(ano, mes, 0).getDate();
+
+  if (opcional && !temValor) {
+    return (
+      <button
+        type="button"
+        onClick={() => onMudar(new Date().toISOString().slice(0, 10))}
+        className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 text-xs text-left"
+      >
+        Deixa em branco (toca para definir uma data)
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      <select value={dia} onChange={(e) => mudar(Number(e.target.value), mes, ano)}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {Array.from({ length: diasNoMesAtual }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <select value={mes} onChange={(e) => mudar(dia, Number(e.target.value), ano)}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {nomesMeses.map((nome, i) => <option key={i} value={i + 1}>{nome}</option>)}
+      </select>
+      <select value={ano} onChange={(e) => mudar(dia, mes, Number(e.target.value))}
+        className="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+        {Array.from({ length: anosAtras + anosAFrente + 1 }, (_, i) => hoje.getFullYear() - anosAtras + i).map((a) => <option key={a} value={a}>{a}</option>)}
+      </select>
+      {opcional && (
+        <button type="button" onClick={() => onMudar(null)} className="text-[11px] text-red-500 underline decoration-dotted">
+          Limpar
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SeletorMembroPesquisavel({ membros, valor, onEscolher, placeholder = "Pesquisar atleta por nome ou número..." }) {
   const [pesquisa, setPesquisa] = useState("");
   const [aberto, setAberto] = useState(false);
@@ -1426,13 +1570,6 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
       .catch(() => alert("Não foi possível processar esta imagem. Tenta outra."));
   };
 
-  const calcularVencimento = (dataBase, nomePlano) => {
-    const plano = planos.find((p) => p.nome === nomePlano);
-    const d = new Date((dataBase || new Date().toISOString().slice(0, 10)) + "T00:00:00");
-    d.setDate(d.getDate() + (plano ? plano.duracaoDias : 30));
-    return dataLocalISO(d);
-  };
-
   const abrirNovo = () => {
     setEditandoId(null);
     const hoje = new Date().toISOString().slice(0, 10);
@@ -1639,8 +1776,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Data de nascimento (opcional)</label>
-                <input type="date" value={novo.dataNascimento} onChange={(e) => setNovo({ ...novo, dataNascimento: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <div className="mt-1">
+                  <SeletorDataDiaMesAno valor={novo.dataNascimento} onMudar={(novaData) => setNovo({ ...novo, dataNascimento: novaData })} opcional anosAtras={90} anosAFrente={0} />
+                </div>
               </div>
               {editandoId ? (
                 <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
@@ -1666,37 +1804,17 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
               {perfil === "administrador" && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2">
-                  Data de inscrição real (se te esqueceste de registar no dia certo) e, se aplicável, o plano e o
-                  vencimento de quem já vinha com uma subscrição paga de antes. <strong>Preencher isto aqui não gera
-                  recibo nem conta como receita</strong> — é só para refletires o estado real de um atleta que já
-                  pagava antes de começares a usar o sistema. Só o administrador vê este bloco.
+                  Data de inscrição real (se te esqueceste de registar no dia certo). Para atletas que já vinham com
+                  uma subscrição paga de antes de começares a usar o sistema, ativa isso depois em <strong>Subscrições</strong> —
+                  escolhe o plano, muda a data de início para quando ele começou de verdade (mesmo que seja um dia já
+                  passado), e marca "Não gerar recibo agora" para não contar esse dinheiro como receita nova.
                 </p>
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data de inscrição</label>
-                    <input
-                      type="date"
-                      value={novo.dataInscricao}
-                      onChange={(e) => setNovo((n) => ({ ...n, dataInscricao: e.target.value, vencimento: n.vencimento ? calcularVencimento(e.target.value, n.plano) : n.vencimento }))}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Vencimento (opcional)</label>
-                    <input type="date" value={novo.vencimento} onChange={(e) => setNovo({ ...novo, vencimento: e.target.value })}
-                      placeholder="Deixa em branco"
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data de inscrição</label>
+                  <div className="mt-1">
+                    <SeletorDataDiaMesAno valor={novo.dataInscricao} onMudar={(novaData) => setNovo((n) => ({ ...n, dataInscricao: novaData }))} />
                   </div>
                 </div>
-                {novo.vencimento && (
-                  <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Plano que já tinha</label>
-                    <select value={novo.plano} onChange={(e) => setNovo({ ...novo, plano: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
-                      <option value="">Selecionar plano...</option>
-                      {planos.map((p) => <option key={p.nome} value={p.nome}>{p.nome}</option>)}
-                    </select>
-                  </div>
-                )}
               </div>
               )}
 
@@ -1857,8 +1975,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   );
 }
 
-function Planos({ planos, onSave }) {
+function Planos({ planos, membros, onSave, onRemove }) {
   const [editando, setEditando] = useState(null); // objeto do plano, ou {} para novo
+  const [aEliminar, setAEliminar] = useState(null);
   const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0 });
   const [historicoPreco, setHistoricoPreco] = useState({}); // { planoId: [{de, para, data}] }
 
@@ -1923,6 +2042,12 @@ function Planos({ planos, onSave }) {
             >
               <Pencil size={14} /> Editar plano
             </button>
+            <button
+              onClick={() => setAEliminar(p)}
+              className="mt-2 w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg py-2 hover:bg-red-50 dark:hover:bg-red-950"
+            >
+              <Trash2 size={14} /> Eliminar plano
+            </button>
           </Card>
         ))}
       </div>
@@ -1964,6 +2089,26 @@ function Planos({ planos, onSave }) {
           </div>
         </div>
       )}
+
+      {aEliminar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">Eliminar plano "{aEliminar.nome}"?</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Esta ação não pode ser desfeita.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setAEliminar(null)} className="flex-1 text-sm font-semibold border border-slate-200 dark:border-slate-600 rounded-lg py-2 hover:bg-slate-50 dark:hover:bg-slate-700">
+                Cancelar
+              </button>
+              <button
+                onClick={() => { onRemove(aEliminar.id); setAEliminar(null); }}
+                className="flex-1 text-sm font-semibold bg-red-600 text-white rounded-lg py-2 hover:bg-red-700"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1988,6 +2133,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
   const [metodo, setMetodo] = useState("dinheiro");
   const [comprovativo, setComprovativo] = useState(null);
   const [recibo, setRecibo] = useState(null);
+  const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
 
   const metodos = [
@@ -2123,16 +2269,28 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                 onClick={() => imprimirElemento(`Recibo ${recibo.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                PDF / Imprimir
+                Imprimir
               </button>
               {recibo.membro.telefone && (
-                <a
-                  href={linkWhatsApp(recibo.membro.telefone, `Recibo ${recibo.numero} — ${kz(recibo.valor)} recebido. Obrigado! ${dadosGinasio.nome} 💪`)}
-                  target="_blank" rel="noreferrer"
-                  className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
+                <button
+                  disabled={aGerarPDF}
+                  onClick={async () => {
+                    setAGerarPDF(true);
+                    try {
+                      const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${recibo.numero}.pdf`, `Recibo ${recibo.numero}`);
+                      if (resultado === "descarregado") {
+                        alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                      }
+                    } catch (erro) {
+                      alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
+                    } finally {
+                      setAGerarPDF(false);
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
                 >
-                  Enviar por WhatsApp
-                </a>
+                  {aGerarPDF ? "A gerar PDF..." : <><FileText size={15} /> Enviar PDF do recibo</>}
+                </button>
               )}
             </div>
             <button onClick={reiniciar} className="mt-4 text-sm font-semibold text-[#3F8F87] hover:underline">
@@ -2158,6 +2316,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   const [erroLeitor, setErroLeitor] = useState("");
   const [naoEncontrado, setNaoEncontrado] = useState("");
   const [pesquisaProduto, setPesquisaProduto] = useState("");
+  const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
@@ -2407,16 +2566,28 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                 onClick={() => imprimirElemento(`Recibo ${concluida.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                Recibo — PDF / Imprimir
+                Recibo — Imprimir
               </button>
               {concluida.membro?.telefone && (
-                <a
-                  href={linkWhatsApp(concluida.membro.telefone, `Recibo ${concluida.numero} — ${kz(concluida.valor)}. Obrigado pela compra! ${dadosGinasio.nome} 💪`)}
-                  target="_blank" rel="noreferrer"
-                  className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
+                <button
+                  disabled={aGerarPDF}
+                  onClick={async () => {
+                    setAGerarPDF(true);
+                    try {
+                      const resultado = await partilharOuDescarregarPDF(docRef.current, `Recibo-${concluida.numero}.pdf`, `Recibo ${concluida.numero}`);
+                      if (resultado === "descarregado") {
+                        alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                      }
+                    } catch (erro) {
+                      alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
+                    } finally {
+                      setAGerarPDF(false);
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
                 >
-                  Enviar
-                </a>
+                  {aGerarPDF ? "A gerar PDF..." : "Enviar PDF"}
+                </button>
               )}
             </div>
           </div>
@@ -3279,10 +3450,11 @@ function Funcionarios({ contas }) {
 // ---------------------------------------------------------------------
 // PERSONAL TRAINERS
 // ---------------------------------------------------------------------
-function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir, avaliacoesTrainer }) {
+function PersonalTrainers({ trainers, membros, onAdd, onRemove, onAtribuirAluno, podeGerir, avaliacoesTrainer }) {
   const [showForm, setShowForm] = useState(false);
   const [novo, setNovo] = useState({ nome: "", telefone: "", especialidade: "" });
   const [gerirAlunosDe, setGerirAlunosDe] = useState(null); // trainer selecionado para gerir alunos
+  const [aEliminar, setAEliminar] = useState(null);
 
   const submeter = (e) => {
     e.preventDefault();
@@ -3351,6 +3523,14 @@ function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir
               >
                 Gerir alunos
               </button>
+              {podeGerir && (
+                <button
+                  onClick={() => setAEliminar(t)}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-red-500 border border-red-200 dark:border-red-900 rounded-lg py-2 hover:bg-red-50 dark:hover:bg-red-950"
+                >
+                  <Trash2 size={14} /> Eliminar trainer
+                </button>
+              )}
             </Card>
           );
         })}
@@ -3360,6 +3540,30 @@ function PersonalTrainers({ trainers, membros, onAdd, onAtribuirAluno, podeGerir
         <p className="text-xs text-slate-400 dark:text-slate-500">
           Apenas o administrador pode inscrever novos personal trainers.
         </p>
+      )}
+
+      {aEliminar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">Eliminar "{aEliminar.nome}"?</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+              {alunosDe(aEliminar.id).length > 0
+                ? `${alunosDe(aEliminar.id).length} aluno(s) ficam sem personal trainer atribuído — podes reatribuí-los depois a outro PT.`
+                : "Esta ação não pode ser desfeita."}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setAEliminar(null)} className="flex-1 text-sm font-semibold border border-slate-200 dark:border-slate-600 rounded-lg py-2 hover:bg-slate-50 dark:hover:bg-slate-700">
+                Cancelar
+              </button>
+              <button
+                onClick={() => { onRemove(aEliminar.id); setAEliminar(null); }}
+                className="flex-1 text-sm font-semibold bg-red-600 text-white rounded-lg py-2 hover:bg-red-700"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showForm && (
@@ -3558,7 +3762,7 @@ const ROTULO_COLECAO = {
 
 function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativar, onReporSenha }) {
   const [showForm, setShowForm] = useState(false);
-  const [novo, setNovo] = useState({ nome: "", email: "", senha: "", perfil: "recepcionista", trainerId: "" });
+  const [novo, setNovo] = useState({ nome: "", email: "", telefone: "", senha: "", perfil: "recepcionista", trainerId: "" });
   const [repondoId, setRepondoId] = useState(null);
   const [senhaNova, setSenhaNova] = useState("");
 
@@ -3566,7 +3770,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
     e.preventDefault();
     if (!novo.nome || !novo.email || !novo.senha) return;
     onAdd({ ...novo, trainerId: novo.perfil === "personal_trainer" && novo.trainerId ? Number(novo.trainerId) : null });
-    setNovo({ nome: "", email: "", senha: "", perfil: "recepcionista", trainerId: "" });
+    setNovo({ nome: "", email: "", telefone: "", senha: "", perfil: "recepcionista", trainerId: "" });
     setShowForm(false);
   };
 
@@ -3606,6 +3810,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
               <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
                 <th className="pb-2 font-medium">Nome</th>
                 <th className="pb-2 font-medium">E-mail</th>
+                <th className="pb-2 font-medium">Telefone</th>
                 <th className="pb-2 font-medium">Perfil</th>
                 <th className="pb-2 font-medium">Estado</th>
                 <th className="pb-2 font-medium"></th>
@@ -3616,6 +3821,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
                 <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
                   <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{c.nome}</td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{c.email}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{c.telefone || "—"}</td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{ROTULO_PERFIL[c.perfil]}</td>
                   <td className="py-2.5">
                     {c.desativada ? (
@@ -3626,6 +3832,11 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
                   </td>
                   <td className="py-2.5 text-right">
                     <div className="flex items-center justify-end gap-3">
+                      {c.telefone && c.perfil !== "administrador" && c.perfil !== "membro" && (
+                        <a href={linkSMS(c.telefone, "")} title={`Enviar SMS a ${c.nome}`} className="text-slate-400 hover:text-emerald-600">
+                          <MessageSquare size={15} />
+                        </a>
+                      )}
                       {c.perfil !== "administrador" && c.perfil !== "membro" && (
                         <button onClick={() => { setRepondoId(c.id); setSenhaNova(""); }} title="Repor palavra-passe" className="text-slate-400 hover:text-[#3F8F87]">
                           <KeyRound size={15} />
@@ -3694,6 +3905,12 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">E-mail</label>
                 <input type="email" value={novo.email} onChange={(e) => setNovo({ ...novo, email: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone (opcional, para SMS)</label>
+                <input value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })}
+                  placeholder="923 000 000"
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
               </div>
               <div>
@@ -4365,8 +4582,9 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Última manutenção</label>
-                <input type="date" value={novo.dataUltimaManutencao} onChange={(e) => setNovo({ ...novo, dataUltimaManutencao: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+                <div className="mt-1">
+                  <SeletorDataDiaMesAno valor={novo.dataUltimaManutencao} onMudar={(novaData) => setNovo({ ...novo, dataUltimaManutencao: novaData })} anosAtras={2} />
+                </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">A cada quantos dias</label>
@@ -4694,14 +4912,9 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                         <td colSpan={6} className="py-3 px-2">
                           <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
                             <label className="text-slate-500 dark:text-slate-400 font-medium">Data de início do novo período:</label>
-                            <input
-                              type="date"
-                              value={dataInicio}
-                              onChange={(e) => setDataInicio(e.target.value)}
-                              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
-                            />
+                            <SeletorDataDiaMesAno valor={dataInicio} onMudar={setDataInicio} />
                             <span className="text-slate-400 dark:text-slate-500">
-                              Se pagou hoje mas o plano só começa noutro dia, muda esta data.
+                              Se pagou hoje mas o plano só começa noutro dia (inclusive dias já passados), muda esta data.
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -4909,6 +5122,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [faturaOrigemNumero, setFaturaOrigemNumero] = useState(null); // se este recibo quita uma fatura pendente
   const [gerada, setGerada] = useState(null);
+  const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
   const cartaoGerarRef = useRef(null);
 
@@ -5231,20 +5445,31 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                 onClick={() => imprimirElemento(`${gerada.numero}`, docRef.current)}
                 className="flex-1 border border-slate-200 dark:border-slate-600 rounded-lg py-2 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-700"
               >
-                PDF / Imprimir
+                Imprimir
               </button>
-              <a
-                href={linkWhatsApp(
-                  gerada.membro.telefone,
-                  `Olá ${gerada.membro.nome.split(" ")[0]}, segue o resumo do seu documento ${gerada.numero} (${dadosGinasio.nome}):\n\n` +
-                    gerada.itens.map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") +
-                    `\n\nTotal: ${kz(gerada.valor)}\nObrigado pela preferência!`
-                )}
-                target="_blank" rel="noreferrer"
-                className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
+              <button
+                disabled={aGerarPDF}
+                onClick={async () => {
+                  setAGerarPDF(true);
+                  try {
+                    const resultado = await partilharOuDescarregarPDF(
+                      docRef.current,
+                      `${gerada.numero}.pdf`,
+                      `${gerada.numero} — ${dadosGinasio.nome}`
+                    );
+                    if (resultado === "descarregado") {
+                      alert("PDF descarregado. Agora é só abrires o WhatsApp e anexares o ficheiro que acabaste de guardar.");
+                    }
+                  } catch (erro) {
+                    alert(erro.message || "Não foi possível gerar o PDF. Tenta outra vez.");
+                  } finally {
+                    setAGerarPDF(false);
+                  }
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center disabled:opacity-50"
               >
-                Enviar por WhatsApp
-              </a>
+                {aGerarPDF ? "A gerar PDF..." : <><FileText size={15} /> Enviar PDF do documento</>}
+              </button>
             </div>
           </div>
         )}
@@ -6198,7 +6423,7 @@ const RESPOSTAS_RAPIDAS = [
   "Podes passar pela receção para resolver isso.",
 ];
 
-function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros }) {
+function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros, funcionarios }) {
   const conversas = useMemo(() => {
     const mapa = {};
     mensagens.forEach((m) => {
@@ -6215,6 +6440,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   const [showGeral, setShowGeral] = useState(false);
   const [textoGeral, setTextoGeral] = useState("");
   const [avisoEnviado, setAvisoEnviado] = useState(false);
+  const [showNovaConversa, setShowNovaConversa] = useState(false);
   const fimRef = useRef(null);
 
   const mensagensDaConversa = aberta
@@ -6249,15 +6475,35 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
 
   const rotuloTipo = { membro: "Membro", funcionario: "Funcionário" };
 
+  const iniciarConversaComFuncionario = (funcionario) => {
+    setAberta({ participanteId: funcionario.id, participanteTipo: "funcionario", participanteNome: funcionario.nome, ultima: { id: 0 } });
+    setShowNovaConversa(false);
+  };
+
+  // Funcionários que ainda não têm nenhuma conversa começada — só estes
+  // fazem sentido mostrar no picker de "nova conversa" (os outros já
+  // aparecem na lista à esquerda, é só clicar lá).
+  const funcionariosSemConversa = (funcionarios || []).filter(
+    (f) => !conversas.some((c) => c.participanteTipo === "funcionario" && c.participanteId === f.id)
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => setShowGeral(true)}
-          className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg"
-        >
-          <MessageSquare size={16} /> Aviso geral a todos os membros
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGeral(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg"
+          >
+            <MessageSquare size={16} /> Aviso geral a todos os membros
+          </button>
+          <button
+            onClick={() => setShowNovaConversa(true)}
+            className="flex items-center gap-1.5 ring-1 ring-[#8FC9C3] text-[#3F8F87] text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#EAF5F4] dark:hover:bg-slate-700"
+          >
+            <Plus size={16} /> Escrever a um funcionário
+          </button>
+        </div>
         {avisoEnviado && <span className="text-sm text-emerald-600 font-medium">Aviso enviado ✔</span>}
       </div>
 
@@ -6307,7 +6553,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
                   ))}
                 </div>
                 <form onSubmit={enviar} className="flex gap-2">
-                  <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Responder..."
+                  <input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={mensagensDaConversa.length === 0 ? "Escreve a primeira mensagem..." : "Responder..."}
                     className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
                   <button className="bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white px-4 rounded-lg">
                     <Send size={16} />
@@ -6342,6 +6588,35 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
                 <Send size={16} /> Enviar a todos
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showNovaConversa && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm relative">
+            <button onClick={() => setShowNovaConversa(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+              <X size={18} />
+            </button>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">Escrever a um funcionário</h3>
+            {(funcionarios || []).length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há nenhum funcionário cadastrado. Cria contas em Configurações → Utilizadores.</p>
+            ) : funcionariosSemConversa.length === 0 ? (
+              <p className="text-sm text-slate-400 dark:text-slate-500">Já tens conversa com todos os funcionários — escolhe-os na lista à esquerda.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {funcionariosSemConversa.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => iniciarConversaComFuncionario(f)}
+                    className="w-full text-left p-2.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-between"
+                  >
+                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{f.nome}</span>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">{ROTULO_PERFIL[f.perfil]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -10135,8 +10410,35 @@ export default function CatumbelaGymApp() {
     }
   };
 
+  // Eliminar um plano é bloqueado se ainda houver membros com esse plano —
+  // apagá-lo deixaria esses membros "presos" a um plano que já não existe
+  // (o botão de gerar recibo/fatura falharia sem explicação nenhuma).
+  const removerPlano = (id) => {
+    const plano = planos.find((p) => p.id === id);
+    if (!plano) return;
+    const membrosComEstePlano = membros.filter((m) => m.plano === plano.nome).length;
+    if (membrosComEstePlano > 0) {
+      alert(`Não é possível eliminar "${plano.nome}" — ${membrosComEstePlano} membro(s) ainda têm este plano. Muda-os de plano primeiro, em Subscrições.`);
+      return;
+    }
+    setPlanos((atual) => atual.filter((p) => p.id !== id));
+    registarAuditoria("Eliminou plano", plano.nome);
+  };
+
   const adicionarTrainer = (novo) => {
     setTrainers([...trainers, { ...novo, id: Math.max(0, ...trainers.map((t) => t.id)) + 1 }]);
+  };
+
+  // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
+  // sem PT, prontos a reatribuir a outro), em vez de bloquear — um PT sair
+  // do ginásio é uma situação normal, não deve impedir a eliminação.
+  const removerTrainer = (id) => {
+    const trainer = trainers.find((t) => t.id === id);
+    if (!trainer) return;
+    const alunosAfetados = membros.filter((m) => m.trainerId === id).length;
+    setMembros((atual) => atual.map((m) => (m.trainerId === id ? { ...m, trainerId: null } : m)));
+    setTrainers((atual) => atual.filter((t) => t.id !== id));
+    registarAuditoria("Eliminou personal trainer", `${trainer.nome}${alunosAfetados > 0 ? ` — ${alunosAfetados} aluno(s) ficaram sem PT` : ""}`);
   };
 
   const atribuirAluno = (membroId, trainerId) => {
@@ -11390,9 +11692,9 @@ export default function CatumbelaGymApp() {
               avaliacoesFisicas={avaliacoesFisicas}
             />
           )}
-          {telaAtual === "planos" && perfil === "administrador" && <Planos planos={planos} onSave={salvarPlano} />}
+          {telaAtual === "planos" && perfil === "administrador" && <Planos planos={planos} membros={membros} onSave={salvarPlano} onRemove={removerPlano} />}
           {telaAtual === "trainers" && (
-            <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
+            <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
             <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} />
@@ -11441,7 +11743,7 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} />}
           {telaAtual === "mensagens" && perfil === "administrador" && (
-            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} />
+            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
           )}
           {telaAtual === "mensagens" && (perfil === "recepcionista" || perfil === "personal_trainer") && (
             <MensagensParticipante

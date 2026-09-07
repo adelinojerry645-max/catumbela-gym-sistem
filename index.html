@@ -13,6 +13,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Catumbela Gym" />
+
+    <!-- Geração de PDF a sério (faturas, recibos, proformas) — carregadas por
+         CDN em vez de npm, para não precisar de instalar mais pacotes.
+         Precisam de internet para carregar (como qualquer script externo). -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   </head>
   <body>
     <div id="root"></div>
