@@ -1036,7 +1036,15 @@ function Card({ title, action, children, className = "" }) {
 // ---------------------------------------------------------------------
 // TELAS
 // ---------------------------------------------------------------------
-function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos }) {
+function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos, avisosEnviados, onMarcarEnviado }) {
+  const [aEnviarEmMassaVencidos, setAEnviarEmMassaVencidos] = useState(false);
+  const mensagemVencido = (m) =>
+    `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym está vencida desde ${m.vencimento}. Pode regularizar quando puder 💪`;
+  const vencidosPorContactar = membros
+    .filter((m) => m.estado === "vencido")
+    .filter((m) => !(avisosEnviados || []).some((a) => a.chave === `${m.id}-vencido-${m.vencimento}`))
+    .map((m) => ({ membro: m }));
+
   const total = membros.length;
   const ativos = membros.filter((m) => m.estado === "ativo").length;
   const vencidos = membros.filter((m) => m.estado === "vencido").length;
@@ -1253,33 +1261,54 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
         </Card>
 
         {/* Membros com mensalidade vencida */}
-        <Card title="Membros com mensalidade vencida" className="lg:col-span-2">
+        <Card title="Membros com mensalidade vencida" className="lg:col-span-2" action={
+          vencidosPorContactar.length > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{vencidosPorContactar.length} por contactar</span>
+              <button onClick={() => setAEnviarEmMassaVencidos(true)} className="text-xs font-semibold text-[#3F8F87] hover:underline">
+                Enviar a todos
+              </button>
+            </div>
+          )
+        }>
           <div className="divide-y divide-slate-100 dark:divide-slate-700">
-            {membros.filter((m) => m.estado === "vencido").map((m) => (
-              <div key={m.id} className="flex items-center justify-between py-2.5">
-                <div>
-                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{m.numero} · venceu em {m.vencimento}</p>
+            {membros.filter((m) => m.estado === "vencido").map((m) => {
+              const chave = `${m.id}-vencido-${m.vencimento}`;
+              const envio = (avisosEnviados || []).find((a) => a.chave === chave);
+              return (
+                <div key={m.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{m.numero} · venceu em {m.vencimento}</p>
+                  </div>
+                  {envio ? (
+                    <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
+                      <CheckCircle2 size={14} /> Contactado {envio.data}
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <a
+                        href={linkWhatsApp(m.telefone, mensagemVencido(m))}
+                        target="_blank" rel="noreferrer"
+                        onClick={() => onMarcarEnviado && onMarcarEnviado(chave, m.id, "vencido", "WhatsApp")}
+                        title="Cobrar por WhatsApp"
+                        className="text-emerald-600 hover:text-emerald-700"
+                      >
+                        <MessageCircle size={16} />
+                      </a>
+                      <a
+                        href={linkSMS(m.telefone, mensagemVencido(m))}
+                        onClick={() => onMarcarEnviado && onMarcarEnviado(chave, m.id, "vencido", "SMS")}
+                        title="Cobrar por SMS"
+                        className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      >
+                        <Phone size={16} />
+                      </a>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={linkWhatsApp(m.telefone, `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym está vencida desde ${m.vencimento}. Pode regularizar quando puder 💪`)}
-                    target="_blank" rel="noreferrer"
-                    title="Cobrar por WhatsApp"
-                    className="text-emerald-600 hover:text-emerald-700"
-                  >
-                    <MessageCircle size={16} />
-                  </a>
-                  <a
-                    href={linkSMS(m.telefone, `Catumbela Gym: a sua mensalidade venceu em ${m.vencimento}. Por favor regularize o pagamento.`)}
-                    title="Cobrar por SMS"
-                    className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                  >
-                    <Phone size={16} />
-                  </a>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {membros.filter((m) => m.estado === "vencido").length === 0 && (
               <p className="text-sm text-slate-400 dark:text-slate-500 py-3">Nenhuma mensalidade vencida 🎉</p>
             )}
@@ -1399,6 +1428,16 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
             ))}
           </div>
         </Card>
+      )}
+
+      {aEnviarEmMassaVencidos && (
+        <EnviarEmMassaModal
+          pessoas={vencidosPorContactar}
+          gerarMensagem={(pessoa) => mensagemVencido(pessoa.membro)}
+          gerarChave={(pessoa) => `${pessoa.membro.id}-vencido-${pessoa.membro.vencimento}`}
+          onMarcarEnviado={onMarcarEnviado}
+          onFechar={() => setAEnviarEmMassaVencidos(false)}
+        />
       )}
     </div>
   );
@@ -1973,6 +2012,25 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                       </select>
                     </div>
                   </div>
+                  {(novo.metodoTaxaInscricao === "tpa" || novo.metodoTaxaInscricao === "express" || novo.metodoTaxaInscricao === "transferencia") && (
+                    <div className="mt-2">
+                      <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                        {novo.metodoTaxaInscricao === "express" ? "Qual número Express recebeu?" : novo.metodoTaxaInscricao === "tpa" ? "De qual banco é o terminal TPA?" : "Qual conta bancária recebeu?"}
+                      </label>
+                      <select value={novo.contaBancariaTaxaId || ""} onChange={(e) => setNovo({ ...novo, contaBancariaTaxaId: e.target.value })}
+                        className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                        <option value="">Selecionar...</option>
+                        {obterContasBancarias(dadosGinasio)
+                          .filter((c) => (novo.metodoTaxaInscricao === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                          .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                      </select>
+                      {obterContasBancarias(dadosGinasio).filter((c) => (novo.metodoTaxaInscricao === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+                          Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3047,6 +3105,22 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   const streamRef = React.useRef(null);
   const rafRef = React.useRef(null);
 
+  // Quem ainda está dentro do ginásio (sem saída registada) aparece sempre
+  // primeiro — sem isto, uma entrada de há dias sem saída ficava perdida
+  // no meio de saídas mais recentes, e a receção nem dava por ela.
+  const acessosOrdenados = useMemo(
+    () =>
+      [...acessos].sort((a, b) => {
+        const aDentro = !a.saida;
+        const bDentro = !b.saida;
+        if (aDentro !== bDentro) return aDentro ? -1 : 1;
+        const chaveA = `${a.data} ${a.entrada}`;
+        const chaveB = `${b.data} ${b.entrada}`;
+        return chaveA > chaveB ? -1 : 1;
+      }),
+    [acessos]
+  );
+
   const localizar = (texto) => {
     const alvo = texto.trim().toLowerCase();
     // aceita "CG-000001", "000001", ou apenas "1" — compara também pelo número sem zeros à esquerda
@@ -3263,7 +3337,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
 
       <Card title="Últimas entradas" className="lg:col-span-2">
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {acessos.map((a) => (
+          {acessosOrdenados.map((a) => (
             <div key={a.id} className="flex items-center justify-between py-2.5 text-sm">
               <div>
                 <p className="font-medium text-slate-900 dark:text-slate-100">{a.membro}</p>
@@ -4922,11 +4996,12 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
   );
 }
 
-function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil }) {
+function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio }) {
   const [editandoId, setEditandoId] = useState(null);
   const [novoPlano, setNovoPlano] = useState("");
   const [dataInicio, setDataInicio] = useState("");
   const [metodoPagamento, setMetodoPagamento] = useState("dinheiro");
+  const [contaBancariaId, setContaBancariaId] = useState("");
   const [semPagamentoAgora, setSemPagamentoAgora] = useState(false);
   const [ultimoRecibo, setUltimoRecibo] = useState(null);
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
@@ -4947,12 +5022,13 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     setNovoPlano(membro.plano || planos[0]?.nome || "");
     setDataInicio(new Date().toISOString().slice(0, 10));
     setMetodoPagamento("dinheiro");
+    setContaBancariaId("");
     setSemPagamentoAgora(false);
     setUltimoRecibo(null);
   };
 
   const confirmarMudanca = (membro) => {
-    const documento = onAtualizarSubscricao(membro.id, novoPlano, dataInicio, semPagamentoAgora ? null : metodoPagamento);
+    const documento = onAtualizarSubscricao(membro.id, novoPlano, dataInicio, semPagamentoAgora ? null : metodoPagamento, semPagamentoAgora ? null : contaBancariaId);
     setUltimoRecibo(documento);
     setUltimoPlanoConfirmado(novoPlano);
     setEditandoId(null);
@@ -5079,7 +5155,24 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                                 <option value="transferencia">Transferência</option>
                               </select>
                             )}
+                            {!semPagamentoAgora && (metodoPagamento === "tpa" || metodoPagamento === "express" || metodoPagamento === "transferencia") && (
+                              <select value={contaBancariaId} onChange={(e) => setContaBancariaId(e.target.value)}
+                                className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                                <option value="">
+                                  {metodoPagamento === "express" ? "Qual número Express?" : metodoPagamento === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
+                                </option>
+                                {obterContasBancarias(dadosGinasio)
+                                  .filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                                  .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                              </select>
+                            )}
                           </div>
+                          {!semPagamentoAgora && (metodoPagamento === "tpa" || metodoPagamento === "express" || metodoPagamento === "transferencia") &&
+                            obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">
+                              Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
+                            </p>
+                          )}
                           {!semPagamentoAgora && (
                             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
                               Ao confirmar, gera-se logo o recibo correspondente — a subscrição fica sempre ligada à
@@ -5101,15 +5194,29 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
       </Card>
 
       {ultimoRecibo && (
-        <div className="bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-200 dark:ring-emerald-800 rounded-xl p-4 flex items-center gap-3">
-          <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
-          <p className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
-            Recibo <strong>{ultimoRecibo.numero}</strong> gerado com sucesso — Plano <strong>{ultimoPlanoConfirmado}</strong>, {kz(ultimoRecibo.valor)}. Vê em
-            Faturação / Recibos → Histórico completo.
-          </p>
-          <button onClick={() => setUltimoRecibo(null)} className="text-emerald-400 hover:text-emerald-600 shrink-0">
-            <X size={16} />
-          </button>
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-200 dark:ring-emerald-800 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
+            <p className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
+              Recibo <strong>{ultimoRecibo.numero}</strong> gerado com sucesso — Plano <strong>{ultimoPlanoConfirmado}</strong>, {kz(ultimoRecibo.valor)}. Vê em
+              Faturação / Recibos → Histórico completo.
+            </p>
+            <button onClick={() => setUltimoRecibo(null)} className="text-emerald-400 hover:text-emerald-600 shrink-0">
+              <X size={16} />
+            </button>
+          </div>
+          {ultimoRecibo.membro?.telefone && (
+            <a
+              href={linkWhatsApp(
+                ultimoRecibo.membro.telefone,
+                `Olá ${ultimoRecibo.membro.nome.split(" ")[0]}, aqui está o recibo ${ultimoRecibo.numero} — Plano ${ultimoPlanoConfirmado}, ${kz(ultimoRecibo.valor)}. Obrigado! 💪`
+              )}
+              target="_blank" rel="noreferrer"
+              className="mt-3 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2 rounded-lg"
+            >
+              <MessageSquare size={15} /> Enviar recibo por WhatsApp
+            </a>
+          )}
         </div>
       )}
 
@@ -5630,6 +5737,39 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 // mais antecedência (5 dias) do que um semanal (3 dias) ou diário (1 dia),
 // porque faz pouco sentido avisar alguém com plano de 1 dia com 5 dias de
 // antecedência.
+// Atletas "perdidos" — vencidos há muito tempo (não é só quem venceu
+// ontem, é quem já nem aparece há semanas). Mostra também a data da
+// última subscrição/pagamento feito (não o Controlo de Acessos — nem
+// todos os ginásios usam o check-in fisicamente de forma consistente, mas
+// os pagamentos ficam sempre registados) — para a mensagem poder ser mais
+// pessoal ("a tua última mensalidade foi em X") em vez de só uma cobrança fria.
+const DIAS_PARA_SER_CONSIDERADO_PERDIDO = 15;
+
+function calcularAtletasPerdidos(membros, pagamentosFeitos, faturas) {
+  const hoje = new Date();
+  const hojeSemHora = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  return membros
+    .filter((m) => m.estado === "vencido" && m.vencimento)
+    .map((m) => {
+      const [ano, mes, dia] = m.vencimento.split("-").map(Number);
+      const venc = new Date(ano, mes - 1, dia);
+      const diasVencido = Math.round((hojeSemHora - venc) / (1000 * 60 * 60 * 24));
+      // Encontra o pagamento de mensalidade/inscrição mais recente deste
+      // membro, cruzando com o documento (fatura/recibo) para saber a quem
+      // pertence — pagamentosFeitos por si só não guarda o nome do membro.
+      const pagamentosDoMembro = pagamentosFeitos
+        .filter((p) => p.tipo === "mensalidade" || p.tipo === "inscricao")
+        .map((p) => ({ ...p, doc: faturas.find((f) => f.numero === p.numero) }))
+        .filter((p) => p.doc?.membro?.numero === m.numero);
+      const ultimaSubscricao = pagamentosDoMembro.length > 0
+        ? pagamentosDoMembro.reduce((maisRecente, p) => (p.data > maisRecente ? p.data : maisRecente), pagamentosDoMembro[0].data)
+        : null;
+      return { membro: m, diasVencido, ultimaSubscricao };
+    })
+    .filter((r) => r.diasVencido >= DIAS_PARA_SER_CONSIDERADO_PERDIDO)
+    .sort((a, b) => b.diasVencido - a.diasVencido);
+}
+
 function diasDeAvisoParaPlano(plano) {
   const duracao = plano?.duracaoDias ?? 30;
   if (duracao >= 20) return 5; // mensal ou mais longo
@@ -5840,13 +5980,104 @@ function CentralAvisos({ avisos, onAdicionar, onRemover }) {
   );
 }
 
-function Notificacoes({ membros, planos }) {
+// ---------------------------------------------------------------------
+// ENVIAR EM MASSA — o WhatsApp/SMS nunca deixam enviar de verdade sem uma
+// pessoa clicar (não há "enviar tudo" automático sem API paga do
+// WhatsApp Business), mas isto poupa imenso trabalho: mostra uma pessoa
+// de cada vez, já com a mensagem pronta — um clique abre e avança
+// sozinho para a próxima, marcando a anterior como enviada.
+// ---------------------------------------------------------------------
+function EnviarEmMassaModal({ pessoas, gerarMensagem, gerarChave, onMarcarEnviado, onFechar }) {
+  // Congela a lista logo que o modal abre — sem isto, cada envio marca a
+  // pessoa como "contactada", o que a tira da lista "por contactar" no
+  // ecrã principal (recalculada a cada render), encolhendo a prop
+  // "pessoas" a meio do percurso e fazendo o índice saltar para o fim
+  // antes de tempo, pulando gente que ainda faltava contactar.
+  const [pessoasFixas] = useState(() => pessoas);
+  const [indice, setIndice] = useState(0);
+  const atual = pessoasFixas[indice];
+  const acabou = indice >= pessoasFixas.length;
+
+  const avancarComoEnviado = (canal) => {
+    onMarcarEnviado(gerarChave(atual), atual.membro.id, atual.tipo || "massa", canal);
+    setIndice((i) => i + 1);
+  };
+
+  if (acabou) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm text-center">
+          <CheckCircle2 size={36} className="text-emerald-500 mx-auto mb-2" />
+          <p className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Terminado!</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Percorreste todas as {pessoasFixas.length} pessoas.</p>
+          <button onClick={onFechar} className="w-full bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg text-sm">
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm relative">
+        <button onClick={onFechar} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+          <X size={18} />
+        </button>
+        <p className="text-xs font-semibold text-[#3F8F87] mb-1">Pessoa {indice + 1} de {pessoasFixas.length}</p>
+        <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100 mb-1">{atual.membro.nome}</h3>
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">{atual.membro.numero} · {atual.membro.telefone || "sem telefone"}</p>
+
+        <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm text-slate-600 dark:text-slate-300 mb-4 max-h-32 overflow-y-auto">
+          {gerarMensagem(atual)}
+        </div>
+
+        {!atual.membro.telefone ? (
+          <button onClick={() => setIndice((i) => i + 1)} className="w-full text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
+            Sem telefone — saltar
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <a
+              href={linkWhatsApp(atual.membro.telefone, gerarMensagem(atual))}
+              target="_blank" rel="noreferrer"
+              onClick={() => avancarComoEnviado("WhatsApp")}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm"
+            >
+              <MessageCircle size={15} /> WhatsApp
+            </a>
+            <a
+              href={linkSMS(atual.membro.telefone, gerarMensagem(atual))}
+              onClick={() => avancarComoEnviado("SMS")}
+              className="flex-1 flex items-center justify-center gap-1.5 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-700 dark:text-slate-200 font-semibold py-2.5 rounded-lg text-sm"
+            >
+              <Phone size={15} /> SMS
+            </a>
+          </div>
+        )}
+        <button onClick={() => setIndice((i) => i + 1)} className="w-full text-xs text-slate-400 mt-3 hover:underline">
+          Saltar esta pessoa (não marca como enviado)
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
   const notificacoes = calcularNotificacoes(membros, planos);
-  const [enviados, setEnviados] = useState(() => new Set()); // sessão atual, para acompanhar o progresso ao percorrer a lista
+  const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
+  // A "chave" de cada notificação identifica o membro + tipo de aviso +
+  // vencimento exato — assim, se o vencimento mudar (renovou), volta a
+  // contar como um aviso novo, mesmo que a mesma pessoa já tenha sido
+  // avisada antes para um vencimento anterior.
+  const chaveDe = (n) => `${n.membro.id}-${n.tipo}-${n.membro.vencimento}`;
+  const enviadosMapa = useMemo(() => {
+    const mapa = {};
+    avisosEnviados.forEach((a) => { mapa[a.chave] = a; });
+    return mapa;
+  }, [avisosEnviados]);
 
-  const marcarEnviado = (id) => setEnviados((atual) => new Set(atual).add(id));
-
-  const porEnviar = notificacoes.filter((n) => !enviados.has(n.membro.id));
+  const porEnviar = notificacoes.filter((n) => !enviadosMapa[chaveDe(n)]);
 
   return (
     <div className="space-y-4">
@@ -5855,23 +6086,32 @@ function Notificacoes({ membros, planos }) {
         <p className="text-sm text-slate-600 dark:text-slate-300">
           O sistema avisa automaticamente <strong>5 dias antes</strong> do vencimento, <strong>no dia</strong> e
           <strong> depois</strong> de a mensalidade vencer. Clica em cada contacto para abrir o WhatsApp/SMS já
-          escrito — o sistema marca como "enviado" para acompanhares o progresso ao percorrer a lista.
+          escrito — o sistema marca como "enviado" (guardado a sério, não só nesta sessão) para acompanhares o
+          progresso.
         </p>
       </div>
 
       <Card title={`${notificacoes.length} notificações ativas`} action={
-        porEnviar.length > 0 && (
-          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{porEnviar.length} por contactar</span>
-        )
+        <div className="flex items-center gap-3">
+          {porEnviar.length > 0 && (
+            <>
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{porEnviar.length} por contactar</span>
+              <button onClick={() => setAEnviarEmMassa(true)} className="text-xs font-semibold text-[#3F8F87] hover:underline">
+                Enviar a todos
+              </button>
+            </>
+          )}
+        </div>
       }>
         {notificacoes.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Sem notificações pendentes. 🎉</p>
         ) : (
           <div className="divide-y divide-slate-50 dark:divide-slate-700">
             {notificacoes.map((n) => {
-              const jaEnviado = enviados.has(n.membro.id);
+              const chave = chaveDe(n);
+              const envio = enviadosMapa[chave];
               return (
-                <div key={n.membro.id} className={`flex items-center justify-between py-3 ${jaEnviado ? "opacity-40" : ""}`}>
+                <div key={chave} className={`flex items-center justify-between py-3 ${envio ? "opacity-40" : ""}`}>
                   <div className="flex items-center gap-3">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTILO_NOTIFICACAO[n.tipo].cor}`}>
                       {ESTILO_NOTIFICACAO[n.tipo].rotulo}
@@ -5882,16 +6122,18 @@ function Notificacoes({ membros, planos }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {jaEnviado ? (
-                      <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold"><CheckCircle2 size={14} /> Enviado</span>
+                    {envio ? (
+                      <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
+                        <CheckCircle2 size={14} /> Enviado {envio.data}
+                      </span>
                     ) : (
                       <>
                         <a href={linkWhatsApp(n.membro.telefone, n.mensagem)} target="_blank" rel="noreferrer"
-                          onClick={() => marcarEnviado(n.membro.id)} className="text-emerald-600 hover:text-emerald-700">
+                          onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "WhatsApp")} className="text-emerald-600 hover:text-emerald-700">
                           <MessageCircle size={16} />
                         </a>
                         <a href={linkSMS(n.membro.telefone, n.mensagem)}
-                          onClick={() => marcarEnviado(n.membro.id)} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                          onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "SMS")} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
                           <Phone size={16} />
                         </a>
                       </>
@@ -5903,6 +6145,113 @@ function Notificacoes({ membros, planos }) {
           </div>
         )}
       </Card>
+
+      {aEnviarEmMassa && (
+        <EnviarEmMassaModal
+          pessoas={porEnviar}
+          gerarMensagem={(n) => n.mensagem}
+          gerarChave={chaveDe}
+          onMarcarEnviado={onMarcarEnviado}
+          onFechar={() => setAEnviarEmMassa(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// ATLETAS PERDIDOS — quem deixou de pagar há muito tempo e já nem
+// aparece. Diferente de "Notificações" (que é sobre vencimentos recentes),
+// isto é sobre tentar reconquistar quem já desapareceu do ginásio há
+// semanas — mensagem de "sentimos a tua falta", não de cobrança.
+// ---------------------------------------------------------------------
+function AtletasPerdidos({ membros, pagamentosFeitos, faturas, avisosEnviados, onMarcarEnviado }) {
+  const perdidos = calcularAtletasPerdidos(membros, pagamentosFeitos, faturas);
+  const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
+  const chaveDe = (r) => `${r.membro.id}-perdido-${r.membro.vencimento}`;
+  const enviadosMapa = useMemo(() => {
+    const mapa = {};
+    (avisosEnviados || []).forEach((a) => { mapa[a.chave] = a; });
+    return mapa;
+  }, [avisosEnviados]);
+
+  const mensagemDe = (r) =>
+    `Olá ${r.membro.nome.split(" ")[0]}, já há um tempo que não te vemos na Catumbela Gym — sentimos a tua falta! ` +
+    `A tua mensalidade está pendente desde ${r.membro.vencimento}, mas queremos que voltes. Passa por cá quando puderes, ou fala connosco para veres as condições. 💪`;
+
+  const porContactar = perdidos.filter((r) => !enviadosMapa[chaveDe(r)]);
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-[#EAF5F4] dark:bg-slate-800 ring-1 ring-[#BFE4E1] dark:ring-slate-700 rounded-xl p-4 flex items-start gap-3">
+        <Users size={18} className="text-[#3F8F87] mt-0.5 shrink-0" />
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Atletas com mensalidade vencida há mais de <strong>{DIAS_PARA_SER_CONSIDERADO_PERDIDO} dias</strong> — já
+          nem contam como "vencido recente", são quem provavelmente já desistiu ou esqueceu. Vale a pena tentar
+          reconquistar com uma mensagem diferente, não só cobrar.
+        </p>
+      </div>
+
+      <Card title={`${perdidos.length} atleta(s) perdido(s)`} action={
+        <div className="flex items-center gap-3">
+          {porContactar.length > 0 && (
+            <>
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">{porContactar.length} por contactar</span>
+              <button onClick={() => setAEnviarEmMassa(true)} className="text-xs font-semibold text-[#3F8F87] hover:underline">
+                Enviar a todos
+              </button>
+            </>
+          )}
+        </div>
+      }>
+        {perdidos.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém nesta situação — ou ainda é cedo demais para os considerar perdidos. 🎉</p>
+        ) : (
+          <div className="divide-y divide-slate-50 dark:divide-slate-700">
+            {perdidos.map((r) => {
+              const chave = chaveDe(r);
+              const envio = enviadosMapa[chave];
+              return (
+                <div key={r.membro.id} className={`flex items-center justify-between py-3 ${envio ? "opacity-40" : ""}`}>
+                  <div>
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.membro.nome}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                      {r.membro.numero} · vencido há <strong className="text-red-500">{r.diasVencido} dias</strong>
+                      {r.ultimaSubscricao ? ` · última subscrição em ${r.ultimaSubscricao}` : " · nunca chegou a subscrever/pagar"}
+                    </p>
+                  </div>
+                  {envio ? (
+                    <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold shrink-0" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
+                      <CheckCircle2 size={14} /> Contactado {envio.data}
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-3 shrink-0">
+                      <a href={linkWhatsApp(r.membro.telefone, mensagemDe(r))} target="_blank" rel="noreferrer"
+                        onClick={() => onMarcarEnviado(chave, r.membro.id, "perdido", "WhatsApp")} className="text-emerald-600 hover:text-emerald-700">
+                        <MessageCircle size={16} />
+                      </a>
+                      <a href={linkSMS(r.membro.telefone, mensagemDe(r))}
+                        onClick={() => onMarcarEnviado(chave, r.membro.id, "perdido", "SMS")} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                        <Phone size={16} />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {aEnviarEmMassa && (
+        <EnviarEmMassaModal
+          pessoas={porContactar}
+          gerarMensagem={mensagemDe}
+          gerarChave={chaveDe}
+          onMarcarEnviado={onMarcarEnviado}
+          onFechar={() => setAEnviarEmMassa(false)}
+        />
+      )}
     </div>
   );
 }
@@ -8485,7 +8834,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 // cada uma com entradas/saídas (depósito, levantamento, transferência,
 // recibos, custos pagos), e o total gerado por cada funcionário.
 // ---------------------------------------------------------------------
-function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, fechosTurno }) {
+function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno }) {
   const [aba, setAba] = useState("resumo"); // "resumo" | "banco" | "caixa"
 
   const totalPorPessoa = useMemo(() => {
@@ -8636,6 +8985,7 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           onAdicionar={(m) => onAdicionarMovimento("banco", m)}
           onAdicionarTransferencia={onAdicionarTransferencia}
           onRemover={(id) => onRemoverMovimento("banco", id)}
+          onAtribuirConta={onAtribuirConta}
           usaContaBancaria={true}
           dadosGinasio={dadosGinasio}
         />
@@ -8645,8 +8995,11 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
 }
 
 // Ledger genérico de entradas/saídas — usado tanto para Caixa como para Banco
-function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, onRemover, usaContaBancaria, dadosGinasio }) {
+function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, onRemover, onAtribuirConta, usaContaBancaria, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
+  const [atribuindoId, setAtribuindoId] = useState(null);
+  const [contaEscolhidaAgora, setContaEscolhidaAgora] = useState("");
+  const [filtroBanco, setFiltroBanco] = useState("TODOS");
   const todasContasBancarias = obterContasBancarias(dadosGinasio);
   const contasBancarias = usaContaBancaria ? todasContasBancarias : [];
   // Só mostra os tipos que fazem sentido neste ledger — ex.: "Fecho TPA" e
@@ -8675,18 +9028,45 @@ function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransf
     setShowForm(false);
   };
 
-  const saldo = movimentos.reduce((s, m) => s + (m.direcao === "entrada" ? m.valor : -m.valor), 0);
+  // Lista de bancos para filtrar — as contas configuradas, mais "Sem conta
+  // especificada" só se houver mesmo algum movimento nessa situação.
+  const nomesBancosComMovimento = useMemo(() => {
+    const nomes = new Set(movimentos.map((m) => m.contaBancariaNome).filter(Boolean));
+    if (movimentos.some((m) => !m.contaBancariaNome)) nomes.add("Sem conta especificada");
+    return Array.from(nomes);
+  }, [movimentos]);
+
+  const movimentosFiltrados = useMemo(() => {
+    if (!usaContaBancaria || filtroBanco === "TODOS") return movimentos;
+    if (filtroBanco === "Sem conta especificada") return movimentos.filter((m) => !m.contaBancariaNome);
+    return movimentos.filter((m) => m.contaBancariaNome === filtroBanco);
+  }, [movimentos, filtroBanco, usaContaBancaria]);
+
+  const saldo = movimentosFiltrados.reduce((s, m) => s + (m.direcao === "entrada" ? m.valor : -m.valor), 0);
 
   return (
     <Card
-      title={`${titulo} (saldo: ${kz(saldo)})`}
+      title={`${titulo}${filtroBanco !== "TODOS" ? ` — ${filtroBanco}` : ""} (saldo: ${kz(saldo)})`}
       action={
         <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs font-semibold text-[#3F8F87] hover:underline">
           <Plus size={14} /> Novo movimento
         </button>
       }
     >
-      {movimentos.length === 0 ? (
+      {usaContaBancaria && nomesBancosComMovimento.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Ver:</label>
+          <select
+            value={filtroBanco}
+            onChange={(e) => setFiltroBanco(e.target.value)}
+            className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          >
+            <option value="TODOS">Todos os bancos</option>
+            {nomesBancosComMovimento.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+          </select>
+        </div>
+      )}
+      {movimentosFiltrados.length === 0 ? (
         <div className="text-sm text-slate-400 dark:text-slate-500">
           <p>Ainda não há movimentos registados.</p>
           <p className="text-xs mt-1.5">
@@ -8696,32 +9076,66 @@ function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransf
         </div>
       ) : (
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {movimentos.map((m) => (
-            <div key={m.id} className="flex items-center justify-between py-2.5 text-sm">
-              <div>
-                <p className="text-slate-700 dark:text-slate-200">
-                  {m.subtipo}{m.descricao ? ` — ${m.descricao}` : ""}
-                  {m.contaBancariaNome && <span className="text-slate-400 dark:text-slate-500"> · {m.contaBancariaNome}</span>}
-                  {m.origemTransferencia && <span className="text-[10px] text-blue-500 dark:text-blue-400 ml-1.5">↔ atualizou os dois lados</span>}
-                </p>
-                <p className="text-xs text-slate-400 dark:text-slate-500">{m.data} · {m.registadoPor}</p>
+          {movimentosFiltrados.map((m) => (
+            <div key={m.id} className="py-2.5 text-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-slate-700 dark:text-slate-200">
+                    {m.subtipo}{m.descricao ? ` — ${m.descricao}` : ""}
+                    {m.contaBancariaNome && <span className="text-slate-400 dark:text-slate-500"> · {m.contaBancariaNome}</span>}
+                    {usaContaBancaria && !m.contaBancariaNome && (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 ml-1.5">· sem conta especificada</span>
+                    )}
+                    {m.origemTransferencia && <span className="text-[10px] text-blue-500 dark:text-blue-400 ml-1.5">↔ atualizou os dois lados</span>}
+                  </p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{m.data} · {m.registadoPor}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`font-semibold ${m.direcao === "entrada" ? "text-emerald-600" : "text-red-500"}`}>
+                    {m.direcao === "entrada" ? "+" : "−"}{kz(m.valor)}
+                  </span>
+                  {usaContaBancaria && onAtribuirConta && (
+                    <button
+                      onClick={() => { setAtribuindoId(atribuindoId === m.id ? null : m.id); setContaEscolhidaAgora(""); }}
+                      title={m.contaBancariaNome ? "Mudar conta bancária" : "Atribuir a uma conta"}
+                      className="text-slate-300 hover:text-[#3F8F87]"
+                    >
+                      <Landmark size={14} />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`Eliminar este movimento (${m.subtipo} — ${kz(m.valor)})?${m.origemTransferencia ? " Isto remove os dois lados (Caixa e Banco)." : ""}`)) {
+                        onRemover(m.id);
+                      }
+                    }}
+                    title="Eliminar movimento"
+                    className="text-slate-300 hover:text-red-500"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`font-semibold ${m.direcao === "entrada" ? "text-emerald-600" : "text-red-500"}`}>
-                  {m.direcao === "entrada" ? "+" : "−"}{kz(m.valor)}
-                </span>
-                <button
-                  onClick={() => {
-                    if (window.confirm(`Eliminar este movimento (${m.subtipo} — ${kz(m.valor)})?${m.origemTransferencia ? " Isto remove os dois lados (Caixa e Banco)." : ""}`)) {
-                      onRemover(m.id);
-                    }
-                  }}
-                  title="Eliminar movimento"
-                  className="text-slate-300 hover:text-red-500"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              {atribuindoId === m.id && (
+                <div className="flex items-center gap-2 mt-2 bg-slate-50 dark:bg-slate-900 rounded-lg p-2">
+                  <select
+                    value={contaEscolhidaAgora}
+                    onChange={(e) => setContaEscolhidaAgora(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+                  >
+                    <option value="">Selecionar conta...</option>
+                    {obterContasBancarias(dadosGinasio).map((c) => <option key={c.id} value={c.banco}>{c.banco}</option>)}
+                  </select>
+                  <button
+                    disabled={!contaEscolhidaAgora}
+                    onClick={() => { onAtribuirConta(m.id, contaEscolhidaAgora); setAtribuindoId(null); }}
+                    className="text-xs font-semibold bg-[#3F8F87] text-white px-3 py-1.5 rounded-lg disabled:opacity-40"
+                  >
+                    Atribuir
+                  </button>
+                  <button onClick={() => setAtribuindoId(null)} className="text-xs text-slate-400 px-1">Cancelar</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -9537,6 +9951,7 @@ const MENU_ADMIN = [
     grupo: "RELATÓRIOS",
     itens: [
       { id: "notificacoes", label: "Notificações", icon: Bell },
+      { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
@@ -10313,6 +10728,10 @@ export default function CatumbelaGymApp() {
   const [registosPonto, setRegistosPonto] = usePersistente("registosPonto", [], setStatusSync);
   const [mensagens, setMensagens, adicionarMensagemSegura] = usePersistente("mensagens", [], setStatusSync);
   const [avisos, setAvisos] = usePersistente("avisos", [], setStatusSync);
+  // Guarda, de verdade (não só na sessão), quais avisos de vencimento já
+  // foram contactados — sem isto, recarregar a página ou voltar noutro dia
+  // esquecia tudo, e toda a gente voltava a aparecer como "por contactar".
+  const [avisosEnviados, setAvisosEnviados] = usePersistente("avisosEnviados", [], setStatusSync);
 
   // NOTIFICAÇÕES PUSH DO NAVEGADOR — reais (não são links de WhatsApp),
   // usando a Notification API. Funcionam enquanto este browser estiver
@@ -10552,6 +10971,7 @@ export default function CatumbelaGymApp() {
         itens: [{ referencia: "TAXA-INSCRICAO", descricao: "Taxa de inscrição", qtd: 1, precoUnit: Number(novo.taxaInscricao), total: Number(novo.taxaInscricao) }],
         valor: Number(novo.taxaInscricao),
         metodo: novo.metodoTaxaInscricao,
+        contaBancariaId: novo.contaBancariaTaxaId,
         tipoReceita: "inscricao",
       });
     }
@@ -11199,7 +11619,7 @@ export default function CatumbelaGymApp() {
   // subscrição fica sempre ligada à parte financeira (numeração, histórico
   // de documentos, e a receita conta nos relatórios/lucro), nunca só a
   // atualizar os dados do membro sem deixar rasto do pagamento.
-  const atualizarSubscricao = (membroId, novoPlanoNome, dataInicio, metodo) => {
+  const atualizarSubscricao = (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return null;
     const plano = planos.find((p) => p.nome === novoPlanoNome);
@@ -11226,6 +11646,7 @@ export default function CatumbelaGymApp() {
         }],
         valor: plano.preco,
         metodo,
+        contaBancariaId,
         tipoReceita: "mensalidade",
         planoNome: novoPlanoNome,
       });
@@ -11752,10 +12173,42 @@ export default function CatumbelaGymApp() {
     } else {
       setMovimentosCaixa((atual) => atual.filter((m) => m.id !== id));
     }
+    // Se este movimento veio de um custo (Centro de Custos), eliminá-lo por
+    // aqui também tem de apagar o custo correspondente — senão o custo
+    // ficava "órfão", continuando a contar no Total de custos mesmo depois
+    // de o dinheiro já não aparecer em lado nenhum do Caixa/Banco.
+    if (movimento.custoId) {
+      setCustos((atual) => atual.filter((c) => c.id !== movimento.custoId));
+    }
     registarAuditoria(
       `Eliminou movimento de ${ledger === "banco" ? "banco" : "caixa"}`,
-      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}`
+      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}${movimento.custoId ? " (e o custo associado)" : ""}`
     );
+  };
+
+  // Corrige, depois do facto, um movimento bancário que ficou "sem conta
+  // especificada" — por exemplo, os TPA registados antes de o seletor de
+  // banco existir em Subscrições. Não muda o valor nem a data, só passa a
+  // saber a que banco pertence, para o "Total por conta bancária" ficar
+  // certo a partir de agora.
+  const atribuirContaMovimento = (id, nomeBanco) => {
+    const movimento = movimentosBancarios.find((m) => m.id === id);
+    setMovimentosBancarios((atual) => atual.map((m) => (m.id === id ? { ...m, contaBancariaNome: nomeBanco } : m)));
+    registarAuditoria(
+      "Atribuiu conta bancária a um movimento antigo",
+      `${movimento?.subtipo || ""}${movimento?.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento?.valor || 0)} → ${nomeBanco}`
+    );
+  };
+
+  // Marca um aviso de vencimento como contactado — a "chave" identifica o
+  // membro + tipo de aviso + o vencimento exato, para se ele renovar e
+  // voltar a vencer no futuro, o aviso conta como novo outra vez (não fica
+  // "enviado" para sempre com base num vencimento que já nem é o atual).
+  const marcarAvisoEnviado = (chave, membroId, tipo, canal) => {
+    setAvisosEnviados((atual) => [
+      ...atual.filter((a) => a.chave !== chave),
+      { chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+    ]);
   };
 
   const registarEntrada = (membro) => {
@@ -12069,7 +12522,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "dashboard" && (
-            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} />
+            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />
           )}
           {telaAtual === "membros" && (
             <Membros
@@ -12099,7 +12552,7 @@ export default function CatumbelaGymApp() {
             <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
-            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} />
+            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
@@ -12115,6 +12568,7 @@ export default function CatumbelaGymApp() {
               onAdicionarMovimento={adicionarMovimento}
               onAdicionarTransferencia={registarTransferenciaCaixaBanco}
               onRemoverMovimento={removerMovimento}
+              onAtribuirConta={atribuirContaMovimento}
               fechosTurno={fechosTurno}
             />
           )}
@@ -12140,7 +12594,8 @@ export default function CatumbelaGymApp() {
             <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
-          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} />}
+          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
+          {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
