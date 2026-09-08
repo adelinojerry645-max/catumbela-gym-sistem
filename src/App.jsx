@@ -317,9 +317,10 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
         <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "8px", marginTop: "8px", fontSize: "10px" }}>
           <p style={{ fontWeight: 700, margin: "0 0 4px 0" }}>COORDENADAS BANCÁRIAS</p>
           {contasBancarias.map((c, i) => (
-            <p key={i} style={{ margin: "2px 0" }}>
-              {c.tipo === "express" ? `MULTICAIXA Express: ${c.telefone}` : `${c.banco}: ${c.iban}`}
-            </p>
+            <React.Fragment key={i}>
+              {c.iban && <p style={{ margin: "2px 0" }}>{c.banco}: {c.iban}</p>}
+              {c.telefone && <p style={{ margin: "2px 0" }}>MULTICAIXA Express ({c.banco}): {c.telefone}</p>}
+            </React.Fragment>
           ))}
         </div>
       )}
@@ -2021,10 +2022,10 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                         className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
                         <option value="">Selecionar...</option>
                         {obterContasBancarias(dadosGinasio)
-                          .filter((c) => (novo.metodoTaxaInscricao === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                          .filter((c) => (novo.metodoTaxaInscricao === "express" ? !!c.telefone : !!c.iban))
                           .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                       </select>
-                      {obterContasBancarias(dadosGinasio).filter((c) => (novo.metodoTaxaInscricao === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                      {obterContasBancarias(dadosGinasio).filter((c) => (novo.metodoTaxaInscricao === "express" ? !!c.telefone : !!c.iban)).length === 0 && (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
                           Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                         </p>
@@ -2439,10 +2440,10 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
                   <option value="">Selecionar...</option>
                   {obterContasBancarias(dadosGinasio)
-                    .filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                    .filter((c) => (metodo === "express" ? !!c.telefone : !!c.iban))
                     .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                 </select>
-                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? !!c.telefone : !!c.iban)).length === 0 && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
                     Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                   </p>
@@ -2732,10 +2733,10 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
                   <option value="">Selecionar...</option>
                   {obterContasBancarias(dadosGinasio)
-                    .filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                    .filter((c) => (metodo === "express" ? !!c.telefone : !!c.iban))
                     .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                 </select>
-                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                {obterContasBancarias(dadosGinasio).filter((c) => (metodo === "express" ? !!c.telefone : !!c.iban)).length === 0 && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
                     Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                   </p>
@@ -5162,13 +5163,13 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                                   {metodoPagamento === "express" ? "Qual número Express?" : metodoPagamento === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
                                 </option>
                                 {obterContasBancarias(dadosGinasio)
-                                  .filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                                  .filter((c) => (metodoPagamento === "express" ? !!c.telefone : !!c.iban))
                                   .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                               </select>
                             )}
                           </div>
                           {!semPagamentoAgora && (metodoPagamento === "tpa" || metodoPagamento === "express" || metodoPagamento === "transferencia") &&
-                            obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                            obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? !!c.telefone : !!c.iban)).length === 0 && (
                             <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">
                               Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                             </p>
@@ -5561,10 +5562,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                       className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
                       <option value="">Selecionar...</option>
                       {obterContasBancarias(dadosGinasio)
-                        .filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban"))
+                        .filter((c) => (metodoPagamento === "express" ? !!c.telefone : !!c.iban))
                         .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
                     </select>
-                    {obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? c.tipo === "express" : c.tipo === "iban")).length === 0 && (
+                    {obterContasBancarias(dadosGinasio).filter((c) => (metodoPagamento === "express" ? !!c.telefone : !!c.iban)).length === 0 && (
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
                         Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                       </p>
@@ -6448,7 +6449,12 @@ function QRTPAEditor({ dados, onSalvar }) {
 function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
-  const vazio = { tipo: "iban", banco: "", titular: form.nome || "", iban: "", telefone: "", moeda: "AOA", swift: "" };
+  // Uma conta pode ter IBAN e Express AO MESMO TEMPO (ex.: o mesmo banco
+  // aceita as duas formas) — não são mutuamente exclusivos. Antes, cada
+  // conta só podia ser "tipo: iban" OU "tipo: express", e trocar de um
+  // para o outro no formulário escondia o campo já preenchido (mesmo que
+  // continuasse gravado por trás) — dava a sensação de "desapareceu".
+  const vazio = { banco: "", titular: form.nome || "", iban: "", telefone: "", moeda: "AOA", swift: "" };
   const [novo, setNovo] = useState(vazio);
 
   const contas = form.contasBancarias || [];
@@ -6466,14 +6472,8 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
   };
 
   const guardar = () => {
-    if (!novo.banco) return;
+    if (!novo.banco || (!novo.iban && !novo.telefone)) return;
     tocouNoFormulario.current = true;
-    // Grava logo, aqui mesmo — não espera pelo botão "Guardar dados" no
-    // fundo da página. Sem isto, a conta parecia adicionada (aparecia na
-    // lista), mas ficava só na memória do formulário; se a pessoa saísse
-    // desta página sem clicar em "Guardar dados", a conta desaparecia sem
-    // aviso nenhum — e era exatamente isso que estava a confundir quem
-    // depois ia usar o TPA e não encontrava a conta na lista.
     let formAtualizado;
     if (editandoId) {
       formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
@@ -6512,11 +6512,11 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
           {contas.map((c) => (
             <div key={c.id} className="flex items-center justify-between p-3 rounded-xl ring-1 ring-slate-100 dark:ring-slate-700">
               <div className="flex items-center gap-3">
-                {c.tipo === "iban" ? <Landmark size={18} className="text-slate-500 dark:text-slate-400" /> : <Smartphone size={18} className="text-orange-500" />}
+                <Landmark size={18} className="text-slate-500 dark:text-slate-400" />
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.banco}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {c.tipo === "iban" ? c.iban : c.telefone} · {c.titular}
+                    {[c.iban && `IBAN ${c.iban}`, c.telefone && `Express ${c.telefone}`].filter(Boolean).join(" · ")} · {c.titular}
                   </p>
                 </div>
               </div>
@@ -6535,20 +6535,13 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
             <button onClick={() => setShowForm(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
               <X size={18} />
             </button>
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-4">{editandoId ? "Editar conta" : "Nova conta bancária"}</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">{editandoId ? "Editar conta" : "Nova conta bancária"}</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+              Preenche o IBAN, o Express, ou os dois — se o banco aceitar as duas formas, fica tudo na mesma conta.
+            </p>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setNovo({ ...novo, tipo: "iban" })}
-                  className={`text-sm font-semibold py-2 rounded-lg ring-1 ${novo.tipo === "iban" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
-                  IBAN / Banco
-                </button>
-                <button type="button" onClick={() => setNovo({ ...novo, tipo: "express" })}
-                  className={`text-sm font-semibold py-2 rounded-lg ring-1 ${novo.tipo === "express" ? "bg-orange-500 text-white ring-orange-500" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
-                  MULTICAIXA Express
-                </button>
-              </div>
               <div>
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{novo.tipo === "iban" ? "Nome do banco" : "Nome (ex.: Express — Recepção)"}</label>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome do banco</label>
                 <input value={novo.banco} onChange={(e) => setNovo({ ...novo, banco: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
               </div>
@@ -6557,33 +6550,35 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
                 <input value={novo.titular} onChange={(e) => setNovo({ ...novo, titular: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
               </div>
-              {novo.tipo === "iban" ? (
-                <>
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">IBAN (opcional)</label>
+                <input value={novo.iban} onChange={(e) => setNovo({ ...novo, iban: e.target.value })}
+                  placeholder="Deixa em branco se este banco não tiver IBAN"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              {novo.iban && (
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">IBAN</label>
-                    <input value={novo.iban} onChange={(e) => setNovo({ ...novo, iban: e.target.value })}
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Moeda</label>
+                    <input value={novo.moeda} onChange={(e) => setNovo({ ...novo, moeda: e.target.value })}
                       className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Moeda</label>
-                      <input value={novo.moeda} onChange={(e) => setNovo({ ...novo, moeda: e.target.value })}
-                        className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-500 dark:text-slate-400">SWIFT (opcional)</label>
-                      <input value={novo.swift} onChange={(e) => setNovo({ ...novo, swift: e.target.value })}
-                        className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
-                    </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">SWIFT (opcional)</label>
+                    <input value={novo.swift} onChange={(e) => setNovo({ ...novo, swift: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
                   </div>
-                </>
-              ) : (
-                <div>
-                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nº de telefone (Express)</label>
-                  <input value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
                 </div>
               )}
+
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Número MULTICAIXA Express (opcional)</label>
+                <input value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })}
+                  placeholder="Deixa em branco se este banco não tiver Express"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+
               <button type="button" onClick={guardar} className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg mt-2">
                 <Save size={16} /> {editandoId ? "Guardar alterações" : "Adicionar conta"}
               </button>
@@ -6591,10 +6586,6 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
           </div>
         </div>
       )}
-      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
-        Estas contas ficam automaticamente disponíveis para os membros escolherem ao pagar por transferência, e
-        aparecem nos recibos e faturas.
-      </p>
     </Card>
   );
 }
@@ -9231,7 +9222,7 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, valorTaxaIns
     onSubmeter({
       membro,
       valor: valorTotal,
-      destino: contaEscolhida.tipo === "iban" ? "iban" : "telefone",
+      destino: contaEscolhida.iban ? "iban" : "telefone",
       comprovativo,
       origem: "membro",
       planoNome: plano?.nome,
@@ -9285,12 +9276,13 @@ function PagarPorTransferenciaMembro({ membro, plano, dadosGinasio, valorTaxaIns
 
       <div className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
         <p>Titular: {contaEscolhida.titular}</p>
-        {contaEscolhida.tipo === "iban" ? (
+        {contaEscolhida.iban && (
           <>
             <p>Banco: {contaEscolhida.banco}</p>
             <p>IBAN: {contaEscolhida.iban}</p>
           </>
-        ) : (
+        )}
+        {contaEscolhida.telefone && (
           <p>Nº de telefone (Express): {contaEscolhida.telefone}</p>
         )}
         {incluiTaxaInscricao && (
