@@ -5081,12 +5081,36 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   const [ultimoRecibo, setUltimoRecibo] = useState(null);
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
   const [pesquisa, setPesquisa] = useState("");
+  const [agruparPor, setAgruparPor] = useState("nenhum"); // "nenhum" | "plano" | "estado"
 
   const membrosFiltrados = useMemo(() => {
     const q = pesquisa.trim().toLowerCase();
     if (!q) return membros;
     return membros.filter((m) => m.nome.toLowerCase().includes(q) || m.numero.toLowerCase().includes(q));
   }, [membros, pesquisa]);
+
+  // Agrupa a lista já filtrada — por plano (cada plano é uma secção, mais
+  // "Sem subscrição" para quem não tem nenhum) ou por estado. Sem isto,
+  // uma lista grande com atletas de vários planos misturados com quem
+  // ainda não subscreveu nada ficava difícil de percorrer visualmente.
+  const grupos = useMemo(() => {
+    if (agruparPor === "nenhum") return [{ titulo: null, lista: membrosFiltrados }];
+    const rotulosEstado = { ativo: "Ativo", vencido: "Vencido", suspenso: "Suspenso", pausada: "Pausada", "sem-subscricao": "Sem subscrição", cancelado: "Cancelado" };
+    const chaveDe = agruparPor === "plano" ? (m) => m.plano || "Sem subscrição" : (m) => rotulosEstado[m.estado] || m.estado;
+    const mapa = {};
+    membrosFiltrados.forEach((m) => {
+      const chave = chaveDe(m);
+      if (!mapa[chave]) mapa[chave] = [];
+      mapa[chave].push(m);
+    });
+    return Object.entries(mapa)
+      .sort(([a], [b]) => {
+        if (a === "Sem subscrição") return 1;
+        if (b === "Sem subscrição") return -1;
+        return a.localeCompare(b);
+      })
+      .map(([titulo, lista]) => ({ titulo, lista }));
+  }, [membrosFiltrados, agruparPor]);
 
   const abrirEdicao = (membro) => {
     setEditandoId(membro.id);
@@ -5121,15 +5145,34 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   return (
     <div className="space-y-4">
       <Card title={<span className="flex items-center gap-2"><ClipboardList size={16} className="text-[#3F8F87]" /> Subscrições ativas</span>}>
-        <div className="relative mb-4">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-          <input
-            value={pesquisa}
-            onChange={(e) => setPesquisa(e.target.value)}
-            placeholder="Pesquisar por nome ou número..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
-          />
+        <div className="flex flex-col sm:flex-row gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <input
+              value={pesquisa}
+              onChange={(e) => setPesquisa(e.target.value)}
+              placeholder="Pesquisar por nome ou número..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <select
+            value={agruparPor}
+            onChange={(e) => setAgruparPor(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          >
+            <option value="nenhum">Sem agrupar</option>
+            <option value="plano">Agrupar por plano</option>
+            <option value="estado">Agrupar por estado</option>
+          </select>
         </div>
+
+        {grupos.map((grupo, idxGrupo) => (
+        <div key={grupo.titulo || "unico"} className={idxGrupo > 0 ? "mt-6" : ""}>
+          {grupo.titulo && (
+            <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+              {grupo.titulo} · {grupo.lista.length} pessoa{grupo.lista.length > 1 ? "s" : ""}
+            </p>
+          )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -5143,10 +5186,10 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-              {membrosFiltrados.length === 0 && (
+              {grupo.lista.length === 0 && (
                 <tr><td colSpan={6} className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">Nenhum membro encontrado.</td></tr>
               )}
-              {membrosFiltrados.map((m) => {
+              {grupo.lista.map((m) => {
                 const plano = planos.find((p) => p.nome === m.plano);
                 const dias = diasRestantes(m.vencimento);
                 const aEditar = editandoId === m.id;
@@ -5260,12 +5303,14 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                   </React.Fragment>
                 );
               })}
-              {membros.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há membros inscritos.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
+        </div>
+        ))}
+        {membros.length === 0 && (
+          <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">Ainda não há membros inscritos.</p>
+        )}
       </Card>
 
       {ultimoRecibo && (
@@ -6825,6 +6870,36 @@ function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onA
         </div>
       </Card>
 
+      <Card title={<span className="flex items-center gap-2"><Clock size={16} className="text-[#3F8F87]" /> Taxa por sessão longa</span>}>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+          Se um atleta ficar no ginásio mais tempo do que o limite (entre a entrada e a saída registadas em
+          Controlo de Acessos), cobra-se automaticamente esta taxa extra — gera logo um recibo, sem precisares de
+          fazer nada. Deixa o valor em branco ou 0 para desativar esta regra.
+        </p>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          <div>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Limite (horas)</label>
+            <input
+              type="number" min={0} step="0.5"
+              value={form.limiteHorasSessao ?? ""}
+              onChange={(e) => { tocouNoFormulario.current = true; setForm({ ...form, limiteHorasSessao: e.target.value }); }}
+              placeholder="2"
+              className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Taxa a cobrar (Kz)</label>
+            <input
+              type="number" min={0}
+              value={form.taxaSessaoLonga ?? ""}
+              onChange={(e) => { tocouNoFormulario.current = true; setForm({ ...form, taxaSessaoLonga: e.target.value }); }}
+              placeholder="0"
+              className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+        </div>
+      </Card>
+
       <Card title={<span className="flex items-center gap-2"><Building2 size={16} className="text-[#3F8F87]" /> Dados da empresa</span>}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {campo("nome", "Nome do ginásio")}
@@ -8026,14 +8101,240 @@ function calcularHorasEntreHorarios(entrada, saida) {
   return minutos > 0 ? minutos / 60 : 0;
 }
 
+// ---------------------------------------------------------------------
+// RELATÓRIO DE HORAS MENSAIS — quantas horas cada atleta passou no
+// ginásio num mês (a partir do Controlo de Acessos), separado do "Melhor
+// Atleta" (que é só um destaque/prémio) — isto é para controlar todos os
+// atletas de uma vez, exportável para conferir com calma fora do sistema.
+// ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// RELATÓRIO DE HORAS — INDIVIDUAL — a versão de um só atleta, para
+// imprimir/guardar em PDF (impressão do browser, o mesmo método já usado
+// no Melhor Atleta e na Evolução — fiável, sem depender de bibliotecas
+// externas) e mandar a essa pessoa especificamente.
+// ---------------------------------------------------------------------
+function RelatorioHorasIndividual({ membro, sessoes, mesEscolhido, limiteHoras, dadosGinasio, onFechar }) {
+  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const totalHoras = sessoes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+  const sessoesLongas = sessoes.filter((a) => calcularHorasEntreHorarios(a.entrada, a.saida) > limiteHoras).length;
+
+  const mensagemWhatsApp =
+    `Olá ${membro.nome.split(" ")[0]}, aqui está o teu resumo de horas na ${dadosGinasio?.nome || "Catumbela Gym"} em ${nomeMes}:\n\n` +
+    `• ${sessoes.length} treino(s), ${totalHoras.toFixed(1)}h no total\n` +
+    (sessoesLongas > 0 ? `• ${sessoesLongas} sessão(ões) acima de ${limiteHoras}h\n` : "") +
+    `\nContinua assim! 💪`;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
+      <div className="max-w-2xl mx-auto bg-white my-4 rounded-2xl print:rounded-none print:my-0 p-6 text-slate-800 area-imprimivel">
+        <div className="flex items-center justify-between mb-4 print:hidden">
+          <h2 className="font-bold text-lg">Horas de treino — {membro.nome}</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
+              <Printer size={15} /> Imprimir / Guardar PDF
+            </button>
+            {membro.telefone && (
+              <a href={linkWhatsApp(membro.telefone, mensagemWhatsApp)} target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-3 py-2">
+                <MessageCircle size={15} /> Resumo por WhatsApp
+              </a>
+            )}
+            <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-400 mb-3 print:hidden">
+          O botão do WhatsApp manda um resumo em texto (sempre funciona). Se quiseres mandar o PDF a sério, clica em
+          "Imprimir / Guardar PDF" primeiro, guarda o ficheiro, e depois anexa-o na conversa.
+        </p>
+
+        <div className="flex items-center gap-3 border-b pb-3 mb-4">
+          {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
+          <div>
+            <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
+            <p className="text-xs text-slate-500">Horas de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+          </div>
+        </div>
+
+        <div className="bg-[#EAF5F4] rounded-xl p-4 mb-5">
+          <p className="text-lg font-extrabold text-slate-900">{membro.nome}</p>
+          <p className="text-xs text-slate-500 mb-2">{membro.numero}</p>
+          <p className="text-sm text-slate-600">
+            {sessoes.length} treino{sessoes.length === 1 ? "" : "s"} · <strong>{totalHoras.toFixed(1)}h</strong> no total
+            {sessoesLongas > 0 ? ` · ${sessoesLongas} sessão(ões) acima do limite de ${limiteHoras}h` : ""}
+          </p>
+        </div>
+
+        <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Sessões do mês</h3>
+        {sessoes.length === 0 ? (
+          <p className="text-sm text-slate-400">Nenhuma sessão com entrada e saída registadas neste mês.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-400 border-b">
+                <th className="py-1">Data</th><th className="py-1">Entrada</th><th className="py-1">Saída</th><th className="py-1 text-right">Duração</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessoes.map((a) => {
+                const horas = calcularHorasEntreHorarios(a.entrada, a.saida);
+                const longa = horas > limiteHoras;
+                return (
+                  <tr key={a.id} className="border-t">
+                    <td className="py-1.5">{a.data}</td>
+                    <td className="py-1.5">{a.entrada}</td>
+                    <td className="py-1.5">{a.saida}</td>
+                    <td className={`py-1.5 text-right font-medium ${longa ? "text-amber-600" : ""}`}>
+                      {horas.toFixed(1)}h{longa ? " ⚠" : ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <p className="text-[11px] text-slate-400 mt-3">
+          ⚠ marca sessões acima do limite de {limiteHoras}h configurado — sujeitas à taxa extra do ginásio.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
+  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [aVerIndividual, setAVerIndividual] = useState(null); // { membro, sessoes }
+  const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
+
+  const linhas = useMemo(() => {
+    return membros
+      .map((m) => {
+        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
+        const horasTotais = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+        const sessoesLongas = acessosDoMes.filter((a) => calcularHorasEntreHorarios(a.entrada, a.saida) > limiteHoras).length;
+        const mediaPorSessao = acessosDoMes.length > 0 ? horasTotais / acessosDoMes.length : 0;
+        return { membro: m, sessoes: acessosDoMes, numSessoes: acessosDoMes.length, horasTotais, mediaPorSessao, sessoesLongas };
+      })
+      .filter((r) => r.numSessoes > 0)
+      .sort((a, b) => b.horasTotais - a.horasTotais);
+  }, [membros, acessos, mesEscolhido, limiteHoras]);
+
+  const totalHoras = linhas.reduce((s, r) => s + r.horasTotais, 0);
+  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+
+  const exportar = () => {
+    const folha = criarFolhaOrganizada(
+      linhas.map((r) => ({
+        Nome: r.membro.nome,
+        "Nº": r.membro.numero,
+        "Sessões": r.numSessoes,
+        "Horas totais": Number(r.horasTotais.toFixed(2)),
+        "Média por sessão (h)": Number(r.mediaPorSessao.toFixed(2)),
+        "Sessões acima do limite": r.sessoesLongas,
+      })),
+      "Horas mensais"
+    );
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, folha, "Horas mensais");
+    XLSX.writeFile(livro, `Catumbela-Gym-Horas-${mesEscolhido}.xlsx`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Mês:</label>
+            <input
+              type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <button
+            onClick={exportar}
+            disabled={linhas.length === 0}
+            className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-40"
+          >
+            <Download size={16} /> Exportar para Excel
+          </button>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Atletas com treino em {nomeMes}</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{linhas.length}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total de horas do ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{totalHoras.toFixed(1)}h</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Sessões acima do limite ({limiteHoras}h)</p><p className="text-xl font-extrabold text-amber-600">{linhas.reduce((s, r) => s + r.sessoesLongas, 0)}</p></Card>
+      </div>
+
+      <Card title={`Horas por atleta — ${nomeMes}`}>
+        {linhas.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém com entrada e saída registadas neste mês.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Atleta</th>
+                  <th className="pb-2 font-medium text-right">Sessões</th>
+                  <th className="pb-2 font-medium text-right">Horas totais</th>
+                  <th className="pb-2 font-medium text-right">Média por sessão</th>
+                  <th className="pb-2 font-medium text-right">Acima do limite</th>
+                  <th className="pb-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                {linhas.map((r) => (
+                  <tr key={r.membro.id}>
+                    <td className="py-2">
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{r.membro.nome}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{r.membro.numero}</p>
+                    </td>
+                    <td className="py-2 text-right text-slate-600 dark:text-slate-300">{r.numSessoes}</td>
+                    <td className="py-2 text-right font-semibold text-slate-900 dark:text-slate-100">{r.horasTotais.toFixed(1)}h</td>
+                    <td className="py-2 text-right text-slate-600 dark:text-slate-300">{r.mediaPorSessao.toFixed(1)}h</td>
+                    <td className="py-2 text-right">
+                      {r.sessoesLongas > 0 ? <span className="text-amber-600 font-medium">{r.sessoesLongas}</span> : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                    </td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => setAVerIndividual(r)}
+                        title="Ver / imprimir PDF individual, para mandar a este atleta"
+                        className="text-slate-400 hover:text-[#3F8F87]"
+                      >
+                        <FileText size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {aVerIndividual && (
+        <RelatorioHorasIndividual
+          membro={aVerIndividual.membro}
+          sessoes={aVerIndividual.sessoes}
+          mesEscolhido={mesEscolhido}
+          limiteHoras={limiteHoras}
+          dadosGinasio={dadosGinasio}
+          onFechar={() => setAVerIndividual(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFechar }) {
   const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
 
   const ranking = useMemo(() => {
+    const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
     return membros
       .map((m) => {
         const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
         const horasTreino = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+        const sessoesLongas = acessosDoMes.filter((a) => calcularHorasEntreHorarios(a.entrada, a.saida) > limiteHoras).length;
 
         const cargasDoMembro = historicoCargas.filter((h) => h.membroId === m.id && (h.data || "").startsWith(mesEscolhido));
         const porExercicio = {};
@@ -8052,11 +8353,11 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
         // sempre os dois números em separado, nunca só o resultado final.
         const pontuacao = horasTreino * 10 + progressaoCarga * 2;
 
-        return { membro: m, horasTreino, progressaoCarga, pontuacao, numTreinos: acessosDoMes.length };
+        return { membro: m, horasTreino, progressaoCarga, pontuacao, numTreinos: acessosDoMes.length, sessoesLongas };
       })
       .filter((r) => r.numTreinos > 0 || r.progressaoCarga !== 0)
       .sort((a, b) => b.pontuacao - a.pontuacao);
-  }, [membros, acessos, historicoCargas, mesEscolhido]);
+  }, [membros, acessos, historicoCargas, mesEscolhido, dadosGinasio]);
 
   const vencedor = ranking[0];
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
@@ -8101,6 +8402,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
                 <p className="text-lg font-extrabold text-slate-900">{vencedor.membro.nome}</p>
                 <p className="text-sm text-slate-600">
                   {vencedor.horasTreino.toFixed(1)}h de treino{vencedor.progressaoCarga !== 0 ? ` · ${vencedor.progressaoCarga > 0 ? "+" : ""}${vencedor.progressaoCarga.toFixed(1)} kg de progressão nas cargas` : ""}
+                  {vencedor.sessoesLongas > 0 ? ` · ${vencedor.sessoesLongas} sessão(ões) acima do limite de ${Number(dadosGinasio?.limiteHorasSessao) || 2}h` : ""}
                 </p>
               </div>
             </div>
@@ -8109,7 +8411,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-400">
-                  <th>#</th><th>Atleta</th><th className="text-right">Horas de treino</th><th className="text-right">Progressão nas cargas</th>
+                  <th>#</th><th>Atleta</th><th className="text-right">Horas de treino</th><th className="text-right">Progressão nas cargas</th><th className="text-right">Sessões longas</th>
                 </tr>
               </thead>
               <tbody>
@@ -8119,13 +8421,20 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
                     <td className="py-1.5">{r.membro.nome}</td>
                     <td className="py-1.5 text-right">{r.horasTreino.toFixed(1)}h ({r.numTreinos} treino{r.numTreinos === 1 ? "" : "s"})</td>
                     <td className="py-1.5 text-right">{r.progressaoCarga === 0 ? "—" : `${r.progressaoCarga > 0 ? "+" : ""}${r.progressaoCarga.toFixed(1)} kg`}</td>
+                    <td className="py-1.5 text-right">
+                      {r.sessoesLongas > 0 ? (
+                        <span className="text-amber-600 font-medium">{r.sessoesLongas} taxada{r.sessoesLongas > 1 ? "s" : ""}</span>
+                      ) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <p className="text-[11px] text-slate-400 mt-3">
               Classificação calculada a partir das horas entre entrada e saída em Controlo de Acessos, e da diferença
-              entre a primeira e a última carga registada em cada exercício, neste mês.
+              entre a primeira e a última carga registada em cada exercício, neste mês. "Sessões longas" mostra
+              quantas vezes o atleta ultrapassou o limite de {Number(dadosGinasio?.limiteHorasSessao) || 2}h numa só
+              visita (e por isso pagou a taxa extra configurada em Dados do ginásio) — não afeta a pontuação.
             </p>
           </>
         )}
@@ -10043,6 +10352,7 @@ const MENU_ADMIN = [
     itens: [
       { id: "notificacoes", label: "Notificações", icon: Bell },
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
+      { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
@@ -12323,14 +12633,41 @@ export default function CatumbelaGymApp() {
   const registarSaida = (membro) => {
     const agora = new Date();
     const hojeStr = agora.toISOString().slice(0, 10);
-    setAcessos((atual) => {
-      // encontra a entrada mais recente de hoje deste membro que ainda não tem saída
-      const aberta = atual.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida);
-      if (!aberta) return atual;
-      return atual.map((a) =>
-        a.id === aberta.id ? { ...a, saida: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) } : a
+    const horaSaida = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+    const aberta = acessos.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida);
+    if (!aberta) return;
+
+    // Regra da empresa: sessão mais longa do que o limite configurado paga
+    // uma taxa extra automaticamente — sem depender de alguém se lembrar
+    // de cobrar manualmente. Fica como fatura pendente (a receção cobra
+    // como qualquer outra), não é debitado logo em dinheiro.
+    const limiteHoras = Number(dadosGinasio.limiteHorasSessao) || 2;
+    const valorTaxa = Number(dadosGinasio.taxaSessaoLonga) || 0;
+    const horasSessao = calcularHorasEntreHorarios(aberta.entrada, horaSaida);
+    let numeroFaturaTaxa = null;
+
+    if (valorTaxa > 0 && horasSessao > limiteHoras) {
+      const documento = gerarDocumentoFaturacao({
+        tipo: "FATURA",
+        membro,
+        itens: [{
+          referencia: "TAXA-SESSAO-LONGA",
+          descricao: `Taxa por sessão longa (${horasSessao.toFixed(1)}h, limite ${limiteHoras}h) — ${hojeStr}`,
+          qtd: 1, precoUnit: valorTaxa, total: valorTaxa,
+        }],
+        valor: valorTaxa,
+        tipoReceita: "taxa-sessao-longa",
+      });
+      numeroFaturaTaxa = documento?.numero || null;
+      registarAuditoria(
+        "Cobrou taxa por sessão longa",
+        `${membro.nome} — ${horasSessao.toFixed(1)}h (limite ${limiteHoras}h) — fatura ${numeroFaturaTaxa}`
       );
-    });
+    }
+
+    setAcessos((atual) =>
+      atual.map((a) => (a.id === aberta.id ? { ...a, saida: horaSaida, taxaSessaoLongaFatura: numeroFaturaTaxa } : a))
+    );
     registarAuditoria("Registou saída", `${membro.nome} — ${membro.numero}`);
   };
 
@@ -12687,6 +13024,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
+          {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
