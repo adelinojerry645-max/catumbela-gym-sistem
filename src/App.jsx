@@ -450,8 +450,53 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   const ignorarProximoEnvio = useRef(false);
   const mudouLocalmente = useRef(false); // true assim que a pessoa altera algo (só protege a busca inicial)
   const gravacaoPendente = useRef(false); // true só enquanto há uma gravação nossa a caminho do Supabase
-  const ultimoRemotoConhecido = useRef(null); // último valor que sabemos que está no Supabase
+  const ultimoRemotoConhecido = useRef(null); // último valor que sabemos que está no Supabase (texto)
+  const baseParaFusao = useRef(null); // o mesmo valor, mas como objeto — para comparar item a item
   const timeoutRef = useRef(null);
+
+  // Combina o que está no Supabase (mudado por outro dispositivo) com o que
+  // mudou aqui neste, item a item — em vez de um dos dois lados apagar
+  // cegamente o trabalho do outro. Compara cada item (por "id") com a
+  // "base" (a última versão que sabíamos estar sincronizada nos dois
+  // lados): se só um dos lados mudou aquele item, usa essa mudança; se
+  // nenhum mudou, é igual; se os DOIS mudaram o mesmo item de forma
+  // diferente ao mesmo tempo (raro), fica com a versão remota, que já foi
+  // gravada primeiro. Isto é o que evita que uma subscrição feita num
+  // dispositivo desapareça só porque outro dispositivo, com dados mais
+  // antigos em memória, gravou por cima logo a seguir.
+  const fundirPorId = (base, local, remoto) => {
+    if (!Array.isArray(local) || !Array.isArray(remoto) || !Array.isArray(base)) return local;
+    if (local.length === 0 || !local.every((i) => i && typeof i === "object" && "id" in i)) return local;
+    if (!remoto.every((i) => i && typeof i === "object" && "id" in i)) return local;
+
+    const porId = (lista) => { const m = new Map(); lista.forEach((i) => m.set(i.id, i)); return m; };
+    const baseMapa = porId(base);
+    const localMapa = porId(local);
+    const remotoMapa = porId(remoto);
+    const todosIds = new Set([...baseMapa.keys(), ...localMapa.keys(), ...remotoMapa.keys()]);
+    const resultado = [];
+
+    todosIds.forEach((id) => {
+      const emBase = baseMapa.get(id);
+      const emLocal = localMapa.get(id);
+      const emRemoto = remotoMapa.get(id);
+      const localMudou = JSON.stringify(emLocal) !== JSON.stringify(emBase);
+      const remotoMudou = JSON.stringify(emRemoto) !== JSON.stringify(emBase);
+
+      if (!emLocal && !emRemoto) return; // removido dos dois lados
+      if (localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // só eu mudei (inclui criar/remover)
+      if (remotoMudou && !localMudou) { if (emRemoto) resultado.push(emRemoto); return; } // só o outro dispositivo mudou
+      if (!localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // nenhum mudou
+      // Mudou nos dois lados ao mesmo tempo — fica com o remoto (já gravado
+      // primeiro), exceto se só existir localmente (item novo, nunca chegou
+      // a existir na base nem no remoto — não é conflito, é só ainda não
+      // sincronizado).
+      if (emLocal && !emBase && !emRemoto) { resultado.push(emLocal); return; }
+      if (emRemoto) resultado.push(emRemoto);
+    });
+
+    return resultado;
+  };
 
   // Ao carregar o ecrã: busca a versão mais recente guardada no Supabase.
   // Só aplica essa versão se a pessoa ainda não tiver feito nenhuma alteração
@@ -463,6 +508,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       .then((dados) => {
         if (!cancelado && dados !== null) {
           ultimoRemotoConhecido.current = JSON.stringify(dados);
+          baseParaFusao.current = dados;
           if (!mudouLocalmente.current) {
             ignorarProximoEnvio.current = true;
             setValor(dados);
@@ -492,9 +538,24 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       const novoTexto = JSON.stringify(novoValor);
       if (novoTexto === ultimoRemotoConhecido.current) return; // é o eco da nossa própria gravação
       if (gravacaoPendente.current) return; // temos uma gravação nossa a caminho — não sobrepor agora
+      // Se ainda houver uma alteração local recente por enviar (ainda dentro
+      // dos 800ms de espera), fundir em vez de aceitar cegamente o remoto —
+      // senão essa alteração local perdia-se sem nunca chegar a ser enviada.
+      let fundidoTemAlteracaoLocal = false;
+      setValor((valorLocalAtual) => {
+        const fundido = fundirPorId(baseParaFusao.current, valorLocalAtual, novoValor);
+        fundidoTemAlteracaoLocal = JSON.stringify(fundido) !== novoTexto;
+        return fundido;
+      });
       ultimoRemotoConhecido.current = novoTexto;
-      ignorarProximoEnvio.current = true;
-      setValor(novoValor);
+      baseParaFusao.current = novoValor;
+      // Só marca para "ignorar o próximo envio" se a fusão ficou igual ao
+      // remoto (nada local a preservar) — se a fusão TROUXE de volta algo
+      // que só existia aqui, isso ainda precisa de ser enviado a sério,
+      // senão essa parte local perdia-se na mesma, só que mais tarde.
+      if (!fundidoTemAlteracaoLocal) {
+        ignorarProximoEnvio.current = true;
+      }
       window.dispatchEvent(new CustomEvent("catumbela:atualizado-tempo-real", { detail: { chave } }));
     });
     return () => desligarCanal(canal);
@@ -529,26 +590,39 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     timeoutRef.current = setTimeout(() => {
       const valorTexto = JSON.stringify(valor);
       // Antes de gravar, confirma que ninguém mais (noutro dispositivo) mudou
-      // esta mesma coleção entretanto — se mudou, avisa (não sabemos fundir os
-      // dois automaticamente, mas pelo menos a pessoa fica a saber que pode
-      // valer a pena confirmar os dados noutro dispositivo).
+      // esta mesma coleção entretanto. Se mudou, em vez de gravar às cegas
+      // por cima (o que apagava o que esse outro dispositivo tinha acabado
+      // de fazer), funde os dois primeiro, item a item — preserva as
+      // mudanças de cada lado, e só usa a versão remota nos raros casos em
+      // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
         .then((remoto) => {
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
-          if (
+          const houveConflito =
             remotoTexto !== null &&
             ultimoRemotoConhecido.current !== null &&
             remotoTexto !== ultimoRemotoConhecido.current &&
-            remotoTexto !== valorTexto
-          ) {
+            remotoTexto !== valorTexto;
+          if (houveConflito) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
+          const paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
+          return { paraGravar, houveConflito };
         })
-        .catch(() => {})
-        .finally(() => {
-          gravarColecao(PREFIXO_COLECAO_TESTE + chave, valor)
+        .catch(() => ({ paraGravar: valor, houveConflito: false }))
+        .then(({ paraGravar, houveConflito }) => {
+          const textoParaGravar = JSON.stringify(paraGravar);
+          gravarColecao(PREFIXO_COLECAO_TESTE + chave, paraGravar)
             .then(() => {
-              ultimoRemotoConhecido.current = valorTexto;
+              ultimoRemotoConhecido.current = textoParaGravar;
+              baseParaFusao.current = paraGravar;
+              if (houveConflito) {
+                // A fusão pode ter trazido de volta algo que só existia
+                // neste dispositivo, ou combinado com o que veio do outro —
+                // atualiza o ecrã para refletir o resultado fundido.
+                ignorarProximoEnvio.current = true;
+                setValor(paraGravar);
+              }
               setStatusSync?.("ligado");
             })
             .catch((e) => {
@@ -6080,15 +6154,28 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 
   const porEnviar = notificacoes.filter((n) => !enviadosMapa[chaveDe(n)]);
 
+  // Agrupadas por data de vencimento — para veres logo quem vence no
+  // mesmo dia, em vez de uma lista corrida sem nenhuma organização. Datas
+  // mais próximas (mais urgentes) primeiro.
+  const gruposPorData = useMemo(() => {
+    const mapa = {};
+    notificacoes.forEach((n) => {
+      const data = n.membro.vencimento || "Sem data";
+      if (!mapa[data]) mapa[data] = [];
+      mapa[data].push(n);
+    });
+    return Object.entries(mapa).sort(([a], [b]) => (a < b ? -1 : 1));
+  }, [notificacoes]);
+
   return (
     <div className="space-y-4">
       <div className="bg-[#EAF5F4] dark:bg-slate-800 ring-1 ring-[#BFE4E1] dark:ring-slate-700 rounded-xl p-4 flex items-start gap-3">
         <Bell size={18} className="text-[#3F8F87] mt-0.5 shrink-0" />
         <p className="text-sm text-slate-600 dark:text-slate-300">
           O sistema avisa automaticamente <strong>5 dias antes</strong> do vencimento, <strong>no dia</strong> e
-          <strong> depois</strong> de a mensalidade vencer. Clica em cada contacto para abrir o WhatsApp/SMS já
-          escrito — o sistema marca como "enviado" (guardado a sério, não só nesta sessão) para acompanhares o
-          progresso.
+          <strong> depois</strong> de a mensalidade vencer. Agrupadas por data de vencimento, para veres logo quem
+          vence junto. Clica em cada contacto para abrir o WhatsApp/SMS já escrito — o sistema marca como "enviado"
+          (guardado a sério, não só nesta sessão) para acompanhares o progresso.
         </p>
       </div>
 
@@ -6107,42 +6194,51 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
         {notificacoes.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Sem notificações pendentes. 🎉</p>
         ) : (
-          <div className="divide-y divide-slate-50 dark:divide-slate-700">
-            {notificacoes.map((n) => {
-              const chave = chaveDe(n);
-              const envio = enviadosMapa[chave];
-              return (
-                <div key={chave} className={`flex items-center justify-between py-3 ${envio ? "opacity-40" : ""}`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTILO_NOTIFICACAO[n.tipo].cor}`}>
-                      {ESTILO_NOTIFICACAO[n.tipo].rotulo}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{n.membro.nome}</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">{n.membro.numero} · {n.membro.vencimento}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {envio ? (
-                      <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
-                        <CheckCircle2 size={14} /> Enviado {envio.data}
-                      </span>
-                    ) : (
-                      <>
-                        <a href={linkWhatsApp(n.membro.telefone, n.mensagem)} target="_blank" rel="noreferrer"
-                          onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "WhatsApp")} className="text-emerald-600 hover:text-emerald-700">
-                          <MessageCircle size={16} />
-                        </a>
-                        <a href={linkSMS(n.membro.telefone, n.mensagem)}
-                          onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "SMS")} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
-                          <Phone size={16} />
-                        </a>
-                      </>
-                    )}
-                  </div>
+          <div className="space-y-5">
+            {gruposPorData.map(([data, lista]) => (
+              <div key={data}>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                  {data} · {lista.length} pessoa{lista.length > 1 ? "s" : ""}
+                </p>
+                <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                  {lista.map((n) => {
+                    const chave = chaveDe(n);
+                    const envio = enviadosMapa[chave];
+                    return (
+                      <div key={chave} className={`flex items-center justify-between py-3 ${envio ? "opacity-40" : ""}`}>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${ESTILO_NOTIFICACAO[n.tipo].cor}`}>
+                            {ESTILO_NOTIFICACAO[n.tipo].rotulo}
+                          </span>
+                          <div>
+                            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{n.membro.nome}</p>
+                            <p className="text-xs text-slate-400 dark:text-slate-500">{n.membro.numero}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {envio ? (
+                            <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
+                              <CheckCircle2 size={14} /> Enviado {envio.data}
+                            </span>
+                          ) : (
+                            <>
+                              <a href={linkWhatsApp(n.membro.telefone, n.mensagem)} target="_blank" rel="noreferrer"
+                                onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "WhatsApp")} className="text-emerald-600 hover:text-emerald-700">
+                                <MessageCircle size={16} />
+                              </a>
+                              <a href={linkSMS(n.membro.telefone, n.mensagem)}
+                                onClick={() => onMarcarEnviado(chave, n.membro.id, n.tipo, "SMS")} className="text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+                                <Phone size={16} />
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </Card>
@@ -8725,8 +8821,11 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   const [observacoes, setObservacoes] = useState("");
   const [resultado, setResultado] = useState(null);
 
-  // Só os pagamentos/vendas processados por esta conta durante a sessão
-  const meusPagamentos = pagamentosFeitos.filter((p) => p.registadoPor === nomeAtual);
+  // Só os pagamentos/vendas processados por esta conta, e só de HOJE — sem
+  // o filtro de data, o turno somava tudo o que a pessoa já tinha
+  // registado desde sempre, não só o turno do dia atual.
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const meusPagamentos = pagamentosFeitos.filter((p) => p.registadoPor === nomeAtual && p.data === hojeStr);
 
   const totais = useMemo(() => {
     const t = { dinheiro: 0, tpa: 0, express: 0, referencia: 0, transferencia: 0 };
@@ -8772,7 +8871,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
           </div>
         ))}
         <div className="flex justify-between text-sm pt-2 font-bold">
-          <span>Total (só o que tu registaste)</span>
+          <span>Total de hoje (só o que tu registaste)</span>
           <span className="text-[#3F8F87]">{kz(totalGeral)}</span>
         </div>
       </div>
