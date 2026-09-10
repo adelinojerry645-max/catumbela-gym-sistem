@@ -3322,7 +3322,7 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
 // conta. Funciona também com leitor de código de barras (que só "escreve"
 // o número e carrega Enter, como um teclado).
 // ---------------------------------------------------------------------
-function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras }) {
+function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
   const [query, setQuery] = useState("");
   const [membroSelecionado, setMembroSelecionado] = useState(null);
   const [aCriarNovo, setACriarNovo] = useState(false);
@@ -3336,13 +3336,32 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
   const [aEditarHoras, setAEditarHoras] = useState(false);
   const [horaEntradaEditada, setHoraEntradaEditada] = useState("");
   const [horaSaidaEditada, setHoraSaidaEditada] = useState("");
+  const [categoriaAberta, setCategoriaAberta] = useState(null); // "entradas" | "dentro" | "vencemHoje" | "semSubscricao" | null
   const inputRef = React.useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, [membroSelecionado, aCriarNovo]);
 
   const hojeStr = new Date().toISOString().slice(0, 10);
-  const entradasHoje = acessos.filter((a) => a.data === hojeStr).length;
-  const aindaDentro = acessos.filter((a) => a.data === hojeStr && !a.saida).length;
+
+  // Cada cartão de resumo tem a lista de quem está nessa situação, já
+  // pronta para mostrar assim que se clica no cartão — evita ter de ir a
+  // outro ecrã só para ver quem está a fazer o número subir.
+  const membroPorNumero = useMemo(() => {
+    const mapa = {};
+    membros.forEach((m) => { mapa[m.numero] = m; });
+    return mapa;
+  }, [membros]);
+
+  const listaEntradasHoje = useMemo(
+    () => acessos.filter((a) => a.data === hojeStr).map((a) => ({ acesso: a, membro: membroPorNumero[a.numero] })).filter((r) => r.membro),
+    [acessos, hojeStr, membroPorNumero]
+  );
+  const listaAindaDentro = useMemo(() => listaEntradasHoje.filter((r) => !r.acesso.saida), [listaEntradasHoje]);
+  const listaVencemHoje = useMemo(() => membros.filter((m) => m.vencimento === hojeStr), [membros, hojeStr]);
+  const listaSemSubscricao = useMemo(() => membros.filter((m) => m.estado === "sem-subscricao"), [membros]);
+
+  const entradasHoje = listaEntradasHoje.length;
+  const aindaDentro = listaAindaDentro.length;
 
   const resultados = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -3359,6 +3378,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     setASubscrever(false);
     setPermitirExcecao(false);
     setAEditarHoras(false);
+    setCategoriaAberta(null);
     setPlanoEscolhido(m.plano || planos[0]?.nome || "");
   };
 
@@ -3423,17 +3443,21 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     : null;
 
   const abrirEdicaoHoras = () => {
-    if (!acessoDeHojeDoMembro) return;
-    setHoraEntradaEditada(acessoDeHojeDoMembro.entrada || "");
-    setHoraSaidaEditada(acessoDeHojeDoMembro.saida || "");
+    setHoraEntradaEditada(acessoDeHojeDoMembro?.entrada || "");
+    setHoraSaidaEditada(acessoDeHojeDoMembro?.saida || "");
     setAEditarHoras(true);
   };
 
   const guardarHorasEditadas = () => {
-    if (!acessoDeHojeDoMembro || !horaEntradaEditada) return;
-    onEditarHoras(acessoDeHojeDoMembro.id, horaEntradaEditada, horaSaidaEditada);
+    if (!horaEntradaEditada) return;
+    if (acessoDeHojeDoMembro) {
+      onEditarHoras(acessoDeHojeDoMembro.id, horaEntradaEditada, horaSaidaEditada);
+      setUltimaAcao({ texto: `Horas de ${membroSelecionado.nome} corrigidas`, desfazer: null });
+    } else {
+      onAdicionarAcessoManual(membroSelecionado, horaEntradaEditada, horaSaidaEditada);
+      setUltimaAcao({ texto: `Registo de hoje adicionado para ${membroSelecionado.nome}`, desfazer: null });
+    }
     setAEditarHoras(false);
-    setUltimaAcao({ texto: `Horas de ${membroSelecionado.nome} corrigidas`, desfazer: null });
   };
 
   const diasParaVencer = membroSelecionado?.vencimento
@@ -3444,15 +3468,71 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
 
   return (
     <div className="space-y-4">
-      {/* Resumo do dia, sempre visível */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Entradas hoje</p><p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">{entradasHoje}</p></Card>
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Ainda no ginásio</p><p className="text-2xl font-extrabold text-[#3F8F87]">{aindaDentro}</p></Card>
+      {/* Resumo do dia, sempre visível — clica em qualquer cartão para ver
+          quem está nessa situação. */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <button onClick={() => setCategoriaAberta(categoriaAberta === "entradas" ? null : "entradas")} className="text-left">
+          <Card className={categoriaAberta === "entradas" ? "ring-2 ring-[#3F8F87]" : ""}>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Entradas hoje</p>
+            <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">{entradasHoje}</p>
+          </Card>
+        </button>
+        <button onClick={() => setCategoriaAberta(categoriaAberta === "dentro" ? null : "dentro")} className="text-left">
+          <Card className={categoriaAberta === "dentro" ? "ring-2 ring-[#3F8F87]" : ""}>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Ainda no ginásio</p>
+            <p className="text-2xl font-extrabold text-[#3F8F87]">{aindaDentro}</p>
+          </Card>
+        </button>
+        <button onClick={() => setCategoriaAberta(categoriaAberta === "vencemHoje" ? null : "vencemHoje")} className="text-left">
+          <Card className={categoriaAberta === "vencemHoje" ? "ring-2 ring-[#3F8F87]" : ""}>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Vencem hoje</p>
+            <p className={`text-2xl font-extrabold ${listaVencemHoje.length > 0 ? "text-amber-600" : "text-slate-900 dark:text-slate-100"}`}>{listaVencemHoje.length}</p>
+          </Card>
+        </button>
+        <button onClick={() => setCategoriaAberta(categoriaAberta === "semSubscricao" ? null : "semSubscricao")} className="text-left">
+          <Card className={categoriaAberta === "semSubscricao" ? "ring-2 ring-[#3F8F87]" : ""}>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Sem subscrição</p>
+            <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">{listaSemSubscricao.length}</p>
+          </Card>
+        </button>
         <Card className="col-span-2 sm:col-span-1">
           <p className="text-xs text-slate-400 dark:text-slate-500">Pagamentos por aprovar</p>
           <p className={`text-2xl font-extrabold ${pagamentosPendentes.length > 0 ? "text-amber-600" : "text-slate-900 dark:text-slate-100"}`}>{pagamentosPendentes.length}</p>
         </Card>
       </div>
+
+      {categoriaAberta && (
+        <Card>
+          <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
+            {{ entradas: "Entradas de hoje", dentro: "Ainda no ginásio", vencemHoje: "Vencem hoje", semSubscricao: "Sem subscrição" }[categoriaAberta]}
+          </p>
+          <div className="divide-y divide-slate-50 dark:divide-slate-700">
+            {(categoriaAberta === "entradas" ? listaEntradasHoje
+              : categoriaAberta === "dentro" ? listaAindaDentro
+              : categoriaAberta === "vencemHoje" ? listaVencemHoje.map((m) => ({ membro: m, acesso: null }))
+              : listaSemSubscricao.map((m) => ({ membro: m, acesso: null }))
+            ).map((r, i) => (
+              <button key={r.membro.id || i} onClick={() => selecionar(r.membro)} className="w-full flex items-center justify-between py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700 px-2 -mx-2 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.membro.nome}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">{r.membro.numero}</p>
+                </div>
+                {r.acesso && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Entrada {r.acesso.entrada}{r.acesso.saida ? ` · Saída ${r.acesso.saida}` : " · ainda no ginásio"}
+                  </p>
+                )}
+              </button>
+            ))}
+            {(categoriaAberta === "entradas" ? listaEntradasHoje.length
+              : categoriaAberta === "dentro" ? listaAindaDentro.length
+              : categoriaAberta === "vencemHoje" ? listaVencemHoje.length
+              : listaSemSubscricao.length) === 0 && (
+              <p className="text-sm text-slate-400 dark:text-slate-500 py-2">Ninguém nesta situação agora.</p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {ultimaAcao && (
         <div className="bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-200 dark:ring-emerald-800 rounded-xl p-3 flex items-center justify-between">
@@ -3572,9 +3652,17 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
             </div>
           )}
 
+          {!acessoDeHojeDoMembro && !aEditarHoras && (
+            <button onClick={abrirEdicaoHoras} className="text-xs font-semibold text-[#3F8F87] hover:underline mb-4 block">
+              A pessoa já esteve aqui hoje mas não ficou registado? Adicionar registo manual
+            </button>
+          )}
+
           {aEditarHoras && (
             <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4 space-y-3">
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Corrigir horas de hoje</p>
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                {acessoDeHojeDoMembro ? "Corrigir horas de hoje" : "Adicionar registo de hoje"}
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-slate-400 dark:text-slate-500">Entrada</label>
@@ -8014,7 +8102,7 @@ function Auditoria({ registos, onNavegar }) {
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{r.acao}</p>
                 {r.destino && onNavegar && (
                   <button
-                    onClick={() => onNavegar(r.destino.tela)}
+                    onClick={() => onNavegar(r.destino)}
                     className="shrink-0 text-xs font-semibold text-[#3F8F87] hover:underline flex items-center gap-1"
                   >
                     Ver <ChevronRight size={12} />
@@ -9804,8 +9892,16 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 // cada uma com entradas/saídas (depósito, levantamento, transferência,
 // recibos, custos pagos), e o total gerado por cada funcionário.
 // ---------------------------------------------------------------------
-function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno, pagamentosFeitos }) {
-  const [aba, setAba] = useState("resumo"); // "resumo" | "fecho" | "banco" | "caixa"
+function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno, pagamentosFeitos, focoNavegacao, onFocoConsumido }) {
+  const [aba, setAba] = useState(focoNavegacao?.aba || "resumo"); // "resumo" | "fecho" | "banco" | "caixa"
+
+  // Se a Auditoria mandar "Ver" um movimento enquanto este ecrã já está
+  // montado (ex.: já estavas em Caixa e clicaste noutro "Ver"), muda de
+  // aba sozinho para a certa — sem isto, só funcionava na primeira vez
+  // que se entrava neste ecrã.
+  useEffect(() => {
+    if (focoNavegacao?.aba) setAba(focoNavegacao.aba);
+  }, [focoNavegacao]);
 
   // Cruza um movimento com pagamentosFeitos (pelo número do documento) para
   // saber o tipo de receita — cobre também os movimentos antigos, gravados
@@ -10030,6 +10126,8 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           onRemover={(id) => onRemoverMovimento("caixa", id)}
           usaContaBancaria={false}
           dadosGinasio={dadosGinasio}
+          movimentoParaDestacar={focoNavegacao?.aba === "caixa" ? focoNavegacao.movimentoId : null}
+          onFocoConsumido={onFocoConsumido}
         />
       )}
 
@@ -10043,6 +10141,8 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           onAtribuirConta={onAtribuirConta}
           usaContaBancaria={true}
           dadosGinasio={dadosGinasio}
+          movimentoParaDestacar={focoNavegacao?.aba === "banco" ? focoNavegacao.movimentoId : null}
+          onFocoConsumido={onFocoConsumido}
         />
       )}
     </div>
@@ -10050,13 +10150,34 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
 }
 
 // Ledger genérico de entradas/saídas — usado tanto para Caixa como para Banco
-function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, onRemover, onAtribuirConta, usaContaBancaria, dadosGinasio }) {
+function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransferencia, onRemover, onAtribuirConta, usaContaBancaria, dadosGinasio, movimentoParaDestacar, onFocoConsumido }) {
   const [showForm, setShowForm] = useState(false);
   const [atribuindoId, setAtribuindoId] = useState(null);
   const [contaEscolhidaAgora, setContaEscolhidaAgora] = useState("");
   const [filtroBanco, setFiltroBanco] = useState("TODOS");
+  const [idRealcado, setIdRealcado] = useState(null);
   const todasContasBancarias = obterContasBancarias(dadosGinasio);
   const contasBancarias = usaContaBancaria ? todasContasBancarias : [];
+  // Quando se chega aqui a partir de "Ver" na Auditoria: garante que o
+  // filtro de banco não esconde o movimento visado, faz scroll até ele, e
+  // destaca-o por uns segundos — para nunca ser preciso ir à procura dele
+  // à mão na lista.
+  useEffect(() => {
+    if (!movimentoParaDestacar) return;
+    const alvo = movimentos.find((m) => m.id === movimentoParaDestacar);
+    if (!alvo) return;
+    if (alvo.contaBancariaNome) setFiltroBanco(alvo.contaBancariaNome);
+    const tempo = setTimeout(() => {
+      const elemento = document.getElementById(`movimento-${movimentoParaDestacar}`);
+      elemento?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setIdRealcado(movimentoParaDestacar);
+      onFocoConsumido?.();
+      setTimeout(() => setIdRealcado(null), 3000);
+    }, 150);
+    return () => clearTimeout(tempo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movimentoParaDestacar]);
+
   // Só mostra os tipos que fazem sentido neste ledger — ex.: "Fecho TPA" e
   // "Transferência" nunca aparecem no Caixa, porque nunca geram dinheiro físico.
   const tiposDisponiveis = TIPOS_MOVIMENTO.filter((t) => t.disponivel.includes(usaContaBancaria ? "banco" : "caixa"));
@@ -10132,7 +10253,11 @@ function MovimentacaoLedger({ titulo, movimentos, onAdicionar, onAdicionarTransf
       ) : (
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
           {movimentosFiltrados.map((m) => (
-            <div key={m.id} className="py-2.5 text-sm">
+            <div
+              key={m.id}
+              id={`movimento-${m.id}`}
+              className={`py-2.5 text-sm transition-colors duration-500 ${idRealcado === m.id ? "bg-[#EAF5F4] dark:bg-[#1d3936] -mx-3 px-3 rounded-lg ring-2 ring-[#3F8F87]" : ""}`}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-slate-700 dark:text-slate-200">
@@ -11579,6 +11704,16 @@ export default function CatumbelaGymApp() {
   const [meuTokenSessao, setMeuTokenSessao] = useLocalOnly("meuTokenSessao", null);
   const [avisoSessaoEncerrada, setAvisoSessaoEncerrada] = useState(false);
   const [tela, setTela] = useState("dashboard");
+  // Quando a Auditoria manda "Ver" um movimento específico, isto guarda
+  // para onde ir depois de mudar de ecrã — qual aba abrir, e qual
+  // movimento destacar e mostrar em vista, sem a pessoa ter de o
+  // procurar à mão na lista.
+  const [focoNavegacao, setFocoNavegacao] = useState(null);
+  const navegarComFoco = (destino) => {
+    setTela(destino.tela);
+    setFocoNavegacao(destino);
+  };
+
   const [escuro, setEscuro] = useState(false);
   const [notificacoesPushAtivas, setNotificacoesPushAtivas] = useLocalOnly("notificacoesPushAtivas", false);
   const [menuAberto, setMenuAberto] = useState(false);
@@ -11777,6 +11912,42 @@ export default function CatumbelaGymApp() {
   const [custos, setCustos] = usePersistente("custos", [], setStatusSync);
   const [faturas, setFaturas] = usePersistente("faturas", [], setStatusSync);
 
+  // BACKFILL: recibos de mensalidade criados ANTES de o sistema passar a
+  // guardar "vencimentoSubscricao" diretamente no documento não têm essa
+  // informação — e sem ela, a reconciliação abaixo não os consegue usar
+  // como prova para curar uma subscrição que tenha sido corrompida por um
+  // bug de sincronização mais antigo (mesmo já resolvido, os estragos que
+  // já tinha causado continuavam por reparar). Este efeito calcula e
+  // preenche essa informação retroativamente, uma única vez por
+  // documento, a partir do que o próprio recibo já tinha guardado — o
+  // nome do plano (na referência do item) e a data de início (na
+  // descrição, ou a data de emissão do recibo como aproximação).
+  useEffect(() => {
+    const semBackfill = faturas.some(
+      (f) => f.tipo === "RECIBO" && !f.vencimentoSubscricao && f.itens?.[0]?.referencia?.startsWith("PLANO-")
+    );
+    if (!semBackfill) return;
+    setFaturas((atual) =>
+      atual.map((f) => {
+        if (f.tipo !== "RECIBO" || f.vencimentoSubscricao || !f.itens?.[0]?.referencia?.startsWith("PLANO-")) return f;
+        const nomeNaReferencia = f.itens[0].referencia.replace("PLANO-", "");
+        const planoEncontrado = planos.find((p) => p.nome.toUpperCase() === nomeNaReferencia);
+        if (!planoEncontrado) return f; // plano entretanto renomeado/eliminado — não há como recalcular com segurança
+        const match = /início (\d{4}-\d{2}-\d{2})/.exec(f.itens[0].descricao || "");
+        let dataInicio = match ? match[1] : null;
+        if (!dataInicio && f.data) {
+          const [dia, mes, ano] = f.data.split("/");
+          if (dia && mes && ano) dataInicio = `${ano}-${mes}-${dia}`;
+        }
+        if (!dataInicio) return f;
+        const base = new Date(dataInicio + "T00:00:00");
+        base.setDate(base.getDate() + planoEncontrado.duracaoDias);
+        return { ...f, planoSubscricao: planoEncontrado.nome, vencimentoSubscricao: dataLocalISO(base) };
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faturas, planos]);
+
   // Reconciliação: para quem já tem recibo de mensalidade, o plano/
   // vencimento/estado guardados no perfil do membro têm de bater certo com
   // o recibo mais recente — se não baterem (ex.: por causa de um conflito
@@ -11795,6 +11966,17 @@ export default function CatumbelaGymApp() {
           if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado") return m;
           const efetivo = vencimentoEfetivoDoMembro(m, faturas);
           if (!efetivo.temRecibo) return m;
+          // Só corrige quando o recibo aponta para um vencimento MAIS À
+          // FRENTE do que o que o membro tem agora — isso é o sinal de
+          // que algo reverteu a subscrição por engano. Nunca RECUA um
+          // vencimento que já está mais avançado do que o recibo mais
+          // recente: isso acontece em situações legítimas sem recibo
+          // novo, como retomar de uma pausa (que soma os dias parados de
+          // volta ao vencimento) — sem esta guarda, a reconciliação
+          // desfazia essa extensão sempre que corria, revertendo para o
+          // recibo antigo e apagando a subscrição de quem tinha acabado
+          // de retomar.
+          if (!(efetivo.vencimento > m.vencimento)) return m;
           if (m.plano === efetivo.plano && m.vencimento === efetivo.vencimento && m.estado === efetivo.estado) return m;
           mudouAlgumaCoisa = true;
           return { ...m, plano: efetivo.plano, vencimento: efetivo.vencimento, estado: efetivo.estado };
@@ -13233,7 +13415,7 @@ export default function CatumbelaGymApp() {
     registarAuditoria(
       `Registou ${movimento.direcao === "entrada" ? "entrada" : "saída"} de ${kz(movimento.valor)} (${ledger === "banco" ? "banco" : "caixa"})`,
       `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""}`,
-      { tela: "caixa" }
+      { tela: "caixa", aba: ledger, movimentoId: registo.id }
     );
   };
 
@@ -13251,15 +13433,16 @@ export default function CatumbelaGymApp() {
     const idPartilhado = `TRF-${Date.now()}`;
     const base = { subtipo, valor: Number(valor), descricao, data: dataHora, registadoPor: contaAtual?.nome || "—", origemTransferencia: idPartilhado };
 
-    setMovimentosCaixa((atual) => [{ ...base, id: Date.now(), direcao: tipo.direcaoCaixa }, ...atual]);
+    const idMovimentoCaixa = Date.now();
+    setMovimentosCaixa((atual) => [{ ...base, id: idMovimentoCaixa, direcao: tipo.direcaoCaixa }, ...atual]);
     setMovimentosBancarios((atual) => [
-      { ...base, id: Date.now() + 1, direcao: tipo.direcaoBanco, contaBancariaId, contaBancariaNome: conta?.banco || null },
+      { ...base, id: idMovimentoCaixa + 1, direcao: tipo.direcaoBanco, contaBancariaId, contaBancariaNome: conta?.banco || null },
       ...atual,
     ]);
     registarAuditoria(
       `Registou ${subtipo} de ${kz(Number(valor))} (Caixa ↔ ${conta?.banco || "Banco"})`,
       `Atualizado automaticamente nos dois lados${descricao ? " — " + descricao : ""}`,
-      { tela: "caixa" }
+      { tela: "caixa", aba: "caixa", movimentoId: idMovimentoCaixa }
     );
   };
 
@@ -13288,8 +13471,8 @@ export default function CatumbelaGymApp() {
     }
     registarAuditoria(
       `Eliminou movimento de ${ledger === "banco" ? "banco" : "caixa"}`,
-      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}${movimento.custoId ? " (e o custo associado)" : ""}`,
-      { tela: "caixa" }
+      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}${movimento.custoId ? " (e o custo associado)" : ""}`
+      // sem destino aqui — o movimento já foi eliminado, não há para onde ir
     );
   };
 
@@ -13304,7 +13487,7 @@ export default function CatumbelaGymApp() {
     registarAuditoria(
       "Atribuiu conta bancária a um movimento antigo",
       `${movimento?.subtipo || ""}${movimento?.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento?.valor || 0)} → ${nomeBanco}`,
-      { tela: "caixa" }
+      { tela: "caixa", aba: "banco", movimentoId: id }
     );
   };
 
@@ -13408,6 +13591,23 @@ export default function CatumbelaGymApp() {
       "Corrigiu as horas de um acesso",
       `${anterior?.membro || ""} — de ${anterior?.entrada}${anterior?.saida ? "–" + anterior.saida : ""} para ${novaEntrada}${novaSaida ? "–" + novaSaida : ""}`
     );
+  };
+
+  // Cria um registo de acesso de hoje inteiramente novo, com horas
+  // escolhidas — para quando a pessoa esteve mesmo no ginásio, mas
+  // ninguém chegou a registar a entrada dela na altura.
+  const adicionarAcessoManual = (membro, entrada, saida) => {
+    const novoAcesso = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      membro: membro.nome,
+      numero: membro.numero,
+      foto: membro.foto || null,
+      data: new Date().toISOString().slice(0, 10),
+      entrada,
+      saida: saida || null,
+    };
+    adicionarAcessoSeguro(novoAcesso);
+    registarAuditoria("Adicionou registo de acesso manualmente", `${membro.nome} — ${entrada}${saida ? "–" + saida : ""}`);
   };
 
   // --- ÁREA DO MEMBRO: layout próprio, sem sidebar administrativa ---
@@ -13738,6 +13938,8 @@ export default function CatumbelaGymApp() {
               onAtribuirConta={atribuirContaMovimento}
               fechosTurno={fechosTurno}
               pagamentosFeitos={pagamentosFeitos}
+              focoNavegacao={telaAtual === "caixa" ? focoNavegacao : null}
+              onFocoConsumido={() => setFocoNavegacao(null)}
             />
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
@@ -13770,6 +13972,7 @@ export default function CatumbelaGymApp() {
               onDesfazerEntrada={desfazerEntrada}
               onDesfazerSaida={desfazerSaida}
               onEditarHoras={editarHorasAcesso}
+              onAdicionarAcessoManual={adicionarAcessoManual}
             />
           )}
           {telaAtual === "acessos" && (
@@ -13785,7 +13988,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "relatorios" && perfil === "administrador" && (
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
           )}
-          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={setTela} />}
+          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} />}
           {telaAtual === "mensagens" && perfil === "administrador" && (
             <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
           )}
