@@ -358,6 +358,7 @@ function estaEmModoTeste() {
 // nunca se misturam, e sair do modo de teste devolve tudo ao normal na hora.
 const MODO_TESTE_ATIVO = estaEmModoTeste();
 const CHAVE_ARMAZENAMENTO_ATUAL = MODO_TESTE_ATIVO ? "catumbela-gym:v1:teste" : CHAVE_ARMAZENAMENTO;
+const CHAVE_BASE_SINCRONIZADA = CHAVE_ARMAZENAMENTO_ATUAL + ":base-sincronizada";
 const PREFIXO_COLECAO_TESTE = MODO_TESTE_ATIVO ? "teste_" : "";
 
 function alternarModoTeste(ativar) {
@@ -375,6 +376,35 @@ function carregarEstadoGuardado() {
     return bruto ? JSON.parse(bruto) : {};
   } catch {
     return {};
+  }
+}
+
+// A "base sincronizada" é a última versão de cada coleção que sabemos que
+// já chegou ao Supabase — persistida à parte, para sobreviver a um
+// recarregamento de página. Sem isto: se fizeres alterações offline (ou a
+// gravação para o Supabase ainda não tiver acontecido) e recarregares a
+// página antes de sincronizar, a leitura inicial do Supabase substituía
+// cegamente essas alterações locais pela versão antiga do servidor,
+// perdendo-as em silêncio. Com a base guardada, a leitura inicial sabe
+// distinguir "isto mudou aqui, ainda por enviar" de "isto é só o que já
+// estava sincronizado", e funde os dois em vez de escolher um às cegas.
+function carregarBaseSincronizada() {
+  try {
+    const bruto = window.localStorage.getItem(CHAVE_BASE_SINCRONIZADA);
+    return bruto ? JSON.parse(bruto) : {};
+  } catch {
+    return {};
+  }
+}
+
+function guardarBaseSincronizada(chave, valor) {
+  try {
+    const atual = carregarBaseSincronizada();
+    atual[chave] = valor;
+    window.localStorage.setItem(CHAVE_BASE_SINCRONIZADA, JSON.stringify(atual));
+  } catch {
+    // se não conseguir guardar a base, a próxima sincronização continua a
+    // funcionar — só perde esta otimização específica, não é crítico
   }
 }
 
@@ -451,7 +481,12 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   const mudouLocalmente = useRef(false); // true assim que a pessoa altera algo (só protege a busca inicial)
   const gravacaoPendente = useRef(false); // true só enquanto há uma gravação nossa a caminho do Supabase
   const ultimoRemotoConhecido = useRef(null); // último valor que sabemos que está no Supabase (texto)
-  const baseParaFusao = useRef(null); // o mesmo valor, mas como objeto — para comparar item a item
+  // A base começa com o que ficou guardado localmente da última vez que
+  // sincronizámos com sucesso (sobrevive a um recarregamento de página) —
+  // sem isto, alterações feitas offline e ainda não enviadas podiam ser
+  // apagadas pela leitura inicial do Supabase, que não tinha como saber
+  // que eram diferentes do que já estava lá.
+  const baseParaFusao = useRef(carregarBaseSincronizada()[chave] ?? null);
   const timeoutRef = useRef(null);
 
   // Combina o que está no Supabase (mudado por outro dispositivo) com o que
@@ -466,6 +501,14 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // antigos em memória, gravou por cima logo a seguir.
   const fundirPorId = (base, local, remoto) => {
     if (!Array.isArray(local) || !Array.isArray(remoto) || !Array.isArray(base)) return local;
+    // Proteção crítica: se este dispositivo está com a coleção vazia mas a
+    // base (a última versão sincronizada) tinha itens, isto NUNCA pode ser
+    // confiado como "a pessoa apagou tudo" — é sempre mais provável ser um
+    // bug, uma leitura ainda incompleta, ou um estado transitório. Foi
+    // exatamente isto que apagou a maioria dos movimentos bancários antes:
+    // uma fusão que confiava cegamente num "local" vazio, e gravava esse
+    // vazio por cima de tudo o que estava no Supabase. Nunca mais.
+    if (local.length === 0 && base.length > 0) return remoto;
     if (local.length === 0 || !local.every((i) => i && typeof i === "object" && "id" in i)) return local;
     if (!remoto.every((i) => i && typeof i === "object" && "id" in i)) return local;
 
@@ -487,12 +530,35 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       if (localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // só eu mudei (inclui criar/remover)
       if (remotoMudou && !localMudou) { if (emRemoto) resultado.push(emRemoto); return; } // só o outro dispositivo mudou
       if (!localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // nenhum mudou
-      // Mudou nos dois lados ao mesmo tempo — fica com o remoto (já gravado
-      // primeiro), exceto se só existir localmente (item novo, nunca chegou
-      // a existir na base nem no remoto — não é conflito, é só ainda não
-      // sincronizado).
+      // Mudou nos dois lados ao mesmo tempo. Se o item foi apagado num dos
+      // lados, não há campos para fundir — respeita a eliminação (fica
+      // fora), exceto quando só existe localmente (item novo, nunca
+      // chegou a existir na base nem no remoto).
       if (emLocal && !emBase && !emRemoto) { resultado.push(emLocal); return; }
-      if (emRemoto) resultado.push(emRemoto);
+      if (!emLocal || !emRemoto) { if (emRemoto) resultado.push(emRemoto); return; }
+      // Os dois mudaram o MESMO registo ao mesmo tempo — mas normalmente
+      // em CAMPOS diferentes (ex.: um dispositivo subscreve o atleta,
+      // outro edita o telefone dele). Fundir campo a campo preserva as
+      // duas alterações; só quando o MESMO campo mudou nos dois lados de
+      // forma diferente é que o remoto vence nesse campo específico. Sem
+      // isto, "o remoto ganha o registo inteiro" apagava sistematicamente
+      // qualquer subscrição feita no mesmo instante que outra edição no
+      // mesmo membro noutro dispositivo — a causa mais provável de
+      // subscrições e inscrições a desaparecerem sem explicação.
+      const chavesCampos = new Set([...Object.keys(emBase || {}), ...Object.keys(emLocal), ...Object.keys(emRemoto)]);
+      const fundidoCampoACampo = {};
+      chavesCampos.forEach((campo) => {
+        const valorBase = emBase ? emBase[campo] : undefined;
+        const valorLocal = emLocal[campo];
+        const valorRemoto = emRemoto[campo];
+        const campoLocalMudou = JSON.stringify(valorLocal) !== JSON.stringify(valorBase);
+        const campoRemotoMudou = JSON.stringify(valorRemoto) !== JSON.stringify(valorBase);
+        if (campoLocalMudou && !campoRemotoMudou) fundidoCampoACampo[campo] = valorLocal;
+        else if (campoRemotoMudou && !campoLocalMudou) fundidoCampoACampo[campo] = valorRemoto;
+        else if (!campoLocalMudou && !campoRemotoMudou) fundidoCampoACampo[campo] = valorLocal;
+        else fundidoCampoACampo[campo] = valorRemoto; // conflito genuíno no mesmo campo — remoto vence
+      });
+      resultado.push(fundidoCampoACampo);
     });
 
     return resultado;
@@ -504,23 +570,73 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // gravação recente e apagá-la (ex.: guardar o logótipo e ele "desaparecer").
   useEffect(() => {
     let cancelado = false;
-    lerColecao(PREFIXO_COLECAO_TESTE + chave)
-      .then((dados) => {
-        if (!cancelado && dados !== null) {
-          ultimoRemotoConhecido.current = JSON.stringify(dados);
-          baseParaFusao.current = dados;
-          if (!mudouLocalmente.current) {
-            ignorarProximoEnvio.current = true;
-            setValor(dados);
+    let tentativas = 0;
+    const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
+    const tentarLer = () => {
+      lerColecao(PREFIXO_COLECAO_TESTE + chave)
+        .then((dados) => {
+          if (!cancelado && dados !== null) {
+            // A base para comparações futuras segue SEMPRE o valor bruto
+            // que veio do Supabase — nunca um resultado já fundido. Uma
+            // alteração local ainda não confirmada só pode ser tratada
+            // como "diferente da base" enquanto realmente não tiver sido
+            // gravada; se a base "absorvesse" essa alteração cedo demais,
+            // o próximo dispositivo a sincronizar (que ainda não sabe
+            // dela) passava a parecer que a estava a REVERTER de
+            // propósito, quando só ainda não tinha chegado à vez dele.
+            // Isto foi o que fazia subscrições recém-pagas por vezes
+            // voltarem a aparecer como vencidas horas depois.
+            ultimoRemotoConhecido.current = JSON.stringify(dados);
+            baseParaFusao.current = dados;
+            guardarBaseSincronizada(chave, dados);
+            if (!mudouLocalmente.current) {
+              // Se já havia uma base local (de uma sessão anterior) e o
+              // valor local difere dela, pode haver alterações feitas
+              // offline que ainda não chegaram ao Supabase — funde em vez
+              // de substituir às cegas, para nunca as perder. Sem base
+              // local conhecida (primeiro acesso deste dispositivo), não
+              // há nada fidedigno para preservar, por isso aceita o
+              // servidor diretamente, como sempre fez.
+              let fundidoTrouxeAlgoLocal = false;
+              setValor((valorLocalAtual) => {
+                if (baseAoIniciar && JSON.stringify(valorLocalAtual) !== JSON.stringify(baseAoIniciar)) {
+                  const fundido = fundirPorId(baseAoIniciar, valorLocalAtual, dados);
+                  fundidoTrouxeAlgoLocal = JSON.stringify(fundido) !== JSON.stringify(dados);
+                  return fundido;
+                }
+                return dados;
+              });
+              // Só marca para ignorar o próximo envio se aceitámos o
+              // servidor tal e qual — se a fusão trouxe de volta algo que
+              // só existia aqui (alterações offline por enviar), esse
+              // resultado ainda tem de ser gravado no Supabase a sério,
+              // senão essas alterações ficavam para sempre só neste
+              // dispositivo.
+              if (!fundidoTrouxeAlgoLocal) {
+                ignorarProximoEnvio.current = true;
+              }
+            }
           }
-        }
-        if (!cancelado) setStatusSync?.("ligado");
-      })
-      .catch(() => {
-        // sem rede, tabela ainda não criada, ou Supabase por configurar —
-        // a app continua a funcionar com os dados guardados localmente
-        if (!cancelado) setStatusSync?.("offline");
-      });
+          if (!cancelado) setStatusSync?.("ligado");
+        })
+        .catch(() => {
+          // sem rede, tabela ainda não criada, ou Supabase por configurar.
+          // A app continua a funcionar com os dados guardados localmente,
+          // mas SEM "ultimoRemotoConhecido" nunca se consegue detetar
+          // conflitos com outros dispositivos — o que fazia este aparelho
+          // gravar sempre por cima às cegas, mesmo quando outro tinha
+          // acabado de subscrever alguém. Por isso insiste em tentar de
+          // novo (rede instável é normal aqui), em vez de desistir.
+          if (!cancelado) {
+            setStatusSync?.("offline");
+            tentativas += 1;
+            if (tentativas <= 20) {
+              setTimeout(() => { if (!cancelado) tentarLer(); }, Math.min(30000, 3000 * tentativas));
+            }
+          }
+        });
+    };
+    tentarLer();
     return () => {
       cancelado = true;
     };
@@ -547,8 +663,19 @@ function usePersistente(chave, valorInicial, setStatusSync) {
         fundidoTemAlteracaoLocal = JSON.stringify(fundido) !== novoTexto;
         return fundido;
       });
+      // A base para comparações futuras segue SEMPRE o valor bruto que
+      // veio do outro dispositivo — nunca o resultado já fundido. Se a
+      // base "absorvesse" cedo demais uma alteração local ainda por
+      // confirmar, o PRÓXIMO evento em tempo real (de um terceiro
+      // dispositivo que também ainda não sabe dessa alteração) passava a
+      // parecer estar a "reverter" essa alteração de propósito — quando
+      // só ainda não tinha chegado a vez de ele saber dela. Foi isto que
+      // fazia subscrições recém-pagas voltarem a aparecer como vencidas
+      // horas depois, sempre que mais outro dispositivo mexia em
+      // qualquer coisa por perto.
       ultimoRemotoConhecido.current = novoTexto;
       baseParaFusao.current = novoValor;
+      guardarBaseSincronizada(chave, novoValor);
       // Só marca para "ignorar o próximo envio" se a fusão ficou igual ao
       // remoto (nada local a preservar) — se a fusão TROUXE de volta algo
       // que só existia aqui, isso ainda precisa de ser enviado a sério,
@@ -589,6 +716,18 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       const valorTexto = JSON.stringify(valor);
+      // Proteção extra, mesmo sem conflito detetado: se este dispositivo
+      // está prestes a gravar uma coleção VAZIA, mas a última versão
+      // conhecida (deste ou de outro dispositivo) tinha itens, isso é
+      // suspeito demais para confiar às cegas — em vez de apagar tudo,
+      // busca o remoto mais recente primeiro. Se o remoto também estiver
+      // vazio, confirma-se que a eliminação era mesmo real; se não
+      // estiver, o remoto ganha (é mais provável ser um bug ou uma
+      // leitura incompleta deste lado do que uma eliminação em massa).
+      const arrayVazioSuspeito =
+        Array.isArray(valor) && valor.length === 0 &&
+        Array.isArray(baseParaFusao.current) && baseParaFusao.current.length > 0;
+
       // Antes de gravar, confirma que ninguém mais (noutro dispositivo) mudou
       // esta mesma coleção entretanto. Se mudou, em vez de gravar às cegas
       // por cima (o que apagava o que esse outro dispositivo tinha acabado
@@ -606,8 +745,12 @@ function usePersistente(chave, valorInicial, setStatusSync) {
           if (houveConflito) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
-          const paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
-          return { paraGravar, houveConflito };
+          let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
+          if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
+            console.warn(`Bloqueada uma gravação vazia suspeita em "${chave}" — mantido o valor do Supabase.`);
+            paraGravar = remoto;
+          }
+          return { paraGravar, houveConflito: houveConflito || arrayVazioSuspeito };
         })
         .catch(() => ({ paraGravar: valor, houveConflito: false }))
         .then(({ paraGravar, houveConflito }) => {
@@ -616,6 +759,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             .then(() => {
               ultimoRemotoConhecido.current = textoParaGravar;
               baseParaFusao.current = paraGravar;
+              guardarBaseSincronizada(chave, paraGravar);
               if (houveConflito) {
                 // A fusão pode ter trazido de volta algo que só existia
                 // neste dispositivo, ou combinado com o que veio do outro —
@@ -1846,8 +1990,8 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
       onUpdate(editandoId, novo);
       setUltimoReciboInscricao(null);
     } else {
-      const recibo = onAdd(novo);
-      setUltimoReciboInscricao(recibo);
+      const resultado = onAdd(novo);
+      setUltimoReciboInscricao(resultado?.reciboInscricao || null);
     }
     setNovo(vazio);
     setShowForm(false);
@@ -3170,6 +3314,353 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
   );
 }
 
+// ---------------------------------------------------------------------
+// BALCÃO — um único ecrã para atender uma pessoa do princípio ao fim:
+// pesquisar (ou inscrever, se for nova), pagar/subscrever se for preciso,
+// e dar entrada — sem saltar entre Membros, Subscrições e Controlo de
+// Acessos. Pensado para os dias cheios, quando cada segundo por pessoa
+// conta. Funciona também com leitor de código de barras (que só "escreve"
+// o número e carrega Enter, como um teclado).
+// ---------------------------------------------------------------------
+function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras }) {
+  const [query, setQuery] = useState("");
+  const [membroSelecionado, setMembroSelecionado] = useState(null);
+  const [aCriarNovo, setACriarNovo] = useState(false);
+  const [novoNome, setNovoNome] = useState("");
+  const [novoTelefone, setNovoTelefone] = useState("");
+  const [aSubscrever, setASubscrever] = useState(false);
+  const [planoEscolhido, setPlanoEscolhido] = useState("");
+  const [metodoEscolhido, setMetodoEscolhido] = useState("dinheiro");
+  const [permitirExcecao, setPermitirExcecao] = useState(false);
+  const [ultimaAcao, setUltimaAcao] = useState(null); // { texto, desfazer }
+  const [aEditarHoras, setAEditarHoras] = useState(false);
+  const [horaEntradaEditada, setHoraEntradaEditada] = useState("");
+  const [horaSaidaEditada, setHoraSaidaEditada] = useState("");
+  const inputRef = React.useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, [membroSelecionado, aCriarNovo]);
+
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const entradasHoje = acessos.filter((a) => a.data === hojeStr).length;
+  const aindaDentro = acessos.filter((a) => a.data === hojeStr && !a.saida).length;
+
+  const resultados = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return membros
+      .filter((m) => m.nome.toLowerCase().includes(q) || m.numero.toLowerCase().includes(q) || (m.telefone || "").includes(q))
+      .slice(0, 6);
+  }, [membros, query]);
+
+  const selecionar = (m) => {
+    setMembroSelecionado(m);
+    setQuery("");
+    setACriarNovo(false);
+    setASubscrever(false);
+    setPermitirExcecao(false);
+    setAEditarHoras(false);
+    setPlanoEscolhido(m.plano || planos[0]?.nome || "");
+  };
+
+  const voltarAoInicio = () => {
+    setMembroSelecionado(null);
+    setQuery("");
+    setACriarNovo(false);
+    setASubscrever(false);
+    setAEditarHoras(false);
+  };
+
+  const criarMembroRapido = () => {
+    if (!novoNome.trim()) return;
+    const resultado = onCriarMembro({ nome: novoNome.trim(), telefone: novoTelefone.trim() });
+    setNovoNome("");
+    setNovoTelefone("");
+    if (resultado?.membro) selecionar(resultado.membro);
+  };
+
+  const confirmarSubscricao = () => {
+    if (!planoEscolhido) return;
+    const documento = onAtualizarSubscricao(membroSelecionado.id, planoEscolhido, hojeStr, metodoEscolhido);
+    const plano = planos.find((p) => p.nome === planoEscolhido);
+    const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
+    setMembroSelecionado(membroAtualizado);
+    setASubscrever(false);
+    if (documento) {
+      setUltimaAcao({
+        texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)})`,
+        desfazer: () => { onEliminarFatura(documento.numero); setUltimaAcao(null); voltarAoInicio(); },
+      });
+    }
+  };
+
+  const fazerEntrada = () => {
+    const acesso = onRegistarEntrada(membroSelecionado);
+    setUltimaAcao({
+      texto: `Entrada registada — ${membroSelecionado.nome}`,
+      desfazer: () => { onDesfazerEntrada(acesso.id); setUltimaAcao(null); voltarAoInicio(); },
+    });
+    setTimeout(voltarAoInicio, 1400);
+  };
+
+  const fazerSaida = () => {
+    const resultado = onRegistarSaida(membroSelecionado);
+    setUltimaAcao({
+      texto: `Saída registada — ${membroSelecionado.nome}`,
+      desfazer: () => { onDesfazerSaida(resultado.acessoId, resultado.taxaFaturaNumero); setUltimaAcao(null); voltarAoInicio(); },
+    });
+    setTimeout(voltarAoInicio, 1400);
+  };
+
+  const acessoAbertoDoMembro = membroSelecionado
+    ? acessos.find((a) => a.numero === membroSelecionado.numero && a.data === hojeStr && !a.saida)
+    : null;
+
+  // O acesso de hoje, esteja fechado ou não — para poder corrigir as
+  // horas mesmo depois de a saída já ter sido registada (o caso mais
+  // comum de pedir correção: esqueceram-se de dar saída à hora certa).
+  const acessoDeHojeDoMembro = membroSelecionado
+    ? acessos.find((a) => a.numero === membroSelecionado.numero && a.data === hojeStr)
+    : null;
+
+  const abrirEdicaoHoras = () => {
+    if (!acessoDeHojeDoMembro) return;
+    setHoraEntradaEditada(acessoDeHojeDoMembro.entrada || "");
+    setHoraSaidaEditada(acessoDeHojeDoMembro.saida || "");
+    setAEditarHoras(true);
+  };
+
+  const guardarHorasEditadas = () => {
+    if (!acessoDeHojeDoMembro || !horaEntradaEditada) return;
+    onEditarHoras(acessoDeHojeDoMembro.id, horaEntradaEditada, horaSaidaEditada);
+    setAEditarHoras(false);
+    setUltimaAcao({ texto: `Horas de ${membroSelecionado.nome} corrigidas`, desfazer: null });
+  };
+
+  const diasParaVencer = membroSelecionado?.vencimento
+    ? Math.round((new Date(membroSelecionado.vencimento + "T00:00:00") - new Date(hojeStr + "T00:00:00")) / (1000 * 60 * 60 * 24))
+    : null;
+
+  const podeEntrar = membroSelecionado?.estado === "ativo" || permitirExcecao;
+
+  return (
+    <div className="space-y-4">
+      {/* Resumo do dia, sempre visível */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Entradas hoje</p><p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">{entradasHoje}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Ainda no ginásio</p><p className="text-2xl font-extrabold text-[#3F8F87]">{aindaDentro}</p></Card>
+        <Card className="col-span-2 sm:col-span-1">
+          <p className="text-xs text-slate-400 dark:text-slate-500">Pagamentos por aprovar</p>
+          <p className={`text-2xl font-extrabold ${pagamentosPendentes.length > 0 ? "text-amber-600" : "text-slate-900 dark:text-slate-100"}`}>{pagamentosPendentes.length}</p>
+        </Card>
+      </div>
+
+      {ultimaAcao && (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 ring-1 ring-emerald-200 dark:ring-emerald-800 rounded-xl p-3 flex items-center justify-between">
+          <p className="text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2"><CheckCircle2 size={16} /> {ultimaAcao.texto}</p>
+          {ultimaAcao.desfazer && (
+            <button onClick={ultimaAcao.desfazer} className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline shrink-0 ml-3">
+              Desfazer
+            </button>
+          )}
+        </div>
+      )}
+
+      {!membroSelecionado && !aCriarNovo && (
+        <Card>
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome, número ou telefone</label>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && resultados.length === 1) selecionar(resultados[0]); }}
+            placeholder="Escreve para pesquisar..."
+            autoFocus
+            className="w-full mt-1 px-4 py-3 text-lg rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+          />
+          {resultados.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {resultados.map((m) => (
+                <button
+                  key={m.id} onClick={() => selecionar(m)}
+                  className="w-full flex items-center justify-between p-3 rounded-lg ring-1 ring-slate-100 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-left"
+                >
+                  <div>
+                    <p className="font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{m.numero} · {m.telefone || "sem telefone"}</p>
+                  </div>
+                  <Pill estado={m.estado} />
+                </button>
+              ))}
+            </div>
+          )}
+          {query.trim().length >= 2 && resultados.length === 0 && (
+            <div className="mt-3 text-center py-4">
+              <p className="text-sm text-slate-400 dark:text-slate-500 mb-2">Ninguém encontrado com "{query}".</p>
+              <button
+                onClick={() => { setNovoNome(query); setACriarNovo(true); }}
+                className="text-sm font-semibold text-[#3F8F87] hover:underline"
+              >
+                + Inscrever como novo membro
+              </button>
+            </div>
+          )}
+          {query.trim().length < 2 && (
+            <button onClick={() => setACriarNovo(true)} className="mt-3 text-sm font-semibold text-[#3F8F87] hover:underline">
+              + Inscrever novo membro
+            </button>
+          )}
+        </Card>
+      )}
+
+      {aCriarNovo && (
+        <Card title="Inscrever novo membro (rápido)">
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+            Só o essencial para já — o resto (foto, morada, data de nascimento) preenches com calma depois, em Membros.
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome</label>
+              <input ref={inputRef} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} autoFocus
+                className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone</label>
+              <input value={novoTelefone} onChange={(e) => setNovoTelefone(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") criarMembroRapido(); }}
+                className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={voltarAoInicio} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
+                Cancelar
+              </button>
+              <button onClick={criarMembroRapido} disabled={!novoNome.trim()}
+                className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
+                Inscrever e continuar
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {membroSelecionado && (
+        <Card>
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{membroSelecionado.nome}</p>
+              <p className="text-sm text-slate-400 dark:text-slate-500">{membroSelecionado.numero} · {membroSelecionado.plano || "sem plano"}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Pill estado={membroSelecionado.estado} />
+              <button onClick={voltarAoInicio} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+            </div>
+          </div>
+
+          {diasParaVencer !== null && diasParaVencer >= 0 && diasParaVencer <= 5 && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-lg p-3 mb-4 text-sm text-amber-700 dark:text-amber-400">
+              ⚠ {diasParaVencer === 0 ? "Vence hoje" : `Vence daqui a ${diasParaVencer} dia${diasParaVencer > 1 ? "s" : ""}`} — vale a pena avisar já.
+            </div>
+          )}
+
+          {acessoDeHojeDoMembro && !aEditarHoras && (
+            <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Hoje: entrada {acessoDeHojeDoMembro.entrada}{acessoDeHojeDoMembro.saida ? ` · saída ${acessoDeHojeDoMembro.saida}` : " · ainda no ginásio"}
+              </p>
+              <button onClick={abrirEdicaoHoras} className="text-xs font-semibold text-[#3F8F87] hover:underline shrink-0 ml-3">
+                Corrigir horas
+              </button>
+            </div>
+          )}
+
+          {aEditarHoras && (
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4 space-y-3">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Corrigir horas de hoje</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-slate-400 dark:text-slate-500">Entrada</label>
+                  <input type="time" value={horaEntradaEditada} onChange={(e) => setHoraEntradaEditada(e.target.value)}
+                    className="w-full mt-1 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 dark:text-slate-500">Saída (deixa em branco se ainda não saiu)</label>
+                  <input type="time" value={horaSaidaEditada} onChange={(e) => setHoraSaidaEditada(e.target.value)}
+                    className="w-full mt-1 px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setAEditarHoras(false)} className="flex-1 text-xs font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2 rounded-lg">
+                  Cancelar
+                </button>
+                <button onClick={guardarHorasEditadas} disabled={!horaEntradaEditada} className="flex-1 text-xs font-semibold bg-[#3F8F87] text-white py-2 rounded-lg disabled:opacity-40">
+                  Guardar horas
+                </button>
+              </div>
+            </div>
+          )}
+
+          {aSubscrever ? (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Plano</label>
+                <select value={planoEscolhido} onChange={(e) => setPlanoEscolhido(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                  {planos.map((p) => <option key={p.id} value={p.nome}>{p.nome} — {kz(p.preco)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Método de pagamento</label>
+                <select value={metodoEscolhido} onChange={(e) => setMetodoEscolhido(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="tpa">TPA</option>
+                  <option value="express">MULTICAIXA Express</option>
+                  <option value="referencia">Referência</option>
+                  <option value="transferencia">Transferência</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setASubscrever(false)} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
+                  Cancelar
+                </button>
+                <button onClick={confirmarSubscricao} disabled={!planoEscolhido}
+                  className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
+                  Confirmar pagamento
+                </button>
+              </div>
+            </div>
+          ) : membroSelecionado.estado !== "ativo" ? (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {membroSelecionado.estado === "sem-subscricao" ? "Este atleta ainda não tem nenhum plano." : "A mensalidade deste atleta está vencida."}
+              </p>
+              <button onClick={() => setASubscrever(true)} className="w-full bg-[#3F8F87] text-white font-semibold py-3 rounded-lg">
+                Subscrever / renovar agora
+              </button>
+              <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <input type="checkbox" checked={permitirExcecao} onChange={(e) => setPermitirExcecao(e.target.checked)} />
+                Permitir entrada mesmo assim, excecionalmente
+              </label>
+              {permitirExcecao && (
+                <button onClick={fazerEntrada} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg">
+                  Registar entrada (exceção)
+                </button>
+              )}
+            </div>
+          ) : acessoAbertoDoMembro ? (
+            <button onClick={fazerSaida} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-lg">
+              Registar saída
+            </button>
+          ) : (
+            <button onClick={fazerEntrada} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-bold text-lg py-4 rounded-lg">
+              Registar entrada
+            </button>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
   const [query, setQuery] = useState("");
   const [encontrado, setEncontrado] = useState(null);
@@ -3423,7 +3914,16 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                 {a.saida ? (
                   <p className="text-xs text-slate-400 dark:text-slate-500">Saída {a.saida}</p>
                 ) : (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Ainda no ginásio</p>
+                  <button
+                    onClick={() => {
+                      const membroDoAcesso = membros.find((m) => m.numero === a.numero);
+                      if (membroDoAcesso) onRegistarSaida(membroDoAcesso);
+                    }}
+                    title="Clica para registar a saída agora"
+                    className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300"
+                  >
+                    Ainda no ginásio — registar saída
+                  </button>
                 )}
               </div>
             </div>
@@ -7497,7 +7997,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   );
 }
 
-function Auditoria({ registos }) {
+function Auditoria({ registos, onNavegar }) {
   return (
     <Card title="Registo de auditoria">
       {registos.length === 0 ? (
@@ -7510,7 +8010,17 @@ function Auditoria({ registos }) {
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.utilizador}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{r.data ? `${r.data} · ${r.hora}` : r.hora}</p>
               </div>
-              <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{r.acao}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm text-slate-600 dark:text-slate-300 mt-0.5">{r.acao}</p>
+                {r.destino && onNavegar && (
+                  <button
+                    onClick={() => onNavegar(r.destino.tela)}
+                    className="shrink-0 text-xs font-semibold text-[#3F8F87] hover:underline flex items-center gap-1"
+                  >
+                    Ver <ChevronRight size={12} />
+                  </button>
+                )}
+              </div>
               {r.detalhe && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{r.detalhe}</p>}
             </div>
           ))}
@@ -8093,6 +8603,36 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
 // exercícios (do histórico registado pelos Personal Trainers), para dar
 // um reconhecimento simples e justo a quem mais se dedicou naquele mês.
 // ---------------------------------------------------------------------
+// Deriva o plano/vencimento/estado "verdadeiro" de um membro a partir do
+// recibo de mensalidade mais recente — em vez de confiar cegamente nos
+// campos soltos guardados no perfil do membro, que podem ser mexidos por
+// várias ações diferentes (e por isso mais vulneráveis a ficarem
+// dessincronizados entre dispositivos). O recibo, uma vez emitido,
+// praticamente não muda mais — é uma base muito mais firme.
+// Membros sem NENHUM recibo de mensalidade (atletas antigos, já a pagar
+// antes deste sistema, cujo vencimento foi só indicado manualmente) usam
+// sempre os campos guardados no perfil deles, sem alteração nenhuma.
+function vencimentoEfetivoDoMembro(membro, faturas) {
+  const hojeStr = new Date().toISOString().slice(0, 10);
+  const recibosDoMembro = faturas.filter(
+    (f) => f.tipo === "RECIBO" && f.membro?.numero === membro.numero && f.vencimentoSubscricao
+  );
+  if (recibosDoMembro.length === 0) {
+    return { plano: membro.plano, vencimento: membro.vencimento, estado: membro.estado, temRecibo: false };
+  }
+  // O recibo que aponta para o vencimento MAIS DISTANTE no futuro é o que
+  // conta — não importa a ordem em que os recibos foram criados/chegaram
+  // (protege também contra recibos a chegar fora de ordem por causa de
+  // sincronização atrasada).
+  const maisRecente = recibosDoMembro.reduce((a, b) => (b.vencimentoSubscricao > a.vencimentoSubscricao ? b : a));
+  return {
+    plano: maisRecente.planoSubscricao,
+    vencimento: maisRecente.vencimentoSubscricao,
+    estado: maisRecente.vencimentoSubscricao < hojeStr ? "vencido" : "ativo",
+    temRecibo: true,
+  };
+}
+
 function calcularHorasEntreHorarios(entrada, saida) {
   if (!entrada || !saida) return 0;
   const [h1, m1] = entrada.split(":").map(Number);
@@ -9143,6 +9683,20 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   }, [meusPagamentos]);
   const totalGeral = Object.values(totais).reduce((a, b) => a + b, 0);
 
+  // Discriminado por TIPO de receita — para a recepcionista saber, na
+  // hora de fazer as contas, quanto fez em cada coisa, sem ter de somar
+  // à mão a partir dos recibos.
+  const totaisPorTipo = useMemo(() => {
+    const t = { inscricao: 0, mensalidade: 0, venda: 0, outros: 0 };
+    meusPagamentos.forEach((p) => {
+      if (p.tipo === "inscricao") t.inscricao += p.valor;
+      else if (p.tipo === "mensalidade") t.mensalidade += p.valor;
+      else if (p.tipo === "venda") t.venda += p.valor;
+      else t.outros += p.valor;
+    });
+    return t;
+  }, [meusPagamentos]);
+
   const confirmarContagem = () => {
     if (valorContado === "") return;
     const contado = Number(valorContado);
@@ -9166,23 +9720,40 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 
   return (
     <Card title={fechado ? `Turno fechado — resumo de ${nomeAtual}` : `Turno aberto — ${nomeAtual}`}>
-      <div className="space-y-2 mb-4">
-        {[
-          { label: "Dinheiro", value: totais.dinheiro },
-          { label: "TPA", value: totais.tpa },
-          { label: "MULTICAIXA Express", value: totais.express },
-          { label: "Referência", value: totais.referencia },
-          { label: "Transferência", value: totais.transferencia },
-        ].map((r) => (
-          <div key={r.label} className="flex justify-between text-sm py-1.5 border-b border-slate-50 last:border-0">
-            <span className="text-slate-600 dark:text-slate-300">{r.label}</span>
-            <span className="font-medium text-slate-900 dark:text-slate-100">{kz(r.value)}</span>
-          </div>
-        ))}
-        <div className="flex justify-between text-sm pt-2 font-bold">
-          <span>Total de hoje (só o que tu registaste)</span>
-          <span className="text-[#3F8F87]">{kz(totalGeral)}</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Por tipo</p>
+          {[
+            { label: "Inscrição", value: totaisPorTipo.inscricao },
+            { label: "Subscrição / Mensalidade", value: totaisPorTipo.mensalidade },
+            { label: "Vendas (POS)", value: totaisPorTipo.venda },
+            { label: "Outros", value: totaisPorTipo.outros },
+          ].map((r) => (
+            <div key={r.label} className="flex justify-between text-sm py-1.5 border-b border-slate-50 dark:border-slate-700 last:border-0">
+              <span className="text-slate-600 dark:text-slate-300">{r.label}</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(r.value)}</span>
+            </div>
+          ))}
         </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Por método de pagamento</p>
+          {[
+            { label: "Dinheiro", value: totais.dinheiro },
+            { label: "TPA", value: totais.tpa },
+            { label: "MULTICAIXA Express", value: totais.express },
+            { label: "Referência", value: totais.referencia },
+            { label: "Transferência", value: totais.transferencia },
+          ].map((r) => (
+            <div key={r.label} className="flex justify-between text-sm py-1.5 border-b border-slate-50 dark:border-slate-700 last:border-0">
+              <span className="text-slate-600 dark:text-slate-300">{r.label}</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(r.value)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex justify-between text-sm pt-2 mb-4 font-bold border-t border-slate-100 dark:border-slate-700">
+        <span>Total de hoje (só o que tu registaste)</span>
+        <span className="text-[#3F8F87]">{kz(totalGeral)}</span>
       </div>
 
       {!fechado && !aContar && (
@@ -9233,8 +9804,23 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 // cada uma com entradas/saídas (depósito, levantamento, transferência,
 // recibos, custos pagos), e o total gerado por cada funcionário.
 // ---------------------------------------------------------------------
-function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno }) {
-  const [aba, setAba] = useState("resumo"); // "resumo" | "banco" | "caixa"
+function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno, pagamentosFeitos }) {
+  const [aba, setAba] = useState("resumo"); // "resumo" | "fecho" | "banco" | "caixa"
+
+  // Cruza um movimento com pagamentosFeitos (pelo número do documento) para
+  // saber o tipo de receita — cobre também os movimentos antigos, gravados
+  // antes de o "tipoReceita" passar a ficar guardado diretamente no
+  // movimento.
+  const tipoReceitaDoMovimento = (m) => {
+    if (m.tipoReceita) return m.tipoReceita;
+    if (m.origemNumero) {
+      const pagamento = (pagamentosFeitos || []).find((p) => p.numero === m.origemNumero);
+      if (pagamento?.tipo) return pagamento.tipo;
+    }
+    return null;
+  };
+
+  const ROTULO_TIPO_RECEITA = { inscricao: "Inscrição", mensalidade: "Subscrição", venda: "Venda POS", avulso: "Avulso" };
 
   const totalPorPessoa = useMemo(() => {
     const mapa = {};
@@ -9271,11 +9857,40 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
   const totalCaixa = movimentosCaixa.reduce((s, m) => s + (m.direcao === "entrada" ? m.valor : -m.valor), 0);
   const totalBanco = movimentosBancarios.reduce((s, m) => s + (m.direcao === "entrada" ? m.valor : -m.valor), 0);
 
+  // Fecho por dia de cada funcionário — agrupa as ENTRADAS (Caixa + Banco
+  // juntos, já que "o que ele fez" é o total que gerou, seja em dinheiro ou
+  // eletrónico) por dia e por pessoa, discriminando quanto veio de
+  // inscrição, subscrição (mensalidade) e venda POS.
+  const fechoPorDiaEFuncionario = useMemo(() => {
+    const mapa = {};
+    [...movimentosCaixa, ...movimentosBancarios].forEach((m) => {
+      if (m.direcao !== "entrada") return;
+      const dia = (m.data || "").split(" ")[0]; // "DD/MM/AAAA HH:MM" → só a data
+      const funcionario = m.registadoPor || "Sem identificação";
+      const chave = `${dia}|${funcionario}`;
+      if (!mapa[chave]) mapa[chave] = { dia, funcionario, inscricao: 0, mensalidade: 0, venda: 0, avulso: 0, outros: 0, total: 0 };
+      const tipo = tipoReceitaDoMovimento(m);
+      if (tipo === "inscricao") mapa[chave].inscricao += m.valor;
+      else if (tipo === "mensalidade") mapa[chave].mensalidade += m.valor;
+      else if (tipo === "venda") mapa[chave].venda += m.valor;
+      else if (tipo === "avulso") mapa[chave].avulso += m.valor;
+      else mapa[chave].outros += m.valor;
+      mapa[chave].total += m.valor;
+    });
+    return Object.values(mapa).sort((a, b) => {
+      if (a.dia !== b.dia) return b.dia.localeCompare(a.dia); // dia mais recente primeiro
+      return b.total - a.total;
+    });
+  }, [movimentosCaixa, movimentosBancarios, pagamentosFeitos]);
+
   return (
     <div className="space-y-4">
       <div className="flex gap-2">
         <button onClick={() => setAba("resumo")} className={`text-sm font-semibold px-4 py-2 rounded-lg ring-1 ${aba === "resumo" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
           Resumo por funcionário
+        </button>
+        <button onClick={() => setAba("fecho")} className={`text-sm font-semibold px-4 py-2 rounded-lg ring-1 ${aba === "fecho" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
+          Fecho por dia
         </button>
         <button onClick={() => setAba("caixa")} className={`text-sm font-semibold px-4 py-2 rounded-lg ring-1 ${aba === "caixa" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}>
           Movimentação de Caixa
@@ -9363,6 +9978,47 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
             </Card>
           )}
         </div>
+      )}
+
+      {aba === "fecho" && (
+        <Card title="Fecho por dia de cada funcionário">
+          {fechoPorDiaEFuncionario.length === 0 ? (
+            <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há movimentos registados.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                    <th className="pb-2 font-medium">Dia</th>
+                    <th className="pb-2 font-medium">Funcionário</th>
+                    <th className="pb-2 font-medium text-right">Inscrição</th>
+                    <th className="pb-2 font-medium text-right">Subscrição</th>
+                    <th className="pb-2 font-medium text-right">Venda POS</th>
+                    <th className="pb-2 font-medium text-right">Outros</th>
+                    <th className="pb-2 font-medium text-right">Total do dia</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                  {fechoPorDiaEFuncionario.map((f) => (
+                    <tr key={`${f.dia}|${f.funcionario}`}>
+                      <td className="py-2 text-slate-600 dark:text-slate-300">{f.dia}</td>
+                      <td className="py-2 font-medium text-slate-900 dark:text-slate-100">{f.funcionario}</td>
+                      <td className="py-2 text-right text-slate-600 dark:text-slate-300">{f.inscricao > 0 ? kz(f.inscricao) : "—"}</td>
+                      <td className="py-2 text-right text-slate-600 dark:text-slate-300">{f.mensalidade > 0 ? kz(f.mensalidade) : "—"}</td>
+                      <td className="py-2 text-right text-slate-600 dark:text-slate-300">{f.venda > 0 ? kz(f.venda) : "—"}</td>
+                      <td className="py-2 text-right text-slate-600 dark:text-slate-300">{(f.avulso + f.outros) > 0 ? kz(f.avulso + f.outros) : "—"}</td>
+                      <td className="py-2 text-right font-bold text-[#3F8F87]">{kz(f.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
+            Soma o Caixa e o Banco de cada dia, separado por quem registou. "Subscrição" inclui mensalidades e
+            renovações; "Outros" cobre taxas de sessão longa e outros pagamentos avulsos sem categoria específica.
+          </p>
+        </Card>
       )}
 
       {aba === "caixa" && (
@@ -10338,7 +10994,10 @@ const MENU_ADMIN = [
   },
   {
     grupo: "ACESSOS",
-    itens: [{ id: "acessos", label: "Controlo de Acessos", icon: DoorOpen }],
+    itens: [
+      { id: "balcao", label: "Balcão", icon: DoorOpen },
+      { id: "acessos", label: "Controlo de Acessos", icon: DoorOpen },
+    ],
   },
   {
     grupo: "COMUNICAÇÃO",
@@ -10373,6 +11032,7 @@ const MENU_RECEPCAO = [
   {
     grupo: "",
     itens: [
+      { id: "balcao", label: "Balcão", icon: DoorOpen },
       { id: "dashboard", label: "Início", icon: LayoutDashboard },
       { id: "ponto", label: "Ponto", icon: Clock },
       { id: "membros", label: "Membros", icon: Users },
@@ -11116,6 +11776,38 @@ export default function CatumbelaGymApp() {
   const [pagamentosPendentes, setPagamentosPendentes, adicionarPagamentoPendenteSeguro] = usePersistente("pagamentosPendentes", [], setStatusSync);
   const [custos, setCustos] = usePersistente("custos", [], setStatusSync);
   const [faturas, setFaturas] = usePersistente("faturas", [], setStatusSync);
+
+  // Reconciliação: para quem já tem recibo de mensalidade, o plano/
+  // vencimento/estado guardados no perfil do membro têm de bater certo com
+  // o recibo mais recente — se não baterem (ex.: por causa de um conflito
+  // de sincronização que reverteu o campo sem tocar no recibo), corrige-se
+  // sozinho aqui, usando o recibo como verdade. Nunca mexe em quem está
+  // manualmente "suspenso", "pausada" ou "cancelado" — essas são decisões
+  // administrativas sem recibo associado. Quem não tem nenhum recibo de
+  // mensalidade (atleta antigo, já a pagar antes deste sistema) também
+  // fica intocado — o campo guardado manualmente continua a ser a verdade
+  // para esses casos.
+  useEffect(() => {
+    const reconciliar = () => {
+      setMembros((atual) => {
+        let mudouAlgumaCoisa = false;
+        const novo = atual.map((m) => {
+          if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado") return m;
+          const efetivo = vencimentoEfetivoDoMembro(m, faturas);
+          if (!efetivo.temRecibo) return m;
+          if (m.plano === efetivo.plano && m.vencimento === efetivo.vencimento && m.estado === efetivo.estado) return m;
+          mudouAlgumaCoisa = true;
+          return { ...m, plano: efetivo.plano, vencimento: efetivo.vencimento, estado: efetivo.estado };
+        });
+        return mudouAlgumaCoisa ? novo : atual;
+      });
+    };
+    reconciliar();
+    const intervalo = setInterval(reconciliar, 5 * 60 * 1000); // confere a cada 5 minutos
+    return () => clearInterval(intervalo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faturas, membros]);
+
   const [advertencias, setAdvertencias] = usePersistente("advertencias", [], setStatusSync);
   const [orcamento, setOrcamento] = usePersistente("orcamento", [], setStatusSync);
   const [atividades, setAtividades] = usePersistente("atividades", [], setStatusSync);
@@ -11172,11 +11864,11 @@ export default function CatumbelaGymApp() {
     return () => clearInterval(intervalo);
   }, [notificacoesPushAtivas, perfil, pagamentosPendentes, equipamentos, produtos]);
 
-  const registarAuditoria = (acao, detalhe) => {
+  const registarAuditoria = (acao, detalhe, destino) => {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
     const agora = new Date();
     setAuditLog((atual) => [
-      { utilizador: nomeAtor, acao, detalhe, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
   };
@@ -11380,7 +12072,7 @@ export default function CatumbelaGymApp() {
       "Inscreveu novo membro",
       `${novo.nome} — ${numero}${novo.email ? " · com acesso à área do membro" : ""}${reciboInscricao ? ` · Recibo de inscrição ${reciboInscricao.numero}` : ""}`
     );
-    return reciboInscricao;
+    return { membro: membroNovo, reciboInscricao };
   };
 
   const atualizarMembro = (id, dados) => {
@@ -11791,7 +12483,7 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome }) => {
+  const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
     const contadorAtual = faturas.filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`)).length;
@@ -11807,6 +12499,14 @@ export default function CatumbelaGymApp() {
       data: new Date().toLocaleDateString("pt-PT"),
       hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       registadoPor: contaAtual?.nome || "—",
+      // Para recibos de mensalidade: guarda aqui o plano e o vencimento a
+      // que este pagamento dá direito. Isto torna o recibo a fonte de
+      // verdade financeira — a subscrição do atleta pode sempre ser
+      // reconstruída a partir do recibo mais recente, em vez de depender
+      // só de um campo solto no perfil do membro que pode ser mexido (ou
+      // acidentalmente revertido por sincronização) sem deixar rasto.
+      planoSubscricao: tipoReceita === "mensalidade" ? planoNome || null : null,
+      vencimentoSubscricao: tipoReceita === "mensalidade" ? vencimentoSubscricao || null : null,
     };
     setFaturas((atual) => {
       let novo = [documento, ...atual];
@@ -11836,6 +12536,7 @@ export default function CatumbelaGymApp() {
         origem: "recibo",
         origemNumero: numero,
         contaBancariaNome: contaEscolhida?.banco || null,
+        tipoReceita: tipoReceita || "mensalidade",
       };
       if (metodo === "dinheiro") {
         setMovimentosCaixa((atual) => [registoLedger, ...atual]);
@@ -11967,6 +12668,7 @@ export default function CatumbelaGymApp() {
       metodo: "transferencia",
       tipoReceita: "mensalidade",
       planoNome: pendente.planoNome || pendente.membro.plano,
+      vencimentoSubscricao: novoVencimento,
     });
     let documentoTaxa = null;
     if (valorTaxa > 0) {
@@ -12050,6 +12752,7 @@ export default function CatumbelaGymApp() {
         contaBancariaId,
         tipoReceita: "mensalidade",
         planoNome: novoPlanoNome,
+        vencimentoSubscricao: novoVencimento,
       });
     }
     setMembros((atual) =>
@@ -12529,7 +13232,8 @@ export default function CatumbelaGymApp() {
     }
     registarAuditoria(
       `Registou ${movimento.direcao === "entrada" ? "entrada" : "saída"} de ${kz(movimento.valor)} (${ledger === "banco" ? "banco" : "caixa"})`,
-      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""}`
+      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""}`,
+      { tela: "caixa" }
     );
   };
 
@@ -12554,7 +13258,8 @@ export default function CatumbelaGymApp() {
     ]);
     registarAuditoria(
       `Registou ${subtipo} de ${kz(Number(valor))} (Caixa ↔ ${conta?.banco || "Banco"})`,
-      `Atualizado automaticamente nos dois lados${descricao ? " — " + descricao : ""}`
+      `Atualizado automaticamente nos dois lados${descricao ? " — " + descricao : ""}`,
+      { tela: "caixa" }
     );
   };
 
@@ -12583,7 +13288,8 @@ export default function CatumbelaGymApp() {
     }
     registarAuditoria(
       `Eliminou movimento de ${ledger === "banco" ? "banco" : "caixa"}`,
-      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}${movimento.custoId ? " (e o custo associado)" : ""}`
+      `${movimento.subtipo}${movimento.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento.valor)}${movimento.custoId ? " (e o custo associado)" : ""}`,
+      { tela: "caixa" }
     );
   };
 
@@ -12597,7 +13303,8 @@ export default function CatumbelaGymApp() {
     setMovimentosBancarios((atual) => atual.map((m) => (m.id === id ? { ...m, contaBancariaNome: nomeBanco } : m)));
     registarAuditoria(
       "Atribuiu conta bancária a um movimento antigo",
-      `${movimento?.subtipo || ""}${movimento?.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento?.valor || 0)} → ${nomeBanco}`
+      `${movimento?.subtipo || ""}${movimento?.descricao ? " — " + movimento.descricao : ""} · ${kz(movimento?.valor || 0)} → ${nomeBanco}`,
+      { tela: "caixa" }
     );
   };
 
@@ -12628,6 +13335,7 @@ export default function CatumbelaGymApp() {
     // hora de ponta.
     adicionarAcessoSeguro(novoAcesso);
     registarAuditoria("Registou entrada", `${membro.nome} — ${membro.numero}`);
+    return novoAcesso;
   };
 
   const registarSaida = (membro) => {
@@ -12669,6 +13377,37 @@ export default function CatumbelaGymApp() {
       atual.map((a) => (a.id === aberta.id ? { ...a, saida: horaSaida, taxaSessaoLongaFatura: numeroFaturaTaxa } : a))
     );
     registarAuditoria("Registou saída", `${membro.nome} — ${membro.numero}`);
+    return { acessoId: aberta.id, taxaFaturaNumero: numeroFaturaTaxa };
+  };
+
+  // Desfazer a entrada/saída mais recente — para quando se engana na pessoa
+  // ou clica sem querer, sem ter de ir procurar noutro ecrã para corrigir.
+  const desfazerEntrada = (acessoId) => {
+    setAcessos((atual) => atual.filter((a) => a.id !== acessoId));
+    registarAuditoria("Desfez uma entrada registada por engano", "");
+  };
+
+  const desfazerSaida = (acessoId, taxaFaturaNumero) => {
+    setAcessos((atual) => atual.map((a) => (a.id === acessoId ? { ...a, saida: null, taxaSessaoLongaFatura: null } : a)));
+    if (taxaFaturaNumero) eliminarFatura(taxaFaturaNumero);
+    registarAuditoria("Desfez uma saída registada por engano", "");
+  };
+
+  // Corrige a hora de entrada e/ou saída de um acesso já registado — para
+  // quando alguém esquece de registar a saída na hora certa e só o faz
+  // mais tarde, com a hora errada. Não mexe na taxa de sessão longa
+  // automaticamente (evita duplicar/remover faturas por engano) — se a
+  // correção mudar muito a duração, a receção ajusta isso à parte, em
+  // Caixa (por funcionário).
+  const editarHorasAcesso = (acessoId, novaEntrada, novaSaida) => {
+    const anterior = acessos.find((a) => a.id === acessoId);
+    setAcessos((atual) =>
+      atual.map((a) => (a.id === acessoId ? { ...a, entrada: novaEntrada, saida: novaSaida || null } : a))
+    );
+    registarAuditoria(
+      "Corrigiu as horas de um acesso",
+      `${anterior?.membro || ""} — de ${anterior?.entrada}${anterior?.saida ? "–" + anterior.saida : ""} para ${novaEntrada}${novaSaida ? "–" + novaSaida : ""}`
+    );
   };
 
   // --- ÁREA DO MEMBRO: layout próprio, sem sidebar administrativa ---
@@ -12998,6 +13737,7 @@ export default function CatumbelaGymApp() {
               onRemoverMovimento={removerMovimento}
               onAtribuirConta={atribuirContaMovimento}
               fechosTurno={fechosTurno}
+              pagamentosFeitos={pagamentosFeitos}
             />
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
@@ -13018,6 +13758,20 @@ export default function CatumbelaGymApp() {
           {telaAtual === "stock" && (
             <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} />
           )}
+          {telaAtual === "balcao" && (
+            <Balcao
+              membros={membros} planos={planos} acessos={acessos} pagamentosPendentes={pagamentosPendentes}
+              dadosGinasio={dadosGinasio} contaAtual={contaAtual}
+              onCriarMembro={adicionarMembro}
+              onAtualizarSubscricao={atualizarSubscricao}
+              onEliminarFatura={eliminarFatura}
+              onRegistarEntrada={registarEntrada}
+              onRegistarSaida={registarSaida}
+              onDesfazerEntrada={desfazerEntrada}
+              onDesfazerSaida={desfazerSaida}
+              onEditarHoras={editarHorasAcesso}
+            />
+          )}
           {telaAtual === "acessos" && (
             <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
@@ -13031,7 +13785,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "relatorios" && perfil === "administrador" && (
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
           )}
-          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} />}
+          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={setTela} />}
           {telaAtual === "mensagens" && perfil === "administrador" && (
             <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
           )}
