@@ -488,6 +488,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // que eram diferentes do que já estava lá.
   const baseParaFusao = useRef(carregarBaseSincronizada()[chave] ?? null);
   const timeoutRef = useRef(null);
+  const jaBloqueouVazioAntes = useRef(false); // evita prender a pessoa num ciclo sem conseguir esvaziar de vez
 
   // Combina o que está no Supabase (mudado por outro dispositivo) com o que
   // mudou aqui neste, item a item — em vez de um dos dois lados apagar
@@ -499,8 +500,53 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // gravada primeiro. Isto é o que evita que uma subscrição feita num
   // dispositivo desapareça só porque outro dispositivo, com dados mais
   // antigos em memória, gravou por cima logo a seguir.
+  // Funde dois objetos simples campo a campo, comparando cada um contra a
+  // base — reutilizada tanto para itens dentro de uma lista como para uma
+  // coleção que É, ela própria, um único objeto (ex.: "dadosGinasio", que
+  // guarda o nome do ginásio, as contas bancárias, a taxa de sessão longa,
+  // tudo junto). Sem isto, um objeto deste tipo era tratado em bloco: se
+  // dois dispositivos o editassem ao mesmo tempo (um a adicionar uma
+  // conta bancária, outro a mudar o nome do ginásio), um dos dois perdia
+  // a alteração por completo, mesmo sendo campos totalmente diferentes.
+  const fundirObjetoCampoACampo = (base, local, remoto) => {
+    const chavesCampos = new Set([...Object.keys(base || {}), ...Object.keys(local || {}), ...Object.keys(remoto || {})]);
+    const fundido = {};
+    chavesCampos.forEach((campo) => {
+      const valorBase = base ? base[campo] : undefined;
+      const valorLocal = local[campo];
+      const valorRemoto = remoto[campo];
+      const campoLocalMudou = JSON.stringify(valorLocal) !== JSON.stringify(valorBase);
+      const campoRemotoMudou = JSON.stringify(valorRemoto) !== JSON.stringify(valorBase);
+      if (campoLocalMudou && !campoRemotoMudou) fundido[campo] = valorLocal;
+      else if (campoRemotoMudou && !campoLocalMudou) fundido[campo] = valorRemoto;
+      else if (!campoLocalMudou && !campoRemotoMudou) fundido[campo] = valorLocal;
+      // Conflito genuíno no mesmo campo. Se esse campo for, ele próprio,
+      // uma lista (ex.: as contas bancárias dentro de "dadosGinasio"),
+      // não faz sentido um lado ganhar a lista inteira — funde-a também,
+      // item a item, em vez de tratá-la como um bloco só. Assim, se um
+      // dispositivo adicionou um banco e outro editou outro banco já
+      // existente na mesma lista, os dois sobrevivem.
+      else if (Array.isArray(valorLocal) && Array.isArray(valorRemoto) && Array.isArray(valorBase)) {
+        fundido[campo] = fundirPorId(valorBase, valorLocal, valorRemoto);
+      }
+      else fundido[campo] = valorRemoto; // conflito genuíno, sem lista para fundir — remoto vence
+    });
+    return fundido;
+  };
+
   const fundirPorId = (base, local, remoto) => {
-    if (!Array.isArray(local) || !Array.isArray(remoto) || !Array.isArray(base)) return local;
+    // Coleções que não são arrays (ex.: "dadosGinasio", um objeto único) —
+    // funde campo a campo em vez de um dos lados ganhar tudo.
+    if (!Array.isArray(local) || !Array.isArray(remoto) || !Array.isArray(base)) {
+      if (
+        local && typeof local === "object" &&
+        remoto && typeof remoto === "object" &&
+        base && typeof base === "object"
+      ) {
+        return fundirObjetoCampoACampo(base, local, remoto);
+      }
+      return local;
+    }
     // Proteção crítica: se este dispositivo está com a coleção vazia mas a
     // base (a última versão sincronizada) tinha itens, isto NUNCA pode ser
     // confiado como "a pessoa apagou tudo" — é sempre mais provável ser um
@@ -545,20 +591,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // qualquer subscrição feita no mesmo instante que outra edição no
       // mesmo membro noutro dispositivo — a causa mais provável de
       // subscrições e inscrições a desaparecerem sem explicação.
-      const chavesCampos = new Set([...Object.keys(emBase || {}), ...Object.keys(emLocal), ...Object.keys(emRemoto)]);
-      const fundidoCampoACampo = {};
-      chavesCampos.forEach((campo) => {
-        const valorBase = emBase ? emBase[campo] : undefined;
-        const valorLocal = emLocal[campo];
-        const valorRemoto = emRemoto[campo];
-        const campoLocalMudou = JSON.stringify(valorLocal) !== JSON.stringify(valorBase);
-        const campoRemotoMudou = JSON.stringify(valorRemoto) !== JSON.stringify(valorBase);
-        if (campoLocalMudou && !campoRemotoMudou) fundidoCampoACampo[campo] = valorLocal;
-        else if (campoRemotoMudou && !campoLocalMudou) fundidoCampoACampo[campo] = valorRemoto;
-        else if (!campoLocalMudou && !campoRemotoMudou) fundidoCampoACampo[campo] = valorLocal;
-        else fundidoCampoACampo[campo] = valorRemoto; // conflito genuíno no mesmo campo — remoto vence
-      });
-      resultado.push(fundidoCampoACampo);
+      resultado.push(fundirObjetoCampoACampo(emBase, emLocal, emRemoto));
     });
 
     return resultado;
@@ -717,16 +750,17 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     timeoutRef.current = setTimeout(() => {
       const valorTexto = JSON.stringify(valor);
       // Proteção extra, mesmo sem conflito detetado: se este dispositivo
-      // está prestes a gravar uma coleção VAZIA, mas a última versão
-      // conhecida (deste ou de outro dispositivo) tinha itens, isso é
-      // suspeito demais para confiar às cegas — em vez de apagar tudo,
-      // busca o remoto mais recente primeiro. Se o remoto também estiver
-      // vazio, confirma-se que a eliminação era mesmo real; se não
-      // estiver, o remoto ganha (é mais provável ser um bug ou uma
-      // leitura incompleta deste lado do que uma eliminação em massa).
+      // está prestes a apagar de repente uma coleção que tinha VÁRIOS
+      // itens, isso é suspeito demais para confiar às cegas — em vez de
+      // apagar tudo, busca o remoto mais recente primeiro. Só se aplica a
+      // partir de alguns itens: esvaziar uma coleção pequena (1 a 4
+      // itens, ex.: apagar o único produto em stock) é uma ação normal do
+      // dia a dia, e bloquear isso podia prender a pessoa num ciclo onde
+      // nunca conseguia mesmo apagar o último item — a cada tentativa, a
+      // proteção repunha-o, e a próxima tentativa via-o lá outra vez.
       const arrayVazioSuspeito =
         Array.isArray(valor) && valor.length === 0 &&
-        Array.isArray(baseParaFusao.current) && baseParaFusao.current.length > 0;
+        Array.isArray(baseParaFusao.current) && baseParaFusao.current.length >= 5;
 
       // Antes de gravar, confirma que ninguém mais (noutro dispositivo) mudou
       // esta mesma coleção entretanto. Se mudou, em vez de gravar às cegas
@@ -747,10 +781,22 @@ function usePersistente(chave, valorInicial, setStatusSync) {
           }
           let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
-            console.warn(`Bloqueada uma gravação vazia suspeita em "${chave}" — mantido o valor do Supabase.`);
-            paraGravar = remoto;
+            if (jaBloqueouVazioAntes.current) {
+              // Já bloqueámos esta mesma situação uma vez antes, e a
+              // pessoa continua a querer esvaziar — a segunda vez conta
+              // como confirmação de que é mesmo intencional, não um bug.
+              // Deixa passar, para nunca ficar preso num ciclo onde nunca
+              // se consegue apagar tudo de vez.
+              jaBloqueouVazioAntes.current = false;
+            } else {
+              console.warn(`Bloqueada uma gravação vazia suspeita em "${chave}" — mantido o valor do Supabase.`);
+              paraGravar = remoto;
+              jaBloqueouVazioAntes.current = true;
+            }
+          } else if (!arrayVazioSuspeito) {
+            jaBloqueouVazioAntes.current = false;
           }
-          return { paraGravar, houveConflito: houveConflito || arrayVazioSuspeito };
+          return { paraGravar, houveConflito: houveConflito || (arrayVazioSuspeito && paraGravar === remoto) };
         })
         .catch(() => ({ paraGravar: valor, houveConflito: false }))
         .then(({ paraGravar, houveConflito }) => {
@@ -791,7 +837,19 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   const adicionarItemSeguro = async (item) => {
     try {
       await adicionarItemAtomico(PREFIXO_COLECAO_TESTE + chave, item);
-      ultimoRemotoConhecido.current = null; // força a próxima leitura remota a ser aceite
+      // A gravação atómica só ACRESCENTA este item ao que já lá estava no
+      // Supabase — sem tocar em mais nada. Por isso, em vez de anular a
+      // base (o que desligava a proteção contra conflitos para a PRÓXIMA
+      // gravação desta coleção, deixando-a vulnerável a apagar dados de
+      // outro dispositivo às cegas), atualiza-se a base para refletir
+      // exatamente esse acréscimo — continua a saber-se com confiança o
+      // que está no Supabase agora. Foi a falta disto que fazia registos
+      // criados no Balcão (que usa esta via atómica) por vezes
+      // desaparecerem depois de outro dispositivo sincronizar.
+      const baseAtualizada = Array.isArray(baseParaFusao.current) ? [item, ...baseParaFusao.current] : [item];
+      ultimoRemotoConhecido.current = JSON.stringify(baseAtualizada);
+      baseParaFusao.current = baseAtualizada;
+      guardarBaseSincronizada(chave, baseAtualizada);
       ignorarProximoEnvio.current = true; // não reenviar isto de volta — já está gravado
       setValor((atual) => [item, ...atual]);
     } catch (e) {
@@ -12050,7 +12108,10 @@ export default function CatumbelaGymApp() {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
     const agora = new Date();
     setAuditLog((atual) => [
-      { utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      // O "id" aqui não tem outro propósito — é só para a fusão entre
+      // dispositivos conseguir tratar cada registo individualmente em vez
+      // de em bloco, tal como já acontece com as outras coleções.
+      { id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`, utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
   };
@@ -12614,7 +12675,8 @@ export default function CatumbelaGymApp() {
     // conseguires calcular o lucro bruto real de cada venda depois.
     setVendasProdutos((atual) => [
       ...atual,
-      ...itens.map((i) => ({
+      ...itens.map((i, idx) => ({
+        id: `${Date.now()}-${idx}-${Math.floor(Math.random() * 10000)}`,
         produtoId: i.produtoId, quantidade: i.quantidade, subtotal: i.subtotal, metodo,
         data: new Date().toLocaleDateString("pt-PT"),
         custoUnitario: i.produto.precoCusto || 0,
@@ -13263,7 +13325,12 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     setPlanosTreino((atual) => {
       const semEsteMembro = atual.filter((p) => p.membroId !== membroId);
-      return [...semEsteMembro, { ...dados, membroId, atualizadoEm: new Date().toISOString().slice(0, 10), criadoPor: contaAtual?.nome || "—" }];
+      // "id" igual ao "membroId" — como só existe UM plano de treino por
+      // membro (o novo substitui sempre o anterior), o próprio membroId já
+      // identifica este registo de forma única e estável, o que é
+      // exatamente o que a fusão entre dispositivos precisa para tratar
+      // cada plano individualmente em vez de em bloco.
+      return [...semEsteMembro, { ...dados, id: membroId, membroId, atualizadoEm: new Date().toISOString().slice(0, 10), criadoPor: contaAtual?.nome || "—" }];
     });
     // Regista no histórico a carga de cada exercício com peso preenchido —
     // é isto que permite depois mostrar a evolução ao longo do tempo (ex.:
@@ -13498,7 +13565,11 @@ export default function CatumbelaGymApp() {
   const marcarAvisoEnviado = (chave, membroId, tipo, canal) => {
     setAvisosEnviados((atual) => [
       ...atual.filter((a) => a.chave !== chave),
-      { chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      // "id" igual à "chave" — a chave já é única por si (membro + tipo +
+      // vencimento), por isso serve perfeitamente como identificador
+      // estável para a fusão entre dispositivos tratar cada aviso
+      // individualmente.
+      { id: chave, chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
     ]);
   };
 
