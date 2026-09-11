@@ -8758,11 +8758,39 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
 // Membros sem NENHUM recibo de mensalidade (atletas antigos, já a pagar
 // antes deste sistema, cujo vencimento foi só indicado manualmente) usam
 // sempre os campos guardados no perfil deles, sem alteração nenhuma.
-function vencimentoEfetivoDoMembro(membro, faturas) {
+// Tenta descobrir o plano e o vencimento a que um recibo ANTIGO dava
+// direito, quando ele foi criado antes de o sistema passar a gravar isso
+// diretamente no documento — usando a descrição do item ("Plano X (início
+// AAAA-MM-DD)", já sempre gravada) e cruzando com a duração desse plano
+// (se o plano ainda existir com esse nome). Sem isto, qualquer atleta cujo
+// último pagamento tenha sido feito antes desta função existir ficava sem
+// nenhuma proteção contra reversões de sincronização — exatamente o
+// padrão de "expirou, renovou, e passados uns dias voltou a aparecer como
+// expirado" que se repetia mesmo depois da correção.
+function inferirVencimentoDeReciboAntigo(fatura, planos) {
+  const item = (fatura.itens || [])[0];
+  if (!item?.descricao) return null;
+  const m = item.descricao.match(/^Plano (.+) \(início (\d{4}-\d{2}-\d{2})\)$/);
+  if (!m) return null;
+  const [, nomePlano, dataInicio] = m;
+  const plano = planos.find((p) => p.nome.toLowerCase() === nomePlano.toLowerCase());
+  if (!plano) return null;
+  const base = new Date(dataInicio + "T00:00:00");
+  base.setDate(base.getDate() + plano.duracaoDias);
+  const vencimento = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+  return { planoSubscricao: plano.nome, vencimentoSubscricao: vencimento };
+}
+
+function vencimentoEfetivoDoMembro(membro, faturas, planos) {
   const hojeStr = new Date().toISOString().slice(0, 10);
-  const recibosDoMembro = faturas.filter(
-    (f) => f.tipo === "RECIBO" && f.membro?.numero === membro.numero && f.vencimentoSubscricao
-  );
+  const recibosDoMembro = faturas
+    .filter((f) => f.tipo === "RECIBO" && f.membro?.numero === membro.numero)
+    .map((f) => {
+      if (f.vencimentoSubscricao) return f;
+      const inferido = inferirVencimentoDeReciboAntigo(f, planos || []);
+      return inferido ? { ...f, ...inferido } : f;
+    })
+    .filter((f) => f.vencimentoSubscricao);
   if (recibosDoMembro.length === 0) {
     return { plano: membro.plano, vencimento: membro.vencimento, estado: membro.estado, temRecibo: false };
   }
@@ -12022,7 +12050,7 @@ export default function CatumbelaGymApp() {
         let mudouAlgumaCoisa = false;
         const novo = atual.map((m) => {
           if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado") return m;
-          const efetivo = vencimentoEfetivoDoMembro(m, faturas);
+          const efetivo = vencimentoEfetivoDoMembro(m, faturas, planos);
           if (!efetivo.temRecibo) return m;
           // Só corrige quando o recibo aponta para um vencimento MAIS À
           // FRENTE do que o que o membro tem agora — isso é o sinal de
@@ -12046,7 +12074,7 @@ export default function CatumbelaGymApp() {
     const intervalo = setInterval(reconciliar, 5 * 60 * 1000); // confere a cada 5 minutos
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [faturas, membros]);
+  }, [faturas, membros, planos]);
 
   const [advertencias, setAdvertencias] = usePersistente("advertencias", [], setStatusSync);
   const [orcamento, setOrcamento] = usePersistente("orcamento", [], setStatusSync);
