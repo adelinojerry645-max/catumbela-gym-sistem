@@ -1313,7 +1313,7 @@ function Card({ title, action, children, className = "" }) {
 // ---------------------------------------------------------------------
 // TELAS
 // ---------------------------------------------------------------------
-function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos, avisosEnviados, onMarcarEnviado }) {
+function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos, avisosEnviados, onMarcarEnviado, faturas, planos }) {
   const [aEnviarEmMassaVencidos, setAEnviarEmMassaVencidos] = useState(false);
   const mensagemVencido = (m) =>
     `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym está vencida desde ${m.vencimento}. Pode regularizar quando puder 💪`;
@@ -1557,6 +1557,22 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
                   <div>
                     <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">{m.numero} · venceu em {m.vencimento}</p>
+                    {(() => {
+                      // Diagnóstico: mostra se este "vencido" tem algum
+                      // recibo a apoiar isso, ou se é um caso sem recibo
+                      // nenhum (nesses casos, o vencimento é sempre o que
+                      // foi definido manualmente, não há nada para
+                      // verificar contra).
+                      if (!faturas || !planos) return null;
+                      const efetivo = vencimentoEfetivoDoMembro(m, faturas, planos);
+                      if (!efetivo.temRecibo) {
+                        return <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">sem recibo — vencimento definido manualmente</p>;
+                      }
+                      if (efetivo.vencimento !== m.vencimento) {
+                        return <p className="text-[11px] text-amber-600 italic">⚠ tem recibo válido até {efetivo.vencimento} — devia estar ativo</p>;
+                      }
+                      return <p className="text-[11px] text-slate-400 dark:text-slate-500 italic">recibo confirma este vencimento</p>;
+                    })()}
                   </div>
                   {envio ? (
                     <span className="text-emerald-600 flex items-center gap-1 text-xs font-semibold" title={`Contactado por ${envio.canal} em ${envio.data} às ${envio.hora}`}>
@@ -5717,7 +5733,68 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
   );
 }
 
-function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio }) {
+// ---------------------------------------------------------------------
+// HISTÓRICO DE SUBSCRIÇÃO — a timeline completa de tudo o que aconteceu
+// à subscrição de UM atleta específico: subscreveu, renovou, pausou,
+// retomou, ou teve um ajuste manual sem recibo. Cada linha mostra quem
+// fez, quando, e se ficou (ou não) com um recibo a apoiar.
+// ---------------------------------------------------------------------
+const ROTULO_ACAO_HISTORICO = {
+  subscricao: { texto: "Subscreveu", cor: "text-emerald-600" },
+  renovacao: { texto: "Renovou", cor: "text-[#3F8F87]" },
+  pausa: { texto: "Pausou", cor: "text-amber-600" },
+  retomar: { texto: "Retomou", cor: "text-blue-600" },
+  "cancelar-pausa": { texto: "Desfez pausa (engano)", cor: "text-slate-500" },
+  desfazer: { texto: "Desfez alteração", cor: "text-red-500" },
+};
+
+function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
+  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (a.id < b.id ? 1 : -1));
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-slate-100">Histórico de subscrição</h2>
+            <p className="text-xs text-slate-400 dark:text-slate-500">{membro.nome} · {membro.numero}</p>
+          </div>
+          <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
+        </div>
+        <div className="overflow-y-auto p-4 space-y-3">
+          {doMembro.length === 0 ? (
+            <p className="text-sm text-slate-400 dark:text-slate-500">Sem histórico registado para este atleta ainda.</p>
+          ) : (
+            doMembro.map((h) => {
+              const rotulo = ROTULO_ACAO_HISTORICO[h.acao] || { texto: h.acao, cor: "text-slate-500" };
+              return (
+                <div key={h.id} className="border-l-2 border-slate-100 dark:border-slate-700 pl-3 py-1">
+                  <div className="flex items-center justify-between">
+                    <p className={`text-sm font-semibold ${rotulo.cor}`}>{rotulo.texto}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">{h.data} · {h.hora}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {h.planoNovo && `${h.planoNovo} · vence ${h.vencimentoNovo}`}
+                  </p>
+                  <p className="text-xs mt-0.5">
+                    {h.temRecibo ? (
+                      <span className="text-emerald-600">✓ Recibo {h.reciboNumero}</span>
+                    ) : (
+                      <span className="text-amber-600">⚠ sem recibo</span>
+                    )}
+                    <span className="text-slate-400 dark:text-slate-500"> · por {h.registadoPor}</span>
+                  </p>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes }) {
+  const [aVerHistorico, setAVerHistorico] = useState(null); // membro selecionado
   const [editandoId, setEditandoId] = useState(null);
   const [novoPlano, setNovoPlano] = useState("");
   const [dataInicio, setDataInicio] = useState("");
@@ -5866,6 +5943,9 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                           </div>
                         ) : (
                           <div className="flex items-center justify-end gap-3">
+                            <button onClick={() => setAVerHistorico(m)} title="Ver histórico de subscrição deste atleta" className="text-slate-400 hover:text-slate-600">
+                              <History size={15} />
+                            </button>
                             {m.vencimentoAnterior && (
                               <button onClick={() => onCancelarRenovacao(m.id)} title={`Cancelar última alteração (voltar a ${m.vencimentoAnterior})`} className="text-red-400 hover:text-red-600">
                                 <RotateCcw size={15} />
@@ -5987,8 +6067,12 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
       )}
 
       <p className="text-[11px] text-slate-400 dark:text-slate-500">
-        Usa <RefreshCw size={11} className="inline mx-0.5" /> para renovar ou mudar de plano (com a data de início real) e <RotateCcw size={11} className="inline mx-0.5" /> para desfazer a última alteração feita.
+        Usa <History size={11} className="inline mx-0.5" /> para ver o histórico de subscrição, <RefreshCw size={11} className="inline mx-0.5" /> para renovar ou mudar de plano (com a data de início real) e <RotateCcw size={11} className="inline mx-0.5" /> para desfazer a última alteração feita.
       </p>
+
+      {aVerHistorico && (
+        <HistoricoSubscricaoMembro membro={aVerHistorico} historico={historicoSubscricoes || []} onFechar={() => setAVerHistorico(null)} />
+      )}
     </div>
   );
 }
@@ -6953,6 +7037,62 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 // isto é sobre tentar reconquistar quem já desapareceu do ginásio há
 // semanas — mensagem de "sentimos a tua falta", não de cobrança.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// SUBSCRIÇÕES SEM RECIBO — todos os atletas cuja subscrição atual (ativa
+// ou vencida) NÃO tem nenhum recibo a apoiá-la. Normalmente são atletas
+// antigos, ajustados manualmente antes de se usar o sistema — mas também
+// é o primeiro sítio a olhar quando um número parece errado, porque é
+// precisamente esta lista que fica vulnerável a qualquer instabilidade,
+// já que não há um recibo para confirmar/corrigir sozinha se algo correr
+// mal.
+// ---------------------------------------------------------------------
+function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }) {
+  const linhas = useMemo(() => {
+    return membros
+      .filter((m) => m.plano && m.estado !== "sem-subscricao")
+      .map((m) => ({ membro: m, efetivo: vencimentoEfetivoDoMembro(m, faturas, planos) }))
+      .filter((r) => !r.efetivo.temRecibo)
+      .map((r) => {
+        const ultimoRegisto = (historicoSubscricoes || [])
+          .filter((h) => h.membroId === r.membro.id)
+          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+        return { ...r, ultimoRegisto };
+      });
+  }, [membros, faturas, planos, historicoSubscricoes]);
+
+  return (
+    <Card title={`${linhas.length} subscrições sem recibo`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Estes atletas têm um plano/vencimento definido, mas sem nenhum recibo por trás — normalmente porque foram
+        ajustados manualmente (ex.: já eram sócios antes de se usar este sistema). Isto por si só não é um problema,
+        mas é bom saberes quem está nesta situação.
+      </p>
+      {linhas.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Todos os atletas com subscrição ativa têm recibo. 🎉</p>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {linhas.map(({ membro, ultimoRegisto }) => (
+            <div key={membro.id} className="py-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{membro.nome}</p>
+                <Pill estado={membro.estado} />
+              </div>
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {membro.numero} · {membro.plano} · vence {membro.vencimento}
+              </p>
+              {ultimoRegisto && (
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                  Última alteração: {ROTULO_ACAO_HISTORICO[ultimoRegisto.acao]?.texto || ultimoRegisto.acao} em {ultimoRegisto.data} por {ultimoRegisto.registadoPor}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function AtletasPerdidos({ membros, pagamentosFeitos, faturas, avisosEnviados, onMarcarEnviado }) {
   const perdidos = calcularAtletasPerdidos(membros, pagamentosFeitos, faturas);
   const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
@@ -8760,25 +8900,48 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
 // sempre os campos guardados no perfil deles, sem alteração nenhuma.
 // Tenta descobrir o plano e o vencimento a que um recibo ANTIGO dava
 // direito, quando ele foi criado antes de o sistema passar a gravar isso
-// diretamente no documento — usando a descrição do item ("Plano X (início
-// AAAA-MM-DD)", já sempre gravada) e cruzando com a duração desse plano
-// (se o plano ainda existir com esse nome). Sem isto, qualquer atleta cujo
-// último pagamento tenha sido feito antes desta função existir ficava sem
-// nenhuma proteção contra reversões de sincronização — exatamente o
-// padrão de "expirou, renovou, e passados uns dias voltou a aparecer como
-// expirado" que se repetia mesmo depois da correção.
+// diretamente no documento. Reconhece os formatos de descrição que já
+// existiam: "Plano X (início AAAA-MM-DD)" (usa essa data mesmo), "Plano X
+// (transferência aprovada)" e "Plano X (N dias/mês)" (nestes dois
+// últimos, sem data de início explícita, usa a data em que o recibo foi
+// emitido como aproximação — normalmente é o mesmo dia ou muito perto).
+// Cruza sempre com a duração desse plano, comparando o nome sem se
+// importar com maiúsculas/minúsculas ou espaços a mais nas pontas. Sem
+// isto, qualquer atleta cujo último pagamento tenha sido feito antes
+// desta função existir, ou por uma via diferente (ex.: aprovação de
+// transferência bancária), ficava sem nenhuma proteção contra reversões
+// de sincronização.
 function inferirVencimentoDeReciboAntigo(fatura, planos) {
-  const item = (fatura.itens || [])[0];
-  if (!item?.descricao) return null;
-  const m = item.descricao.match(/^Plano (.+) \(início (\d{4}-\d{2}-\d{2})\)$/);
-  if (!m) return null;
-  const [, nomePlano, dataInicio] = m;
-  const plano = planos.find((p) => p.nome.toLowerCase() === nomePlano.toLowerCase());
-  if (!plano) return null;
-  const base = new Date(dataInicio + "T00:00:00");
-  base.setDate(base.getDate() + plano.duracaoDias);
-  const vencimento = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-  return { planoSubscricao: plano.nome, vencimentoSubscricao: vencimento };
+  const dataDoReciboISO = (() => {
+    const m = (fatura.data || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+  })();
+
+  for (const item of fatura.itens || []) {
+    if (!item?.descricao) continue;
+    let nomePlano = null;
+    let dataInicio = null;
+
+    const comData = item.descricao.match(/^Plano (.+) \(início (\d{4}-\d{2}-\d{2})\)$/);
+    const semData = item.descricao.match(/^Plano (.+) \((?:transferência aprovada|\d+ dias\/mês)\)$/);
+    if (comData) {
+      nomePlano = comData[1];
+      dataInicio = comData[2];
+    } else if (semData && dataDoReciboISO) {
+      nomePlano = semData[1];
+      dataInicio = dataDoReciboISO;
+    } else {
+      continue;
+    }
+
+    const plano = planos.find((p) => p.nome.trim().toLowerCase() === nomePlano.trim().toLowerCase());
+    if (!plano) continue;
+    const base = new Date(dataInicio + "T00:00:00");
+    base.setDate(base.getDate() + plano.duracaoDias);
+    const vencimento = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+    return { planoSubscricao: plano.nome, vencimentoSubscricao: vencimento };
+  }
+  return null;
 }
 
 function vencimentoEfetivoDoMembro(membro, faturas, planos) {
@@ -11222,6 +11385,7 @@ const MENU_ADMIN = [
     itens: [
       { id: "notificacoes", label: "Notificações", icon: Bell },
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
+      { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
@@ -12093,6 +12257,28 @@ export default function CatumbelaGymApp() {
   // foram contactados — sem isto, recarregar a página ou voltar noutro dia
   // esquecia tudo, e toda a gente voltava a aparecer como "por contactar".
   const [avisosEnviados, setAvisosEnviados] = usePersistente("avisosEnviados", [], setStatusSync);
+  // Histórico completo de tudo o que acontece à subscrição de cada
+  // atleta — subscrever, renovar, pausar, retomar, ou um ajuste manual
+  // sem recibo. Diferente da Auditoria (que é um log geral do sistema
+  // inteiro), isto é focado só nas subscrições, e serve tanto para veres
+  // o histórico de UM atleta específico, como para encontrar rapidamente
+  // quem tem alterações sem nenhum recibo a apoiá-las.
+  const [historicoSubscricoes, setHistoricoSubscricoes] = usePersistente("historicoSubscricoes", [], setStatusSync);
+  const registarHistoricoSubscricao = (membro, dados) => {
+    setHistoricoSubscricoes((atual) => [
+      {
+        id: `${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        membroId: membro.id,
+        membroNome: membro.nome,
+        membroNumero: membro.numero,
+        data: new Date().toISOString().slice(0, 10),
+        hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        registadoPor: contaAtual?.nome || "—",
+        ...dados,
+      },
+      ...atual,
+    ]);
+  };
 
   // NOTIFICAÇÕES PUSH DO NAVEGADOR — reais (não são links de WhatsApp),
   // usando a Notification API. Funcionam enquanto este browser estiver
@@ -12972,6 +13158,12 @@ export default function CatumbelaGymApp() {
       `Aprovou transferência de ${kz(pendente.valor)}`,
       `Membro: ${pendente.membro.numero} · Submetido por: ${pendente.submetidoPor} · Recibo ${documento.numero}${documentoTaxa ? ` · Recibo de inscrição ${documentoTaxa.numero}` : ""} · Comprovativo verificado`
     );
+    registarHistoricoSubscricao(pendente.membro, {
+      acao: pendente.membro.plano ? "renovacao" : "subscricao",
+      planoAnterior: pendente.membro.plano, vencimentoAnterior: pendente.membro.vencimento,
+      planoNovo: pendente.planoNome || pendente.membro.plano, vencimentoNovo: novoVencimento,
+      temRecibo: true, reciboNumero: documento.numero,
+    });
   };
 
   const rejeitarPagamento = (pendente) => {
@@ -13047,6 +13239,12 @@ export default function CatumbelaGymApp() {
       "Atualizou subscrição",
       `${membro.nome} — ${novoPlanoNome}, início ${dataInicio}, vence ${novoVencimento}${documento ? ` · Recibo ${documento.numero}` : " · sem recibo"}`
     );
+    registarHistoricoSubscricao(membro, {
+      acao: membro.plano ? "renovacao" : "subscricao",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: novoPlanoNome, vencimentoNovo: novoVencimento,
+      temRecibo: !!documento, reciboNumero: documento?.numero || null,
+    });
     return documento;
   };
 
@@ -13114,6 +13312,12 @@ export default function CatumbelaGymApp() {
       );
     }
     registarAuditoria("Cancelou última alteração de subscrição (e o recibo associado, se houve)", membro.nome);
+    registarHistoricoSubscricao(membro, {
+      acao: "desfazer",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: membro.planoAnterior || membro.plano, vencimentoNovo: membro.vencimentoAnterior,
+      temRecibo: false, reciboNumero: null,
+    });
   };
 
   // Pausar/retomar subscrição — para atletas que trabalham e não conseguem vir
@@ -13131,6 +13335,12 @@ export default function CatumbelaGymApp() {
       )
     );
     registarAuditoria("Pausou subscrição", `${membro.nome} — vencimento congelado em ${membro.vencimento}`);
+    registarHistoricoSubscricao(membro, {
+      acao: "pausa",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: membro.plano, vencimentoNovo: membro.vencimento,
+      temRecibo: false, reciboNumero: null,
+    });
   };
 
   // Desfaz uma pausa feita por engano — devolve exatamente ao estado de
@@ -13147,6 +13357,12 @@ export default function CatumbelaGymApp() {
       })
     );
     registarAuditoria("Desfez pausa (engano)", `${membro.nome} — voltou a "${membro.estadoAntesPausa || "ativo"}" sem alterar o vencimento`);
+    registarHistoricoSubscricao(membro, {
+      acao: "cancelar-pausa",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: membro.plano, vencimentoNovo: membro.vencimento,
+      temRecibo: false, reciboNumero: null,
+    });
   };
 
   const retomarSubscricao = (membroId) => {
@@ -13175,6 +13391,12 @@ export default function CatumbelaGymApp() {
       "Retomou subscrição",
       `${membro.nome} — ${diasPausados} dia(s) pausados, vencimento passou de ${membro.vencimento} para ${novoVencStr}`
     );
+    registarHistoricoSubscricao(membro, {
+      acao: "retomar",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: membro.plano, vencimentoNovo: novoVencStr,
+      temRecibo: false, reciboNumero: null,
+    });
   };
 
   const adicionarCusto = (custo) => {
@@ -13988,7 +14210,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "dashboard" && (
-            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />
+            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} faturas={faturas} planos={planos} />
           )}
           {telaAtual === "membros" && (
             <Membros
@@ -14018,7 +14240,7 @@ export default function CatumbelaGymApp() {
             <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
-            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} />
+            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} />
           )}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
@@ -14080,6 +14302,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
+          {telaAtual === "sem-recibo" && perfil === "administrador" && <SubscricoesSemRecibo membros={membros} faturas={faturas} planos={planos} historicoSubscricoes={historicoSubscricoes} />}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
