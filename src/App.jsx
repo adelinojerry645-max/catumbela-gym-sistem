@@ -50,6 +50,18 @@ const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 // aumentar ao recalcular. Usa sempre esta função depois de .setDate().
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// Gera um id com entropia suficiente para nunca colidir, mesmo quando
+// vários dispositivos criam registos ao mesmo tempo (ex.: hora de ponta
+// no Controlo de Acessos, com várias entradas no mesmo segundo). A
+// fusão entre dispositivos trata cada "id" como um registo único — se
+// dois registos diferentes acabassem com o mesmo id (o que acontecia às
+// vezes com "Date.now() + número aleatório pequeno"), a fusão via-os
+// como sendo a MESMA coisa, e um dos dois desaparecia silenciosamente.
+const gerarIdUnico = () => {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+};
+
 // Devolve a lista de contas bancárias/Express do ginásio a mostrar aos membros
 // e nos recibos — usa as contas novas (várias) se existirem, senão cai para
 // os campos antigos (uma só conta), para quem já tinha configurado antes.
@@ -3402,12 +3414,19 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
   const [aCriarNovo, setACriarNovo] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const [novoTelefone, setNovoTelefone] = useState("");
+  const [taxaInscricaoValor, setTaxaInscricaoValor] = useState(dadosGinasio?.taxaInscricaoPadrao ? String(dadosGinasio.taxaInscricaoPadrao) : "");
+  const [taxaInscricaoMetodo, setTaxaInscricaoMetodo] = useState("dinheiro");
+  const [taxaInscricaoContaId, setTaxaInscricaoContaId] = useState("");
   const [aSubscrever, setASubscrever] = useState(false);
   const [planoEscolhido, setPlanoEscolhido] = useState("");
   const [metodoEscolhido, setMetodoEscolhido] = useState("dinheiro");
+  const [contaBancariaEscolhida, setContaBancariaEscolhida] = useState("");
+  const [dataInicioEscolhida, setDataInicioEscolhida] = useState("");
+  const [semPagamentoAgoraBalcao, setSemPagamentoAgoraBalcao] = useState(false);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
   const [ultimaAcao, setUltimaAcao] = useState(null); // { texto, desfazer }
   const [aEditarHoras, setAEditarHoras] = useState(false);
+  const [acessoEmEdicao, setAcessoEmEdicao] = useState(null); // qual registo de acesso está a ser corrigido (null = criar novo de hoje)
   const [horaEntradaEditada, setHoraEntradaEditada] = useState("");
   const [horaSaidaEditada, setHoraSaidaEditada] = useState("");
   const [categoriaAberta, setCategoriaAberta] = useState(null); // "entradas" | "dentro" | "vencemHoje" | "semSubscricao" | null
@@ -3452,8 +3471,13 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     setASubscrever(false);
     setPermitirExcecao(false);
     setAEditarHoras(false);
+    setAcessoEmEdicao(null);
     setCategoriaAberta(null);
     setPlanoEscolhido(m.plano || planos[0]?.nome || "");
+    setDataInicioEscolhida(hojeStr);
+    setSemPagamentoAgoraBalcao(false);
+    setMetodoEscolhido("dinheiro");
+    setContaBancariaEscolhida("");
   };
 
   const voltarAoInicio = () => {
@@ -3462,11 +3486,18 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     setACriarNovo(false);
     setASubscrever(false);
     setAEditarHoras(false);
+    setAcessoEmEdicao(null);
+    setTaxaInscricaoValor(dadosGinasio?.taxaInscricaoPadrao ? String(dadosGinasio.taxaInscricaoPadrao) : "");
+    setTaxaInscricaoMetodo("dinheiro");
+    setTaxaInscricaoContaId("");
   };
 
   const criarMembroRapido = () => {
     if (!novoNome.trim()) return;
-    const resultado = onCriarMembro({ nome: novoNome.trim(), telefone: novoTelefone.trim() });
+    const resultado = onCriarMembro({
+      nome: novoNome.trim(), telefone: novoTelefone.trim(),
+      taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
+    });
     setNovoNome("");
     setNovoTelefone("");
     if (resultado?.membro) selecionar(resultado.membro);
@@ -3474,7 +3505,11 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
 
   const confirmarSubscricao = () => {
     if (!planoEscolhido) return;
-    const documento = onAtualizarSubscricao(membroSelecionado.id, planoEscolhido, hojeStr, metodoEscolhido);
+    const documento = onAtualizarSubscricao(
+      membroSelecionado.id, planoEscolhido, dataInicioEscolhida || hojeStr,
+      semPagamentoAgoraBalcao ? null : metodoEscolhido,
+      semPagamentoAgoraBalcao ? null : contaBancariaEscolhida
+    );
     const plano = planos.find((p) => p.nome === planoEscolhido);
     const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
     setMembroSelecionado(membroAtualizado);
@@ -3484,6 +3519,8 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
         texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)})`,
         desfazer: () => { onEliminarFatura(documento.numero); setUltimaAcao(null); voltarAoInicio(); },
       });
+    } else {
+      setUltimaAcao({ texto: `Subscrição de ${membroSelecionado.nome} registada (sem recibo agora)`, desfazer: null });
     }
   };
 
@@ -3505,8 +3542,14 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     setTimeout(voltarAoInicio, 1400);
   };
 
+  // Procura QUALQUER entrada em aberto deste membro, não só a de hoje —
+  // se ninguém deu saída num dia anterior (esqueceram-se), a entrada
+  // antiga continua aberta, e é essa que precisa de aparecer aqui para
+  // se poder fechar. Só olhar para "hoje" fazia o Balcão achar que a
+  // pessoa não tinha nada em aberto, mostrava "Registar entrada" em vez
+  // de "Registar saída", e a entrada antiga ficava presa para sempre.
   const acessoAbertoDoMembro = membroSelecionado
-    ? acessos.find((a) => a.numero === membroSelecionado.numero && a.data === hojeStr && !a.saida)
+    ? acessos.filter((a) => a.numero === membroSelecionado.numero && !a.saida).sort((a, b) => (a.data + a.entrada < b.data + b.entrada ? 1 : -1))[0] || null
     : null;
 
   // O acesso de hoje, esteja fechado ou não — para poder corrigir as
@@ -3516,22 +3559,35 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     ? acessos.find((a) => a.numero === membroSelecionado.numero && a.data === hojeStr)
     : null;
 
-  const abrirEdicaoHoras = () => {
-    setHoraEntradaEditada(acessoDeHojeDoMembro?.entrada || "");
-    setHoraSaidaEditada(acessoDeHojeDoMembro?.saida || "");
+  // Histórico recente do atleta selecionado — não só hoje, para se poder
+  // corrigir horas de qualquer um dos últimos dias, não só do treino mais
+  // recente.
+  const historicoAcessosDoMembro = useMemo(() => {
+    if (!membroSelecionado) return [];
+    return acessos
+      .filter((a) => a.numero === membroSelecionado.numero)
+      .sort((a, b) => (a.data + (a.entrada || "") < b.data + (b.entrada || "") ? 1 : -1))
+      .slice(0, 10);
+  }, [acessos, membroSelecionado]);
+
+  const abrirEdicaoHoras = (acesso) => {
+    setAcessoEmEdicao(acesso || null);
+    setHoraEntradaEditada(acesso?.entrada || "");
+    setHoraSaidaEditada(acesso?.saida || "");
     setAEditarHoras(true);
   };
 
   const guardarHorasEditadas = () => {
     if (!horaEntradaEditada) return;
-    if (acessoDeHojeDoMembro) {
-      onEditarHoras(acessoDeHojeDoMembro.id, horaEntradaEditada, horaSaidaEditada);
-      setUltimaAcao({ texto: `Horas de ${membroSelecionado.nome} corrigidas`, desfazer: null });
+    if (acessoEmEdicao) {
+      onEditarHoras(acessoEmEdicao.id, horaEntradaEditada, horaSaidaEditada);
+      setUltimaAcao({ texto: `Horas de ${membroSelecionado.nome} corrigidas (${acessoEmEdicao.data})`, desfazer: null });
     } else {
       onAdicionarAcessoManual(membroSelecionado, horaEntradaEditada, horaSaidaEditada);
       setUltimaAcao({ texto: `Registo de hoje adicionado para ${membroSelecionado.nome}`, desfazer: null });
     }
     setAEditarHoras(false);
+    setAcessoEmEdicao(null);
   };
 
   const diasParaVencer = membroSelecionado?.vencimento
@@ -3680,8 +3736,47 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
             <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone</label>
               <input value={novoTelefone} onChange={(e) => setNovoTelefone(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") criarMembroRapido(); }}
                 className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+            </div>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Taxa de inscrição (matrícula)</p>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2">
+                Separada do plano — o plano só se paga a seguir. Se cobrares agora, gera logo o recibo. Deixa a 0 se
+                não houver taxa.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
+                  <input type="number" min={0} value={taxaInscricaoValor} onChange={(e) => setTaxaInscricaoValor(e.target.value)}
+                    placeholder="0" onKeyDown={(e) => { if (e.key === "Enter") criarMembroRapido(); }}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Método</label>
+                  <select value={taxaInscricaoMetodo} onChange={(e) => setTaxaInscricaoMetodo(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="tpa">TPA</option>
+                    <option value="express">MULTICAIXA Express</option>
+                    <option value="referencia">Referência</option>
+                    <option value="transferencia">Transferência</option>
+                  </select>
+                </div>
+              </div>
+              {(taxaInscricaoMetodo === "tpa" || taxaInscricaoMetodo === "express" || taxaInscricaoMetodo === "transferencia") && (
+                <div className="mt-2">
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    {taxaInscricaoMetodo === "express" ? "Qual número Express recebeu?" : taxaInscricaoMetodo === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
+                  </label>
+                  <select value={taxaInscricaoContaId} onChange={(e) => setTaxaInscricaoContaId(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                    <option value="">Selecionar...</option>
+                    {obterContasBancarias(dadosGinasio)
+                      .filter((c) => (taxaInscricaoMetodo === "express" ? !!c.telefone : !!c.iban))
+                      .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                  </select>
+                </div>
+              )}
             </div>
             <div className="flex gap-2">
               <button onClick={voltarAoInicio} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
@@ -3715,19 +3810,26 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
             </div>
           )}
 
-          {acessoDeHojeDoMembro && !aEditarHoras && (
-            <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4">
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                Hoje: entrada {acessoDeHojeDoMembro.entrada}{acessoDeHojeDoMembro.saida ? ` · saída ${acessoDeHojeDoMembro.saida}` : " · ainda no ginásio"}
-              </p>
-              <button onClick={abrirEdicaoHoras} className="text-xs font-semibold text-[#3F8F87] hover:underline shrink-0 ml-3">
-                Corrigir horas
-              </button>
+          {!aEditarHoras && historicoAcessosDoMembro.length > 0 && (
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4">
+              <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Últimos acessos</p>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {historicoAcessosDoMembro.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between py-1.5 text-sm">
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {a.data === hojeStr ? "Hoje" : a.data} — entrada {a.entrada}{a.saida ? ` · saída ${a.saida}` : " · ainda no ginásio"}
+                    </p>
+                    <button onClick={() => abrirEdicaoHoras(a)} className="text-xs font-semibold text-[#3F8F87] hover:underline shrink-0 ml-3">
+                      Corrigir
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
           {!acessoDeHojeDoMembro && !aEditarHoras && (
-            <button onClick={abrirEdicaoHoras} className="text-xs font-semibold text-[#3F8F87] hover:underline mb-4 block">
+            <button onClick={() => abrirEdicaoHoras(null)} className="text-xs font-semibold text-[#3F8F87] hover:underline mb-4 block">
               A pessoa já esteve aqui hoje mas não ficou registado? Adicionar registo manual
             </button>
           )}
@@ -3735,7 +3837,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
           {aEditarHoras && (
             <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 mb-4 space-y-3">
               <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                {acessoDeHojeDoMembro ? "Corrigir horas de hoje" : "Adicionar registo de hoje"}
+                {acessoEmEdicao ? `Corrigir horas — ${acessoEmEdicao.data === hojeStr ? "hoje" : acessoEmEdicao.data}` : "Adicionar registo de hoje"}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -3750,7 +3852,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
                 </div>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => setAEditarHoras(false)} className="flex-1 text-xs font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2 rounded-lg">
+                <button onClick={() => { setAEditarHoras(false); setAcessoEmEdicao(null); }} className="flex-1 text-xs font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2 rounded-lg">
                   Cancelar
                 </button>
                 <button onClick={guardarHorasEditadas} disabled={!horaEntradaEditada} className="flex-1 text-xs font-semibold bg-[#3F8F87] text-white py-2 rounded-lg disabled:opacity-40">
@@ -3770,23 +3872,51 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
                 </select>
               </div>
               <div>
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Método de pagamento</label>
-                <select value={metodoEscolhido} onChange={(e) => setMetodoEscolhido(e.target.value)}
-                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
-                  <option value="dinheiro">Dinheiro</option>
-                  <option value="tpa">TPA</option>
-                  <option value="express">MULTICAIXA Express</option>
-                  <option value="referencia">Referência</option>
-                  <option value="transferencia">Transferência</option>
-                </select>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data de início</label>
+                <input type="date" value={dataInicioEscolhida} onChange={(e) => setDataInicioEscolhida(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Se pagou hoje mas o plano só começa noutro dia, muda esta data.</p>
               </div>
+              <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <input type="checkbox" checked={semPagamentoAgoraBalcao} onChange={(e) => setSemPagamentoAgoraBalcao(e.target.checked)} />
+                Não gerar recibo agora (já foi pago fora do sistema)
+              </label>
+              {!semPagamentoAgoraBalcao && (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Método de pagamento</label>
+                    <select value={metodoEscolhido} onChange={(e) => setMetodoEscolhido(e.target.value)}
+                      className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                      <option value="dinheiro">Dinheiro</option>
+                      <option value="tpa">TPA</option>
+                      <option value="express">MULTICAIXA Express</option>
+                      <option value="referencia">Referência</option>
+                      <option value="transferencia">Transferência</option>
+                    </select>
+                  </div>
+                  {(metodoEscolhido === "tpa" || metodoEscolhido === "express" || metodoEscolhido === "transferencia") && (
+                    <div>
+                      <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                        {metodoEscolhido === "express" ? "Qual número Express recebeu?" : metodoEscolhido === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
+                      </label>
+                      <select value={contaBancariaEscolhida} onChange={(e) => setContaBancariaEscolhida(e.target.value)}
+                        className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                        <option value="">Selecionar...</option>
+                        {obterContasBancarias(dadosGinasio)
+                          .filter((c) => (metodoEscolhido === "express" ? !!c.telefone : !!c.iban))
+                          .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="flex gap-2">
                 <button onClick={() => setASubscrever(false)} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
                   Cancelar
                 </button>
                 <button onClick={confirmarSubscricao} disabled={!planoEscolhido}
                   className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
-                  Confirmar pagamento
+                  {semPagamentoAgoraBalcao ? "Confirmar (sem recibo)" : "Confirmar pagamento"}
                 </button>
               </div>
             </div>
@@ -3809,9 +3939,16 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
               )}
             </div>
           ) : acessoAbertoDoMembro ? (
-            <button onClick={fazerSaida} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-lg">
-              Registar saída
-            </button>
+            <div className="space-y-2">
+              {acessoAbertoDoMembro.data !== hojeStr && (
+                <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
+                  ⚠ Este atleta ficou com uma entrada por fechar desde <strong>{acessoAbertoDoMembro.data}</strong>, às {acessoAbertoDoMembro.entrada} — provavelmente esqueceram-se de registar a saída nessa altura.
+                </p>
+              )}
+              <button onClick={fazerSaida} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-lg">
+                Registar saída
+              </button>
+            </div>
           ) : (
             <button onClick={fazerEntrada} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-bold text-lg py-4 rounded-lg">
               Registar entrada
@@ -3998,7 +4135,10 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
         )}
         {encontrado && encontrado !== "nao-encontrado" && (() => {
           const hojeStr = new Date().toISOString().slice(0, 10);
-          const entradaAberta = acessos.find((a) => a.numero === encontrado.numero && a.data === hojeStr && !a.saida);
+          // Qualquer entrada em aberto, não só a de hoje — se ficou uma
+          // entrada por fechar de um dia anterior (esqueceram-se de
+          // registar a saída), é essa que tem de aparecer aqui.
+          const entradaAberta = acessos.filter((a) => a.numero === encontrado.numero && !a.saida).sort((a, b) => (a.data + a.entrada < b.data + b.entrada ? 1 : -1))[0] || null;
           const diasVencido = encontrado.vencimento ? Math.round((new Date(hojeStr) - new Date(encontrado.vencimento)) / (1000 * 60 * 60 * 24)) : 0;
           const estaVencido = encontrado.estado !== "ativo" && encontrado.estado !== "suspenso" && encontrado.estado !== "pausada";
           const podeEntrar = encontrado.estado === "ativo" || (estaVencido && perfil === "administrador" && permitirExcecao);
@@ -4020,7 +4160,9 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
               )}
               {entradaAberta && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mb-3">
-                  Já está no ginásio desde as {entradaAberta.entrada} — ainda não saiu.
+                  {entradaAberta.data === hojeStr
+                    ? `Já está no ginásio desde as ${entradaAberta.entrada} — ainda não saiu.`
+                    : `⚠ Ficou uma entrada por fechar desde ${entradaAberta.data}, às ${entradaAberta.entrada} — provavelmente esqueceram-se de registar a saída nessa altura.`}
                 </p>
               )}
 
@@ -7046,6 +7188,75 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 // já que não há um recibo para confirmar/corrigir sozinha se algo correr
 // mal.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// SUBSCRIÇÕES DIVERGENTES — compara o estado atual de cada atleta com a
+// última ação registada no histórico de subscrições (mesmo sem recibo
+// nenhum por trás). Se o que está guardado no perfil do atleta já não
+// bate certo com o que essa última ação diz que devia ser — incluindo
+// ter voltado a "sem subscrição" sozinho — é sinal de que algo reverteu
+// essa alteração sem ninguém pedir. Isto apanha exatamente os casos que
+// a reconciliação automática (baseada em recibos) não consegue proteger,
+// porque não há recibo nenhum para comparar.
+// ---------------------------------------------------------------------
+function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
+  const [repostos, setRepostos] = useState({});
+
+  const divergentes = useMemo(() => {
+    return membros
+      .filter((m) => m.estado !== "suspenso" && m.estado !== "pausada" && m.estado !== "cancelado")
+      .map((m) => {
+        const ultimo = (historicoSubscricoes || [])
+          .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
+          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+        return { membro: m, ultimo };
+      })
+      .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
+  }, [membros, historicoSubscricoes]);
+
+  const repor = (r) => {
+    onRepor(r.membro.id, r.ultimo.planoNovo, r.ultimo.vencimentoNovo);
+    setRepostos((atual) => ({ ...atual, [r.membro.id]: true }));
+  };
+
+  return (
+    <Card title={`${divergentes.length} subscrições diferentes do histórico`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Compara o que está guardado em cada atleta com a última alteração registada no histórico de subscrições —
+        mesmo quando não há recibo nenhum por trás. Se não baterem certo, é sinal de que algo reverteu essa
+        alteração sozinho, sem ninguém pedir.
+      </p>
+      {divergentes.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Está tudo a bater certo com o histórico. 🎉</p>
+      ) : (
+        <div className="space-y-3">
+          {divergentes.map((r) => (
+            <div key={r.membro.id} className="ring-1 ring-amber-200 dark:ring-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.membro.nome}</p>
+                {repostos[r.membro.id] ? (
+                  <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1"><CheckCircle2 size={14} /> Reposto</span>
+                ) : (
+                  <button onClick={() => repor(r)} className="text-xs font-semibold bg-[#3F8F87] text-white px-3 py-1.5 rounded-lg">
+                    Repor para o que o histórico diz
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{r.membro.numero}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                Agora: <strong>{r.membro.plano || "sem plano"}</strong>, vence <strong>{r.membro.vencimento || "—"}</strong>
+              </p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                Histórico diz: <strong>{r.ultimo.planoNovo || "sem plano"}</strong>, vence <strong>{r.ultimo.vencimentoNovo || "—"}</strong>
+                {" "}({ROTULO_ACAO_HISTORICO[r.ultimo.acao]?.texto || r.ultimo.acao} em {r.ultimo.data} por {r.ultimo.registadoPor})
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }) {
   const linhas = useMemo(() => {
     return membros
@@ -8283,6 +8494,212 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// RECUPERAR DADOS PELA AUDITORIA — quando um membro foi eliminado (por
+// engano, ou sem se saber bem quando), o registo dele desaparece de
+// tudo — inclusive dos recibos, que também são apagados junto. A
+// Auditoria é a ÚNICA coleção que nunca é tocada por uma eliminação, por
+// isso é o único sítio onde ainda pode sobrar rasto. Isto vasculha todo
+// o histórico de auditoria à procura de nomes que já não existem na
+// lista de membros atual, junta o que conseguir reconstruir sobre cada
+// um (plano, vencimento, quando foi eliminado), e permite recriar o
+// registo com essa informação.
+function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
+  const nomesAtuais = new Set(membrosAtuais.map((m) => m.nome.trim().toLowerCase()));
+  const porNome = {};
+
+  const registar = (nome, numero, evento) => {
+    if (!nome) return;
+    const chave = nome.trim().toLowerCase();
+    if (!porNome[chave]) porNome[chave] = { nome: nome.trim(), numero: numero || null, eventos: [] };
+    if (numero && !porNome[chave].numero) porNome[chave].numero = numero;
+    porNome[chave].eventos.push(evento);
+  };
+
+  auditLog.forEach((r) => {
+    const d = r.detalhe || "";
+    let m;
+    if ((m = r.acao.match(/^Inscreveu novo membro$/)) && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: "Inscrito", plano: null, vencimento: null });
+    } else if (r.acao === "Novo membro inscreveu-se sozinho" && (m = d.match(/^(.+?) — (CG-\d+)(?: · escolheu o plano (.+?))?(?: ·|$)/))) {
+      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: `Inscreveu-se sozinho${m[3] ? ` — plano ${m[3]}` : ""}`, plano: m[3] || null, vencimento: null });
+    } else if (r.acao === "Atualizou subscrição" && (m = d.match(/^(.+?) — (.+?), início .+?, vence (\d{4}-\d{2}-\d{2})/))) {
+      registar(m[1], null, { data: r.data, hora: r.hora, texto: `Subscreveu ${m[2]}, vence ${m[3]}`, plano: m[2], vencimento: m[3] });
+    } else if (r.acao === "Eliminou membro e TODOS os seus dados (incluindo financeiros)" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: "⚠ ELIMINADO aqui", plano: null, vencimento: null, eliminado: true });
+    } else if (r.acao === "Pausou subscrição" && (m = d.match(/^(.+?) — vencimento congelado em (\d{4}-\d{2}-\d{2})/))) {
+      registar(m[1], null, { data: r.data, hora: r.hora, texto: `Pausou (vencimento estava em ${m[2]})`, plano: null, vencimento: m[2] });
+    } else if ((r.acao === "Registou entrada" || r.acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: r.acao === "Registou entrada" ? "Entrou no ginásio" : "Saiu do ginásio", plano: null, vencimento: null });
+    }
+  });
+
+  return Object.values(porNome)
+    .filter((c) => !nomesAtuais.has(c.nome.toLowerCase()))
+    .map((c) => {
+      const eventos = c.eventos.sort((a, b) => (a.data + a.hora < b.data + b.hora ? 1 : -1));
+      const comPlano = eventos.find((e) => e.plano || e.vencimento);
+      const eliminado = eventos.find((e) => e.eliminado);
+      return { ...c, eventos, ultimoPlano: comPlano?.plano || null, ultimoVencimento: comPlano?.vencimento || null, eliminadoEm: eliminado?.data || null };
+    })
+    .sort((a, b) => (a.eventos[0]?.data < b.eventos[0]?.data ? 1 : -1));
+}
+
+// ---------------------------------------------------------------------
+// RECUPERAR ACESSOS PELA AUDITORIA — reconstrói entradas/saídas do
+// Controlo de Acessos que desapareceram (ex.: por causa de dois
+// registos a colidirem no mesmo id, ou qualquer outro motivo), usando o
+// que ficou gravado na Auditoria — que regista a hora de cada entrada e
+// saída no mesmo instante em que aconteceram, e por isso serve como uma
+// segunda cópia dessa informação, independente da coleção de acessos
+// em si.
+// ---------------------------------------------------------------------
+function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
+  const porChave = {}; // "numero|data" -> { nome, numero, data, entrada, saida }
+  const existentes = new Set(acessosAtuais.map((a) => `${a.numero}|${a.data}`));
+
+  // A auditoria grava a data como "DD/MM/AAAA" (toLocaleDateString), mas
+  // os acessos guardam sempre "AAAA-MM-DD" — sem esta conversão, o acesso
+  // recriado ficava com uma data no formato errado, e nunca mais
+  // aparecia certo nas contagens/relatórios.
+  const paraISO = (dataPT) => {
+    const m = dataPT.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : dataPT;
+  };
+
+  auditLog.forEach((r) => {
+    const d = r.detalhe || "";
+    const dataISO = paraISO(r.data);
+    let m;
+    if ((r.acao === "Registou entrada") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+      const chave = `${m[2]}|${dataISO}`;
+      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
+      if (!porChave[chave].entrada) porChave[chave].entrada = r.hora;
+    } else if ((r.acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+      const chave = `${m[2]}|${dataISO}`;
+      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
+      porChave[chave].saida = r.hora;
+    } else if (r.acao === "Adicionou registo de acesso manualmente" && (m = d.match(/^(.+?) — (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?/))) {
+      // Este tipo não tem o número do sócio no texto — casa pelo nome com
+      // o membro atual, se ainda existir; senão fica sem número (só serve
+      // de registo informativo, não dá para recriar sem número).
+      const chave = `nome:${m[1]}|${dataISO}`;
+      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: null, data: dataISO };
+      porChave[chave].entrada = m[2];
+      if (m[3]) porChave[chave].saida = m[3];
+    }
+  });
+
+  return Object.values(porChave)
+    .filter((c) => c.numero && !existentes.has(`${c.numero}|${c.data}`))
+    .sort((a, b) => (a.data < b.data ? 1 : -1));
+}
+
+function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAcessoManual }) {
+  const [recriados, setRecriados] = useState({});
+  const candidatos = useMemo(() => extrairAcessosDaAuditoria(auditLog, acessos), [auditLog, acessos]);
+
+  const recriar = (c) => {
+    const membro = membros.find((m) => m.numero === c.numero) || { nome: c.nome, numero: c.numero, foto: null };
+    onAdicionarAcessoManual(membro, c.entrada || "00:00", c.saida || null, c.data);
+    setRecriados((atual) => ({ ...atual, [`${c.numero}|${c.data}`]: true }));
+  };
+
+  return (
+    <Card title={`${candidatos.length} acessos encontrados na auditoria que já não estão no Controlo de Acessos`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Vasculha a Auditoria à procura de entradas/saídas que ficaram registadas lá, mas que já não aparecem no
+        Controlo de Acessos — as horas são aproximadas (o momento em que a ação foi feita), corrige-as depois se
+        precisares, em Balcão → "Corrigir horas".
+      </p>
+      {candidatos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Não encontrei nenhum acesso em falta.</p>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {candidatos.map((c) => {
+            const chave = `${c.numero}|${c.data}`;
+            return (
+              <div key={chave} className="py-2.5 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{c.nome}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    {c.numero} · {c.data} · entrada {c.entrada || "—"}{c.saida ? ` · saída ${c.saida}` : ""}
+                  </p>
+                </div>
+                {recriados[chave] ? (
+                  <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1"><CheckCircle2 size={14} /> Recriado</span>
+                ) : (
+                  <button onClick={() => recriar(c)} className="text-xs font-semibold bg-[#3F8F87] text-white px-3 py-1.5 rounded-lg shrink-0 ml-3">
+                    Recriar
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
+  const [recriados, setRecriados] = useState({}); // chave -> true, depois de recriar
+  const candidatos = useMemo(() => extrairCandidatosRecuperacao(auditLog, membros), [auditLog, membros]);
+
+  const recriar = (c) => {
+    onRecriar({ nome: c.nome }, c.ultimoPlano, c.ultimoVencimento);
+    setRecriados((atual) => ({ ...atual, [c.nome.toLowerCase()]: true }));
+  };
+
+  return (
+    <Card title={`${candidatos.length} possíveis membros apagados encontrados na auditoria`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Vasculha todo o registo de auditoria à procura de nomes que já não existem na lista de membros — a auditoria
+        é a única coisa que sobrevive quando um membro é eliminado. O membro recriado fica com um <strong>número novo</strong>
+        (não é possível repor o número antigo) e sem telefone (isso nunca fica guardado na auditoria) — vais precisar
+        de o voltar a preencher à mão depois de recriar.
+      </p>
+      {candidatos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Não encontrei ninguém na auditoria que já não esteja na lista de membros.</p>
+      ) : (
+        <div className="space-y-4">
+          {candidatos.map((c) => (
+            <div key={c.nome} className="ring-1 ring-slate-100 dark:ring-slate-700 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.nome}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    {c.numero || "número desconhecido"}
+                    {c.eliminadoEm && <span className="text-red-500"> · eliminado em {c.eliminadoEm}</span>}
+                  </p>
+                </div>
+                {recriados[c.nome.toLowerCase()] ? (
+                  <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1"><CheckCircle2 size={14} /> Recriado</span>
+                ) : (
+                  <button onClick={() => recriar(c)} className="text-xs font-semibold bg-[#3F8F87] text-white px-3 py-1.5 rounded-lg">
+                    Recriar com estes dados
+                  </button>
+                )}
+              </div>
+              {(c.ultimoPlano || c.ultimoVencimento) && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                  Último plano conhecido: <strong>{c.ultimoPlano || "—"}</strong>, vencimento <strong>{c.ultimoVencimento || "—"}</strong>
+                </p>
+              )}
+              <div className="text-[11px] text-slate-400 dark:text-slate-500 space-y-0.5">
+                {c.eventos.slice(0, 6).map((e, i) => (
+                  <p key={i}>{e.data} · {e.hora} — {e.texto}</p>
+                ))}
+                {c.eventos.length > 6 && <p>+ {c.eventos.length - 6} evento(s) mais antigo(s)</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function Auditoria({ registos, onNavegar }) {
   return (
     <Card title="Registo de auditoria">
@@ -9202,7 +9619,7 @@ function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
   );
 }
 
-function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFechar }) {
+function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
   const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
 
   const ranking = useMemo(() => {
@@ -9212,6 +9629,10 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
         const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
         const horasTreino = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
         const sessoesLongas = acessosDoMes.filter((a) => calcularHorasEntreHorarios(a.entrada, a.saida) > limiteHoras).length;
+        // Dias DISTINTOS, não sessões — vir treinar em vários dias do mês
+        // conta para a consistência, mesmo que cada sessão seja curta;
+        // duas entradas no MESMO dia não duplicam isto.
+        const diasTreinados = new Set(acessosDoMes.map((a) => a.data)).size;
 
         const cargasDoMembro = historicoCargas.filter((h) => h.membroId === m.id && (h.data || "").startsWith(mesEscolhido));
         const porExercicio = {};
@@ -9225,16 +9646,30 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
           if (lista.length >= 2) progressaoCarga += lista[lista.length - 1].carga - lista[0].carga;
         });
 
-        // Fórmula simples e transparente: cada hora de treino vale 10
-        // pontos, cada kg de progresso nas cargas vale 2 — a tabela mostra
-        // sempre os dois números em separado, nunca só o resultado final.
-        const pontuacao = horasTreino * 10 + progressaoCarga * 2;
+        // Evolução física: quanto a % de gordura corporal baixou entre a
+        // primeira e a última avaliação do mês (só conta se houver pelo
+        // menos 2 avaliações com esse valor preenchido nesse mês).
+        const avaliacoesDoMes = (avaliacoesFisicas || [])
+          .filter((a) => a.membroId === m.id && (a.data || "").startsWith(mesEscolhido) && a.gordura)
+          .sort((a, b) => a.data.localeCompare(b.data));
+        let reducaoGordura = 0;
+        if (avaliacoesDoMes.length >= 2) {
+          reducaoGordura = Number(avaliacoesDoMes[0].gordura) - Number(avaliacoesDoMes[avaliacoesDoMes.length - 1].gordura);
+        }
 
-        return { membro: m, horasTreino, progressaoCarga, pontuacao, numTreinos: acessosDoMes.length, sessoesLongas };
+        // Fórmula simples e transparente, pensada para não premiar só quem
+        // passa mais horas no ginásio: cada hora de treino vale 10 pontos,
+        // cada DIA distinto que veio (consistência) vale 15, cada kg de
+        // progresso nas cargas vale 2, e cada 1% de gordura corporal
+        // reduzida vale 30 — a tabela mostra sempre os números em
+        // separado, nunca só o resultado final.
+        const pontuacao = horasTreino * 10 + diasTreinados * 15 + progressaoCarga * 2 + reducaoGordura * 30;
+
+        return { membro: m, horasTreino, diasTreinados, progressaoCarga, reducaoGordura, pontuacao, numTreinos: acessosDoMes.length, sessoesLongas };
       })
-      .filter((r) => r.numTreinos > 0 || r.progressaoCarga !== 0)
+      .filter((r) => r.numTreinos > 0 || r.progressaoCarga !== 0 || r.reducaoGordura !== 0)
       .sort((a, b) => b.pontuacao - a.pontuacao);
-  }, [membros, acessos, historicoCargas, mesEscolhido, dadosGinasio]);
+  }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, dadosGinasio]);
 
   const vencedor = ranking[0];
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
@@ -9278,17 +9713,20 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
                 <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta de {nomeMes}</p>
                 <p className="text-lg font-extrabold text-slate-900">{vencedor.membro.nome}</p>
                 <p className="text-sm text-slate-600">
-                  {vencedor.horasTreino.toFixed(1)}h de treino{vencedor.progressaoCarga !== 0 ? ` · ${vencedor.progressaoCarga > 0 ? "+" : ""}${vencedor.progressaoCarga.toFixed(1)} kg de progressão nas cargas` : ""}
+                  {vencedor.diasTreinados} dia{vencedor.diasTreinados === 1 ? "" : "s"} treinados · {vencedor.horasTreino.toFixed(1)}h no total
+                  {vencedor.progressaoCarga !== 0 ? ` · ${vencedor.progressaoCarga > 0 ? "+" : ""}${vencedor.progressaoCarga.toFixed(1)} kg de progressão nas cargas` : ""}
+                  {vencedor.reducaoGordura !== 0 ? ` · ${vencedor.reducaoGordura > 0 ? "-" : "+"}${Math.abs(vencedor.reducaoGordura).toFixed(1)}% de gordura` : ""}
                   {vencedor.sessoesLongas > 0 ? ` · ${vencedor.sessoesLongas} sessão(ões) acima do limite de ${Number(dadosGinasio?.limiteHorasSessao) || 2}h` : ""}
                 </p>
               </div>
             </div>
 
             <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Classificação completa</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-400">
-                  <th>#</th><th>Atleta</th><th className="text-right">Horas de treino</th><th className="text-right">Progressão nas cargas</th><th className="text-right">Sessões longas</th>
+                  <th>#</th><th>Atleta</th><th className="text-right">Dias treinados</th><th className="text-right">Horas</th><th className="text-right">Cargas</th><th className="text-right">Evolução</th><th className="text-right">Sessões longas</th>
                 </tr>
               </thead>
               <tbody>
@@ -9296,8 +9734,10 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
                   <tr key={r.membro.id} className={`border-t ${i === 0 ? "font-semibold" : ""}`}>
                     <td className="py-1.5">{i + 1}.º</td>
                     <td className="py-1.5">{r.membro.nome}</td>
+                    <td className="py-1.5 text-right">{r.diasTreinados}</td>
                     <td className="py-1.5 text-right">{r.horasTreino.toFixed(1)}h ({r.numTreinos} treino{r.numTreinos === 1 ? "" : "s"})</td>
                     <td className="py-1.5 text-right">{r.progressaoCarga === 0 ? "—" : `${r.progressaoCarga > 0 ? "+" : ""}${r.progressaoCarga.toFixed(1)} kg`}</td>
+                    <td className="py-1.5 text-right">{r.reducaoGordura === 0 ? "—" : `${r.reducaoGordura > 0 ? "-" : "+"}${Math.abs(r.reducaoGordura).toFixed(1)}% gordura`}</td>
                     <td className="py-1.5 text-right">
                       {r.sessoesLongas > 0 ? (
                         <span className="text-amber-600 font-medium">{r.sessoesLongas} taxada{r.sessoesLongas > 1 ? "s" : ""}</span>
@@ -9307,11 +9747,13 @@ function MelhorAtleta({ membros, acessos, historicoCargas, dadosGinasio, onFecha
                 ))}
               </tbody>
             </table>
+            </div>
             <p className="text-[11px] text-slate-400 mt-3">
-              Classificação calculada a partir das horas entre entrada e saída em Controlo de Acessos, e da diferença
-              entre a primeira e a última carga registada em cada exercício, neste mês. "Sessões longas" mostra
-              quantas vezes o atleta ultrapassou o limite de {Number(dadosGinasio?.limiteHorasSessao) || 2}h numa só
-              visita (e por isso pagou a taxa extra configurada em Dados do ginásio) — não afeta a pontuação.
+              Pontuação: 15 pontos por cada dia distinto que veio treinar (consistência), 10 por cada hora de treino
+              (horas entre entrada e saída em Controlo de Acessos), 2 por cada kg de progresso nas cargas, e 30 por
+              cada 1% de gordura corporal reduzida entre a primeira e a última avaliação física do mês. "Sessões
+              longas" mostra quantas vezes o atleta ultrapassou o limite de {Number(dadosGinasio?.limiteHorasSessao) || 2}h
+              numa só visita (e por isso pagou a taxa extra) — não afeta a pontuação.
             </p>
           </>
         )}
@@ -9892,7 +10334,7 @@ const exportarMembros = () => {
 
       {aVerMelhorAtleta && (
         <MelhorAtleta
-          membros={membros} acessos={acessos} historicoCargas={historicoCargas} dadosGinasio={dadosGinasio}
+          membros={membros} acessos={acessos} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
           onFechar={() => setAVerMelhorAtleta(false)}
         />
       )}
@@ -11390,6 +11832,7 @@ const MENU_ADMIN = [
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
+      { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
     ],
   },
   {
@@ -12532,6 +12975,63 @@ export default function CatumbelaGymApp() {
     return { membro: membroNovo, reciboInscricao };
   };
 
+  // Cria um membro E já aplica um plano/vencimento conhecidos, tudo numa
+  // única operação — usada pela recuperação a partir da Auditoria. Fazer
+  // isto em dois passos separados (criar, depois "atualizarSubscricao")
+  // não funcionava: a segunda chamada ainda via a lista de membros de
+  // antes da criação (o React só processa a primeira atualização no
+  // próximo render), por isso "não encontrava" o membro recém-criado e
+  // não fazia nada, silenciosamente.
+  const recriarMembroComSubscricao = (novo, planoNome, vencimento) => {
+    const maiorNumero = membros.reduce((max, m) => {
+      const n = parseInt(m.numero.replace("CG-", ""), 10);
+      return n > max ? n : max;
+    }, 0);
+    const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const novoId = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const membroNovo = {
+      id: novoId,
+      numero,
+      nome: novo.nome,
+      telefone: novo.telefone || "",
+      plano: planoNome || null,
+      foto: null,
+      email: null,
+      dataInscricao: new Date().toISOString().slice(0, 10),
+      dataNascimento: null,
+      vencimento: vencimento || null,
+      estado: vencimento ? (vencimento < new Date().toISOString().slice(0, 10) ? "vencido" : "ativo") : "sem-subscricao",
+      assinaturaContrato: null,
+      dataAssinaturaContrato: null,
+    };
+    setMembros((atual) => [...atual, membroNovo]);
+    registarAuditoria(
+      "Inscreveu novo membro (recuperado da auditoria)",
+      `${novo.nome} — ${numero}${planoNome ? ` · ${planoNome}, vence ${vencimento}` : ""}`
+    );
+    return { membro: membroNovo };
+  };
+
+  // Repõe o plano/vencimento de um atleta diretamente (sem gerar recibo,
+  // sem novo registo de histórico) — usada quando o valor atual já não
+  // bate certo com o que o histórico de subscrições diz que devia ser,
+  // para corrigir sem teres de refazer a subscrição do zero.
+  const reporSubscricao = (membroId, plano, vencimento) => {
+    const membro = membros.find((m) => m.id === membroId);
+    const hojeStr = new Date().toISOString().slice(0, 10);
+    setMembros((atual) =>
+      atual.map((m) =>
+        m.id === membroId
+          ? { ...m, plano, vencimento, estado: vencimento ? (vencimento < hojeStr ? "vencido" : "ativo") : "sem-subscricao" }
+          : m
+      )
+    );
+    registarAuditoria(
+      "Repôs subscrição divergente (usando o histórico)",
+      `${membro?.nome || membroId} — ${plano || "sem plano"}, vence ${vencimento || "—"}`
+    );
+  };
+
   const atualizarMembro = (id, dados) => {
     setMembros((atual) =>
       atual.map((m) => {
@@ -13076,7 +13576,7 @@ export default function CatumbelaGymApp() {
       // Usa um identificador único mesmo sem depender da lista atual (que pode
       // estar desatualizada) — importante para não colidir quando vários
       // membros submetem ao mesmo tempo.
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: gerarIdUnico(),
       membro,
       valor,
       destino,
@@ -13516,7 +14016,7 @@ export default function CatumbelaGymApp() {
     if (jaReservado) return { ok: false, motivo: "Já tens vaga reservada nesta atividade." };
 
     const novaReserva = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: gerarIdUnico(),
       atividadeId,
       membroId: membro.id,
       membroNome: membro.nome,
@@ -13660,7 +14160,7 @@ export default function CatumbelaGymApp() {
   // MENSAGENS — chat interno entre membro/recepcionista/PT e o administrador
   const enviarMensagem = ({ participanteId, participanteNome, participanteTipo, texto, deAdmin }) => {
     const novaMensagem = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: gerarIdUnico(),
       participanteId,
       participanteNome,
       participanteTipo,
@@ -13826,7 +14326,7 @@ export default function CatumbelaGymApp() {
   const registarEntrada = (membro) => {
     const agora = new Date();
     const novoAcesso = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: gerarIdUnico(),
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
@@ -13846,17 +14346,37 @@ export default function CatumbelaGymApp() {
     const agora = new Date();
     const hojeStr = agora.toISOString().slice(0, 10);
     const horaSaida = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-    const aberta = acessos.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida);
+    // Procura QUALQUER entrada em aberto deste membro, não só a de hoje —
+    // se ninguém deu saída há dois dias (esqueceram-se), a entrada antiga
+    // continua aberta, e é essa que precisa de ser fechada agora. Filtrar
+    // só por "hoje" fazia este botão não encontrar nada e não fazer
+    // literalmente nada, sem aviso nenhum — a pessoa ficava presa "dentro
+    // do ginásio" para sempre. Se houver mais do que uma em aberto (raro,
+    // vários dias esquecidos seguidos), fecha a mais recente primeiro.
+    const abertas = acessos.filter((a) => a.numero === membro.numero && !a.saida).sort((a, b) => (a.data + a.entrada < b.data + b.entrada ? 1 : -1));
+    const aberta = abertas[0];
     if (!aberta) return;
 
     // Regra da empresa: sessão mais longa do que o limite configurado paga
     // uma taxa extra automaticamente — sem depender de alguém se lembrar
     // de cobrar manualmente. Fica como fatura pendente (a receção cobra
-    // como qualquer outra), não é debitado logo em dinheiro.
+    // como qualquer outra), não é debitado logo em dinheiro. Só se aplica
+    // quando a entrada é do MESMO dia que a saída — comparar só as horas
+    // (sem contar os dias) quando a entrada ficou aberta de um dia
+    // anterior dava uma duração sem sentido (às vezes até negativa), e
+    // cobrar uma taxa a partir desse número errado seria pior do que não
+    // cobrar nada.
     const limiteHoras = Number(dadosGinasio.limiteHorasSessao) || 2;
     const valorTaxa = Number(dadosGinasio.taxaSessaoLonga) || 0;
-    const horasSessao = calcularHorasEntreHorarios(aberta.entrada, horaSaida);
+    const horasSessao = aberta.data === hojeStr ? calcularHorasEntreHorarios(aberta.entrada, horaSaida) : 0;
     let numeroFaturaTaxa = null;
+
+    if (aberta.data !== hojeStr) {
+      registarAuditoria(
+        "Fechou uma entrada que tinha ficado aberta de outro dia",
+        `${membro.nome} — entrou ${aberta.data} às ${aberta.entrada}, saída registada agora`
+      );
+    }
 
     if (valorTaxa > 0 && horasSessao > limiteHoras) {
       const documento = gerarDocumentoFaturacao({
@@ -13917,18 +14437,18 @@ export default function CatumbelaGymApp() {
   // Cria um registo de acesso de hoje inteiramente novo, com horas
   // escolhidas — para quando a pessoa esteve mesmo no ginásio, mas
   // ninguém chegou a registar a entrada dela na altura.
-  const adicionarAcessoManual = (membro, entrada, saida) => {
+  const adicionarAcessoManual = (membro, entrada, saida, data) => {
     const novoAcesso = {
-      id: Date.now() + Math.floor(Math.random() * 1000),
+      id: gerarIdUnico(),
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
-      data: new Date().toISOString().slice(0, 10),
+      data: data || new Date().toISOString().slice(0, 10),
       entrada,
       saida: saida || null,
     };
     adicionarAcessoSeguro(novoAcesso);
-    registarAuditoria("Adicionou registo de acesso manualmente", `${membro.nome} — ${entrada}${saida ? "–" + saida : ""}`);
+    registarAuditoria("Adicionou registo de acesso manualmente", `${membro.nome} — ${entrada}${saida ? "–" + saida : ""}${data ? ` (${data})` : ""}`);
   };
 
   // --- ÁREA DO MEMBRO: layout próprio, sem sidebar administrativa ---
@@ -14302,7 +14822,12 @@ export default function CatumbelaGymApp() {
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
-          {telaAtual === "sem-recibo" && perfil === "administrador" && <SubscricoesSemRecibo membros={membros} faturas={faturas} planos={planos} historicoSubscricoes={historicoSubscricoes} />}
+          {telaAtual === "sem-recibo" && perfil === "administrador" && (
+            <div className="space-y-4">
+              <SubscricoesDivergentes membros={membros} historicoSubscricoes={historicoSubscricoes} onRepor={reporSubscricao} />
+              <SubscricoesSemRecibo membros={membros} faturas={faturas} planos={planos} historicoSubscricoes={historicoSubscricoes} />
+            </div>
+          )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
@@ -14311,6 +14836,12 @@ export default function CatumbelaGymApp() {
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} />}
+          {telaAtual === "recuperar-dados" && perfil === "administrador" && (
+            <div className="space-y-4">
+              <RecuperarDadosAuditoria auditLog={auditLog} membros={membros} planos={planos} onRecriar={recriarMembroComSubscricao} />
+              <RecuperarAcessosAuditoria auditLog={auditLog} acessos={acessos} membros={membros} onAdicionarAcessoManual={adicionarAcessoManual} />
+            </div>
+          )}
           {telaAtual === "mensagens" && perfil === "administrador" && (
             <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
           )}
