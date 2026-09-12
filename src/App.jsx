@@ -8505,7 +8505,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
 // um (plano, vencimento, quando foi eliminado), e permite recriar o
 // registo com essa informação.
 function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
-  const nomesAtuais = new Set(membrosAtuais.map((m) => m.nome.trim().toLowerCase()));
+  const nomesAtuais = new Set(membrosAtuais.map((m) => (m.nome || "").trim().toLowerCase()));
   const porNome = {};
 
   const registar = (nome, numero, evento) => {
@@ -8516,33 +8516,44 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
     porNome[chave].eventos.push(evento);
   };
 
-  auditLog.forEach((r) => {
-    const d = r.detalhe || "";
-    let m;
-    if ((m = r.acao.match(/^Inscreveu novo membro$/)) && (m = d.match(/^(.+?) — (CG-\d+)/))) {
-      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: "Inscrito", plano: null, vencimento: null });
-    } else if (r.acao === "Novo membro inscreveu-se sozinho" && (m = d.match(/^(.+?) — (CG-\d+)(?: · escolheu o plano (.+?))?(?: ·|$)/))) {
-      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: `Inscreveu-se sozinho${m[3] ? ` — plano ${m[3]}` : ""}`, plano: m[3] || null, vencimento: null });
-    } else if (r.acao === "Atualizou subscrição" && (m = d.match(/^(.+?) — (.+?), início .+?, vence (\d{4}-\d{2}-\d{2})/))) {
-      registar(m[1], null, { data: r.data, hora: r.hora, texto: `Subscreveu ${m[2]}, vence ${m[3]}`, plano: m[2], vencimento: m[3] });
-    } else if (r.acao === "Eliminou membro e TODOS os seus dados (incluindo financeiros)" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
-      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: "⚠ ELIMINADO aqui", plano: null, vencimento: null, eliminado: true });
-    } else if (r.acao === "Pausou subscrição" && (m = d.match(/^(.+?) — vencimento congelado em (\d{4}-\d{2}-\d{2})/))) {
-      registar(m[1], null, { data: r.data, hora: r.hora, texto: `Pausou (vencimento estava em ${m[2]})`, plano: null, vencimento: m[2] });
-    } else if ((r.acao === "Registou entrada" || r.acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
-      registar(m[1], m[2], { data: r.data, hora: r.hora, texto: r.acao === "Registou entrada" ? "Entrou no ginásio" : "Saiu do ginásio", plano: null, vencimento: null });
+  // Blindado contra registos de auditoria antigos ou malformados (ex.:
+  // sem "acao"/"detalhe"/"data" por algum motivo) — sem isto, um único
+  // registo inesperado rebentava com a página inteira (ecrã em branco),
+  // em vez de simplesmente ser ignorado.
+  (auditLog || []).forEach((r) => {
+    try {
+      const acao = r?.acao || "";
+      const d = r?.detalhe || "";
+      const data = r?.data || "";
+      const hora = r?.hora || "";
+      let m;
+      if (acao === "Inscreveu novo membro" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        registar(m[1], m[2], { data, hora, texto: "Inscrito", plano: null, vencimento: null });
+      } else if (acao === "Novo membro inscreveu-se sozinho" && (m = d.match(/^(.+?) — (CG-\d+)(?: · escolheu o plano (.+?))?(?: ·|$)/))) {
+        registar(m[1], m[2], { data, hora, texto: `Inscreveu-se sozinho${m[3] ? ` — plano ${m[3]}` : ""}`, plano: m[3] || null, vencimento: null });
+      } else if (acao === "Atualizou subscrição" && (m = d.match(/^(.+?) — (.+?), início .+?, vence (\d{4}-\d{2}-\d{2})/))) {
+        registar(m[1], null, { data, hora, texto: `Subscreveu ${m[2]}, vence ${m[3]}`, plano: m[2], vencimento: m[3] });
+      } else if (acao === "Eliminou membro e TODOS os seus dados (incluindo financeiros)" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        registar(m[1], m[2], { data, hora, texto: "⚠ ELIMINADO aqui", plano: null, vencimento: null, eliminado: true });
+      } else if (acao === "Pausou subscrição" && (m = d.match(/^(.+?) — vencimento congelado em (\d{4}-\d{2}-\d{2})/))) {
+        registar(m[1], null, { data, hora, texto: `Pausou (vencimento estava em ${m[2]})`, plano: null, vencimento: m[2] });
+      } else if ((acao === "Registou entrada" || acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        registar(m[1], m[2], { data, hora, texto: acao === "Registou entrada" ? "Entrou no ginásio" : "Saiu do ginásio", plano: null, vencimento: null });
+      }
+    } catch {
+      // um registo estranho não pode derrubar a página inteira — ignora-o e segue para o próximo
     }
   });
 
   return Object.values(porNome)
     .filter((c) => !nomesAtuais.has(c.nome.toLowerCase()))
     .map((c) => {
-      const eventos = c.eventos.sort((a, b) => (a.data + a.hora < b.data + b.hora ? 1 : -1));
+      const eventos = c.eventos.sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1));
       const comPlano = eventos.find((e) => e.plano || e.vencimento);
       const eliminado = eventos.find((e) => e.eliminado);
       return { ...c, eventos, ultimoPlano: comPlano?.plano || null, ultimoVencimento: comPlano?.vencimento || null, eliminadoEm: eliminado?.data || null };
     })
-    .sort((a, b) => (a.eventos[0]?.data < b.eventos[0]?.data ? 1 : -1));
+    .sort((a, b) => ((a.eventos[0]?.data || "") < (b.eventos[0]?.data || "") ? 1 : -1));
 }
 
 // ---------------------------------------------------------------------
@@ -8556,37 +8567,47 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
 // ---------------------------------------------------------------------
 function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
   const porChave = {}; // "numero|data" -> { nome, numero, data, entrada, saida }
-  const existentes = new Set(acessosAtuais.map((a) => `${a.numero}|${a.data}`));
+  const existentes = new Set((acessosAtuais || []).map((a) => `${a?.numero}|${a?.data}`));
 
   // A auditoria grava a data como "DD/MM/AAAA" (toLocaleDateString), mas
   // os acessos guardam sempre "AAAA-MM-DD" — sem esta conversão, o acesso
   // recriado ficava com uma data no formato errado, e nunca mais
   // aparecia certo nas contagens/relatórios.
   const paraISO = (dataPT) => {
+    if (typeof dataPT !== "string") return "";
     const m = dataPT.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     return m ? `${m[3]}-${m[2]}-${m[1]}` : dataPT;
   };
 
-  auditLog.forEach((r) => {
-    const d = r.detalhe || "";
-    const dataISO = paraISO(r.data);
-    let m;
-    if ((r.acao === "Registou entrada") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
-      const chave = `${m[2]}|${dataISO}`;
-      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
-      if (!porChave[chave].entrada) porChave[chave].entrada = r.hora;
-    } else if ((r.acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
-      const chave = `${m[2]}|${dataISO}`;
-      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
-      porChave[chave].saida = r.hora;
-    } else if (r.acao === "Adicionou registo de acesso manualmente" && (m = d.match(/^(.+?) — (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?/))) {
-      // Este tipo não tem o número do sócio no texto — casa pelo nome com
-      // o membro atual, se ainda existir; senão fica sem número (só serve
-      // de registo informativo, não dá para recriar sem número).
-      const chave = `nome:${m[1]}|${dataISO}`;
-      if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: null, data: dataISO };
-      porChave[chave].entrada = m[2];
-      if (m[3]) porChave[chave].saida = m[3];
+  // Blindado contra registos malformados, pela mesma razão da função
+  // acima — nunca deixar um registo inesperado rebentar a página toda.
+  (auditLog || []).forEach((r) => {
+    try {
+      const acao = r?.acao || "";
+      const d = r?.detalhe || "";
+      const dataISO = paraISO(r?.data);
+      if (!dataISO) return;
+      const hora = r?.hora || "";
+      let m;
+      if (acao === "Registou entrada" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        const chave = `${m[2]}|${dataISO}`;
+        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
+        if (!porChave[chave].entrada) porChave[chave].entrada = hora;
+      } else if (acao === "Registou saída" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        const chave = `${m[2]}|${dataISO}`;
+        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
+        porChave[chave].saida = hora;
+      } else if (acao === "Adicionou registo de acesso manualmente" && (m = d.match(/^(.+?) — (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?/))) {
+        // Este tipo não tem o número do sócio no texto — casa pelo nome com
+        // o membro atual, se ainda existir; senão fica sem número (só serve
+        // de registo informativo, não dá para recriar sem número).
+        const chave = `nome:${m[1]}|${dataISO}`;
+        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: null, data: dataISO };
+        porChave[chave].entrada = m[2];
+        if (m[3]) porChave[chave].saida = m[3];
+      }
+    } catch {
+      // ignora este registo e segue para o próximo, sem derrubar a página
     }
   });
 
@@ -8597,7 +8618,13 @@ function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
 
 function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAcessoManual }) {
   const [recriados, setRecriados] = useState({});
-  const candidatos = useMemo(() => extrairAcessosDaAuditoria(auditLog, acessos), [auditLog, acessos]);
+  const candidatos = useMemo(() => {
+    try {
+      return extrairAcessosDaAuditoria(auditLog, acessos);
+    } catch {
+      return []; // nunca deixa a página em branco, mesmo com algo completamente inesperado
+    }
+  }, [auditLog, acessos]);
 
   const recriar = (c) => {
     const membro = membros.find((m) => m.numero === c.numero) || { nome: c.nome, numero: c.numero, foto: null };
@@ -8644,7 +8671,13 @@ function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAces
 
 function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
   const [recriados, setRecriados] = useState({}); // chave -> true, depois de recriar
-  const candidatos = useMemo(() => extrairCandidatosRecuperacao(auditLog, membros), [auditLog, membros]);
+  const candidatos = useMemo(() => {
+    try {
+      return extrairCandidatosRecuperacao(auditLog, membros);
+    } catch {
+      return []; // nunca deixa a página em branco, mesmo com algo completamente inesperado
+    }
+  }, [auditLog, membros]);
 
   const recriar = (c) => {
     onRecriar({ nome: c.nome }, c.ultimoPlano, c.ultimoVencimento);
