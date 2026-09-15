@@ -62,6 +62,22 @@ const gerarIdUnico = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 };
 
+// Desde que os "id" passaram a ser identificadores únicos e imprevisíveis
+// (para nunca colidirem entre dispositivos), já não servem para saber qual
+// de dois registos é mais recente — comparar ids ou subtraí-los deixou de
+// refletir a ordem cronológica real, e passou a dar resultados
+// praticamente aleatórios. Estas duas funções constroem uma chave a
+// partir da data/hora gravada em cada registo (que é o que realmente diz
+// a ordem), para usar em qualquer .sort() que precise de "mais recente
+// primeiro" ou "mais antigo primeiro".
+// Para registos com data em formato ISO (AAAA-MM-DD) + hora (HH:MM) — como historicoSubscricoes.
+const chaveTemporalISO = (item) => `${item?.data || ""}T${item?.hora || "00:00"}`;
+// Para registos com data em formato português (DD/MM/AAAA) + hora (HH:MM) — como mensagens, auditLog.
+const chaveTemporalPT = (item) => {
+  const [dia, mes, ano] = (item?.data || "").split("/");
+  return `${ano}-${mes}-${dia}T${item?.hora || "00:00"}`;
+};
+
 // Devolve a lista de contas bancárias/Express do ginásio a mostrar aos membros
 // e nos recibos — usa as contas novas (várias) se existirem, senão cai para
 // os campos antigos (uma só conta), para quem já tinha configurado antes.
@@ -1433,12 +1449,14 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 
   const membrosRecentes = useMemo(() => {
     return [...membros]
-      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || b.id - a.id)
+      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || String(b.id).localeCompare(String(a.id)))
       .slice(0, 5);
   }, [membros]);
 
   return (
     <div className="space-y-5">
+      {perfil === "administrador" && <NumerosSocioDuplicados membros={membros} />}
+
       {/* Cartões principais — estilo grande, empilhado */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${perfil === "administrador" ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
         <CartaoDashboard icon={Users} tone="violet" titulo="Total de Membros" subtitulo="Total de membros cadastrados" valor={total} />
@@ -3408,7 +3426,7 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
 // conta. Funciona também com leitor de código de barras (que só "escreve"
 // o número e carrega Enter, como um teclado).
 // ---------------------------------------------------------------------
-function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
+function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
   const [query, setQuery] = useState("");
   const [membroSelecionado, setMembroSelecionado] = useState(null);
   const [aCriarNovo, setACriarNovo] = useState(false);
@@ -3864,6 +3882,17 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
 
           {aSubscrever ? (
             <div className="space-y-3">
+              {(() => {
+                const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
+                if (taxasPendentes.total <= 0) return null;
+                return (
+                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                    ⚠ {membroSelecionado.nome} tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
+                    ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
+                    aproveita para cobrar junto com esta renovação.
+                  </p>
+                );
+              })()}
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Plano</label>
                 <select value={planoEscolhido} onChange={(e) => setPlanoEscolhido(e.target.value)}
@@ -5891,7 +5920,7 @@ const ROTULO_ACAO_HISTORICO = {
 };
 
 function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
-  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (a.id < b.id ? 1 : -1));
+  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1));
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col">
@@ -5935,7 +5964,7 @@ function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
   );
 }
 
-function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes }) {
+function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes, faturas }) {
   const [aVerHistorico, setAVerHistorico] = useState(null); // membro selecionado
   const [editandoId, setEditandoId] = useState(null);
   const [novoPlano, setNovoPlano] = useState("");
@@ -6119,6 +6148,17 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                     {aEditar && (
                       <tr className="bg-[#EAF5F4] dark:bg-slate-900">
                         <td colSpan={6} className="py-3 px-2">
+                          {(() => {
+                            const taxasPendentes = taxasSessaoLongaPendentesDoMembro(m, faturas);
+                            if (taxasPendentes.total <= 0) return null;
+                            return (
+                              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 mb-2">
+                                ⚠ Este atleta tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
+                                ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
+                                aproveita para cobrar junto com esta renovação.
+                              </p>
+                            );
+                          })()}
                           <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
                             <label className="text-slate-500 dark:text-slate-400 font-medium">Data de início do novo período:</label>
                             <SeletorDataDiaMesAno valor={dataInicio} onMudar={setDataInicio} />
@@ -7198,35 +7238,59 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 // a reconciliação automática (baseada em recibos) não consegue proteger,
 // porque não há recibo nenhum para comparar.
 // ---------------------------------------------------------------------
-function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
+function SubscricoesDivergentes({ membros, historicoSubscricoes, auditLog, onRepor }) {
   const [repostos, setRepostos] = useState({});
+
+  // Para membros que ainda não têm nada no histórico estruturado (criado
+  // recentemente — qualquer coisa de antes disso não tem registo lá),
+  // usa a Auditoria como fonte alternativa, para conseguir apanhar
+  // divergências mais antigas também.
+  const eventosDaAuditoriaPorNome = useMemo(() => {
+    try {
+      const mapa = {};
+      extrairEventosPorNomeDaAuditoria(auditLog).forEach((c) => { mapa[c.nome.toLowerCase()] = c; });
+      return mapa;
+    } catch {
+      return {};
+    }
+  }, [auditLog]);
 
   const divergentes = useMemo(() => {
     return membros
       .filter((m) => m.estado !== "suspenso" && m.estado !== "pausada" && m.estado !== "cancelado")
       .map((m) => {
-        const ultimo = (historicoSubscricoes || [])
+        const ultimoHistorico = (historicoSubscricoes || [])
           .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
-          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
-        return { membro: m, ultimo };
+          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
+        if (ultimoHistorico) {
+          return { membro: m, planoEsperado: ultimoHistorico.planoNovo, vencimentoEsperado: ultimoHistorico.vencimentoNovo, fonte: "histórico", detalheFonte: `${ROTULO_ACAO_HISTORICO[ultimoHistorico.acao]?.texto || ultimoHistorico.acao} em ${ultimoHistorico.data} por ${ultimoHistorico.registadoPor}` };
+        }
+        // Sem nada no histórico estruturado — tenta a auditoria, que cobre
+        // um período bem mais longo.
+        const daAuditoria = eventosDaAuditoriaPorNome[(m.nome || "").trim().toLowerCase()];
+        const eventoComPlano = daAuditoria?.eventos?.slice().reverse().find((e) => e.plano || e.vencimento);
+        if (daAuditoria?.ultimoVencimento) {
+          return { membro: m, planoEsperado: daAuditoria.ultimoPlano, vencimentoEsperado: daAuditoria.ultimoVencimento, fonte: "auditoria", detalheFonte: eventoComPlano ? `${eventoComPlano.texto} em ${eventoComPlano.data}` : "" };
+        }
+        return { membro: m, planoEsperado: null, vencimentoEsperado: null };
       })
-      .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
-  }, [membros, historicoSubscricoes]);
+      .filter((r) => r.vencimentoEsperado && (r.planoEsperado !== r.membro.plano || r.vencimentoEsperado !== r.membro.vencimento));
+  }, [membros, historicoSubscricoes, eventosDaAuditoriaPorNome]);
 
   const repor = (r) => {
-    onRepor(r.membro.id, r.ultimo.planoNovo, r.ultimo.vencimentoNovo);
+    onRepor(r.membro.id, r.planoEsperado, r.vencimentoEsperado);
     setRepostos((atual) => ({ ...atual, [r.membro.id]: true }));
   };
 
   return (
-    <Card title={`${divergentes.length} subscrições diferentes do histórico`}>
+    <Card title={`${divergentes.length} subscrições diferentes do que ficou registado`}>
       <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-        Compara o que está guardado em cada atleta com a última alteração registada no histórico de subscrições —
-        mesmo quando não há recibo nenhum por trás. Se não baterem certo, é sinal de que algo reverteu essa
-        alteração sozinho, sem ninguém pedir.
+        Compara o que está guardado em cada atleta com a última alteração conhecida (no histórico de subscrições, ou
+        na Auditoria quando não há nada no histórico) — mesmo quando não há recibo nenhum por trás. Se não baterem
+        certo, é sinal de que algo reverteu essa alteração sozinho, sem ninguém pedir.
       </p>
       {divergentes.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Está tudo a bater certo com o histórico. 🎉</p>
+        <p className="text-sm text-slate-400 dark:text-slate-500">Está tudo a bater certo. 🎉</p>
       ) : (
         <div className="space-y-3">
           {divergentes.map((r) => (
@@ -7237,7 +7301,7 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
                   <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1"><CheckCircle2 size={14} /> Reposto</span>
                 ) : (
                   <button onClick={() => repor(r)} className="text-xs font-semibold bg-[#3F8F87] text-white px-3 py-1.5 rounded-lg">
-                    Repor para o que o histórico diz
+                    Repor
                   </button>
                 )}
               </div>
@@ -7246,13 +7310,60 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
                 Agora: <strong>{r.membro.plano || "sem plano"}</strong>, vence <strong>{r.membro.vencimento || "—"}</strong>
               </p>
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                Histórico diz: <strong>{r.ultimo.planoNovo || "sem plano"}</strong>, vence <strong>{r.ultimo.vencimentoNovo || "—"}</strong>
-                {" "}({ROTULO_ACAO_HISTORICO[r.ultimo.acao]?.texto || r.ultimo.acao} em {r.ultimo.data} por {r.ultimo.registadoPor})
+                {r.fonte === "auditoria" ? "Auditoria diz" : "Histórico diz"}: <strong>{r.planoEsperado || "sem plano"}</strong>, vence <strong>{r.vencimentoEsperado || "—"}</strong>
+                {r.detalheFonte && ` (${r.detalheFonte})`}
               </p>
             </div>
           ))}
         </div>
       )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// NÚMEROS DE SÓCIO DUPLICADOS — o número de sócio (CG-XXXXXX) é
+// calculado como "o maior que já existe, mais um". Se dois dispositivos
+// inscreverem pessoas DIFERENTES quase ao mesmo tempo (ex.: a receção e
+// um auto-registo simultâneo), os dois podem calcular o mesmo número
+// antes de saberem um do outro — resultando em duas pessoas diferentes
+// com o mesmo número de sócio. Corrigir isto automaticamente é
+// arriscado (podia desligar acessos/recibos já associados à pessoa
+// certa), por isso este ecrã só deteta e mostra claramente, para
+// decidires com contexto qual dos dois deve ficar com um número novo.
+// ---------------------------------------------------------------------
+function NumerosSocioDuplicados({ membros }) {
+  const duplicados = useMemo(() => {
+    const porNumero = {};
+    membros.forEach((m) => {
+      if (!m.numero) return;
+      if (!porNumero[m.numero]) porNumero[m.numero] = [];
+      porNumero[m.numero].push(m);
+    });
+    return Object.entries(porNumero).filter(([, lista]) => lista.length > 1);
+  }, [membros]);
+
+  if (duplicados.length === 0) return null;
+
+  return (
+    <Card title={`⚠ ${duplicados.length} número(s) de sócio partilhados por mais de uma pessoa`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Isto acontece quando duas pessoas são inscritas quase ao mesmo tempo em dispositivos diferentes. Não corrijo
+        isto automaticamente — decide qual dos dois deve manter este número, e dá um número novo ao outro em Membros
+        → editar.
+      </p>
+      <div className="space-y-3">
+        {duplicados.map(([numero, lista]) => (
+          <div key={numero} className="ring-1 ring-red-200 dark:ring-red-800 bg-red-50 dark:bg-red-900/10 rounded-xl p-3">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-2">{numero} — {lista.length} pessoas</p>
+            {lista.map((m) => (
+              <p key={m.id} className="text-xs text-slate-600 dark:text-slate-300">
+                {m.nome} · inscrito em {m.dataInscricao || "—"} · {m.plano || "sem plano"}
+              </p>
+            ))}
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
@@ -7266,7 +7377,7 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
       .map((r) => {
         const ultimoRegisto = (historicoSubscricoes || [])
           .filter((h) => h.membroId === r.membro.id)
-          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
         return { ...r, ultimoRegisto };
       });
   }, [membros, faturas, planos, historicoSubscricoes]);
@@ -7298,6 +7409,65 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
               )}
             </div>
           ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// TAXAS DE SESSÃO LONGA PENDENTES — todos os atletas que ultrapassaram o
+// limite de horas numa visita e ainda não pagaram a taxa extra gerada
+// automaticamente nessa altura. Agrupado por atleta (pode ter mais do
+// que uma pendente, de dias diferentes), com o total e um link de
+// WhatsApp já escrito para cada um.
+// ---------------------------------------------------------------------
+function TaxasSessaoLongaPendentes({ membros, faturas, dadosGinasio }) {
+  const porMembro = useMemo(() => {
+    const mapa = {};
+    (faturas || [])
+      .filter((f) => f.tipo === "FATURA" && f.estado !== "paga" && (f.itens || []).some((i) => i.referencia === "TAXA-SESSAO-LONGA"))
+      .forEach((f) => {
+        const numero = f.membro?.numero;
+        if (!numero) return;
+        if (!mapa[numero]) mapa[numero] = { nome: f.membro.nome, numero, faturas: [], total: 0 };
+        mapa[numero].faturas.push(f);
+        mapa[numero].total += f.valor || 0;
+      });
+    return Object.values(mapa).sort((a, b) => b.total - a.total);
+  }, [faturas]);
+
+  return (
+    <Card title={`${porMembro.length} atleta(s) com taxa de sessão longa por pagar`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Gerada automaticamente sempre que alguém fica mais do que {Number(dadosGinasio?.limiteHorasSessao) || 2}h numa
+        só visita (configurável em Dados do ginásio). Fica pendente até seres cobrada — na receção, ou junto com a
+        próxima renovação da subscrição.
+      </p>
+      {porMembro.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém com taxas por pagar. 🎉</p>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {porMembro.map((m) => {
+            const membroCompleto = membros.find((x) => x.numero === m.numero);
+            const mensagem = `Olá ${m.nome.split(" ")[0]}, tens ${kz(m.total)} de taxa por sessão(ões) longa(s) pendente(s) na Catumbela Gym. Podes regularizar quando puderes 💪`;
+            return (
+              <div key={m.numero} className="py-2.5 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    {m.numero} · {m.faturas.length} taxa{m.faturas.length > 1 ? "s" : ""} · {kz(m.total)}
+                  </p>
+                </div>
+                {membroCompleto?.telefone && (
+                  <a href={linkWhatsApp(membroCompleto.telefone, mensagem)} target="_blank" rel="noreferrer"
+                    className="shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg">
+                    <MessageCircle size={14} /> WhatsApp
+                  </a>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </Card>
@@ -7616,7 +7786,7 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
     if (editandoId) {
       formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
     } else {
-      const id = Math.max(0, ...contas.map((c) => (typeof c.id === "number" ? c.id : 0))) + 1;
+      const id = gerarIdUnico();
       formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id }] };
     }
     setForm(formAtualizado);
@@ -7728,9 +7898,41 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// CARTAZ QR — um documento pronto para imprimir (A4, retrato) com o
+// logótipo do ginásio, um QR bem grande, e o link por baixo em texto
+// legível — para colar na parede, montra, ou balcão.
+// ---------------------------------------------------------------------
+function CartazQR({ titulo, subtitulo, valor, dadosGinasio, onFechar }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
+      <div className="max-w-lg mx-auto bg-white my-4 rounded-2xl print:rounded-none print:my-0 p-8 text-center area-imprimivel">
+        <div className="flex justify-end gap-2 mb-4 print:hidden">
+          <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
+            <Printer size={15} /> Imprimir
+          </button>
+          <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
+        </div>
+
+        {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-16 mx-auto mb-4" />}
+        <h1 className="text-2xl font-extrabold text-slate-900">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
+        <p className="text-lg font-semibold text-[#3F8F87] mt-1">{titulo}</p>
+        <p className="text-sm text-slate-500 mt-1 mb-6">{subtitulo}</p>
+
+        <div className="flex justify-center p-4 bg-slate-50 rounded-xl">
+          <QRCodeSVG valor={valor} tamanho={280} />
+        </div>
+
+        <p className="text-xs text-slate-400 mt-6 break-all">{valor}</p>
+      </div>
+    </div>
+  );
+}
+
 function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onAtivarPush, onDesativarPush }) {
   const [form, setForm] = useState(dados);
   const [guardado, setGuardado] = useState(false);
+  const [aVerCartazSite, setAVerCartazSite] = useState(false);
   const tocouNoFormulario = useRef(false);
 
   // Se os dados chegarem/mudarem vindos do Supabase (ex.: sincronização
@@ -7812,11 +8014,24 @@ function DadosGinasio({ dados, onSalvar, contaAtual, notificacoesPushAtivas, onA
           <div className="flex flex-col items-center gap-2 mt-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
             <QRCodeSVG valor={form.siteUrl} tamanho={160} />
             <p className="text-xs text-slate-400 dark:text-slate-500">Aponta a câmara para abrir o sistema</p>
+            <button onClick={() => setAVerCartazSite(true)} className="mt-2 text-xs font-semibold text-[#3F8F87] hover:underline">
+              Ver cartaz para imprimir
+            </button>
           </div>
         ) : (
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-3">Escreve o endereço do site acima para gerar o QR.</p>
         )}
       </Card>
+
+      {aVerCartazSite && (
+        <CartazQR
+          titulo="Acede ao sistema"
+          subtitulo="Aponta a câmara do telemóvel para abrires o Catumbela Gym System"
+          valor={form.siteUrl}
+          dadosGinasio={dados}
+          onFechar={() => setAVerCartazSite(false)}
+        />
+      )}
 
       <Card title={<span className="flex items-center gap-2"><UserIcon size={16} className="text-[#3F8F87]" /> QR / link de inscrição de novos membros</span>}>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
@@ -8037,7 +8252,7 @@ function MensagensParticipante({ mensagens, participanteId, participanteTipo, pa
   const [texto, setTexto] = useState("");
   const minhasMensagens = mensagens
     .filter((m) => m.participanteId === participanteId && m.participanteTipo === participanteTipo)
-    .sort((a, b) => (a.id > b.id ? 1 : -1));
+    .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1));
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -8091,10 +8306,10 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
     mensagens.forEach((m) => {
       const chave = `${m.participanteTipo}-${m.participanteId}`;
       if (!mapa[chave]) mapa[chave] = { participanteId: m.participanteId, participanteTipo: m.participanteTipo, participanteNome: m.participanteNome, ultima: m, naoLidas: 0 };
-      if (m.id > mapa[chave].ultima.id) mapa[chave].ultima = m;
+      if (chaveTemporalPT(m) > chaveTemporalPT(mapa[chave].ultima)) mapa[chave].ultima = m;
       if (!m.deAdmin && !m.lida) mapa[chave].naoLidas += 1;
     });
-    return Object.values(mapa).sort((a, b) => b.ultima.id - a.ultima.id);
+    return Object.values(mapa).sort((a, b) => (chaveTemporalPT(b.ultima) > chaveTemporalPT(a.ultima) ? 1 : -1));
   }, [mensagens]);
 
   const [aberta, setAberta] = useState(null);
@@ -8108,7 +8323,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   const mensagensDaConversa = aberta
     ? mensagens
         .filter((m) => m.participanteId === aberta.participanteId && m.participanteTipo === aberta.participanteTipo)
-        .sort((a, b) => (a.id > b.id ? 1 : -1))
+        .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1))
     : [];
 
   useEffect(() => {
@@ -8504,9 +8719,17 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
 // lista de membros atual, junta o que conseguir reconstruir sobre cada
 // um (plano, vencimento, quando foi eliminado), e permite recriar o
 // registo com essa informação.
-function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
-  const nomesAtuais = new Set(membrosAtuais.map((m) => (m.nome || "").trim().toLowerCase()));
+// Extrai, de todo o histórico de auditoria, um mapa por nome com todos os
+// eventos relacionados com inscrições/subscrições encontrados — usado
+// tanto para encontrar membros APAGADOS (que já não existem na lista
+// atual) como para verificar se membros que AINDA EXISTEM têm o
+// plano/vencimento a bater certo com o que a auditoria diz que devia
+// ser (mesmo sem nenhum recibo por trás). Separar a extração da
+// filtragem evita ter duas cópias quase iguais desta lógica, uma para
+// cada finalidade.
+function extrairEventosPorNomeDaAuditoria(auditLog) {
   const porNome = {};
+  const numeroParaNome = {};
 
   const registar = (nome, numero, evento) => {
     if (!nome) return;
@@ -8516,11 +8739,30 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
     porNome[chave].eventos.push(evento);
   };
 
+  const lista = auditLog || [];
+
+  // Primeira passagem: só para construir o mapa "número → nome" a partir
+  // de qualquer registo que tenha os dois juntos — usado a seguir para
+  // resolver casos como "Aprovou transferência", que só menciona o
+  // número do sócio, nunca o nome.
+  lista.forEach((r) => {
+    try {
+      const d = r?.detalhe || "";
+      const m = d.match(/^(.+?) — (CG-\d+)/);
+      if (m) numeroParaNome[m[2]] = m[1]?.trim();
+    } catch {
+      // ignora
+    }
+  });
+
   // Blindado contra registos de auditoria antigos ou malformados (ex.:
   // sem "acao"/"detalhe"/"data" por algum motivo) — sem isto, um único
   // registo inesperado rebentava com a página inteira (ecrã em branco),
-  // em vez de simplesmente ser ignorado.
-  (auditLog || []).forEach((r) => {
+  // em vez de simplesmente ser ignorado. Cobre o máximo de tipos de
+  // ações possível — quanto mais tipos reconhecidos, mais completo fica
+  // o histórico reconstruído, e menos coisas ficam de fora só porque o
+  // texto exato não batia certo com nenhum padrão.
+  lista.forEach((r) => {
     try {
       const acao = r?.acao || "";
       const d = r?.detalhe || "";
@@ -8533,26 +8775,50 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
         registar(m[1], m[2], { data, hora, texto: `Inscreveu-se sozinho${m[3] ? ` — plano ${m[3]}` : ""}`, plano: m[3] || null, vencimento: null });
       } else if (acao === "Atualizou subscrição" && (m = d.match(/^(.+?) — (.+?), início .+?, vence (\d{4}-\d{2}-\d{2})/))) {
         registar(m[1], null, { data, hora, texto: `Subscreveu ${m[2]}, vence ${m[3]}`, plano: m[2], vencimento: m[3] });
+      } else if (acao === "Retomou subscrição" && (m = d.match(/^(.+?) — \d+ dia\(s\) pausados, vencimento passou de .+? para (\d{4}-\d{2}-\d{2})/))) {
+        registar(m[1], null, { data, hora, texto: `Retomou, vence ${m[2]}`, plano: null, vencimento: m[2] });
+      } else if (acao === "Repôs subscrição divergente (usando o histórico)" && (m = d.match(/^(.+?) — (.+?), vence (\d{4}-\d{2}-\d{2}|—)/))) {
+        registar(m[1], null, { data, hora, texto: `Reposto ${m[2]}, vence ${m[3]}`, plano: m[3] !== "—" ? m[2] : null, vencimento: m[3] !== "—" ? m[3] : null });
+      } else if (acao.startsWith("Aprovou transferência de") && (m = d.match(/Membro: (CG-\d+)/))) {
+        const nomeResolvido = numeroParaNome[m[1]];
+        if (nomeResolvido) registar(nomeResolvido, m[1], { data, hora, texto: "Transferência aprovada", plano: null, vencimento: null });
       } else if (acao === "Eliminou membro e TODOS os seus dados (incluindo financeiros)" && (m = d.match(/^(.+?) — (CG-\d+)/))) {
         registar(m[1], m[2], { data, hora, texto: "⚠ ELIMINADO aqui", plano: null, vencimento: null, eliminado: true });
       } else if (acao === "Pausou subscrição" && (m = d.match(/^(.+?) — vencimento congelado em (\d{4}-\d{2}-\d{2})/))) {
         registar(m[1], null, { data, hora, texto: `Pausou (vencimento estava em ${m[2]})`, plano: null, vencimento: m[2] });
       } else if ((acao === "Registou entrada" || acao === "Registou saída") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
         registar(m[1], m[2], { data, hora, texto: acao === "Registou entrada" ? "Entrou no ginásio" : "Saiu do ginásio", plano: null, vencimento: null });
+      } else if ((acao === "Cancelou membro (mantém todo o registo/histórico)") && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        // Este NÃO apaga o membro — só marca cancelado (continua a existir
+        // na lista). Não conta como "perdido" para efeitos de recriação,
+        // mas fica registado por completeness caso o nome mude entretanto.
+      } else if (d && (m = d.match(/^(.+?) — (CG-\d+)/))) {
+        // Rede de segurança genérica: qualquer outro tipo de ação cujo
+        // texto siga o padrão comum "Nome — CG-XXXXXX" (ex.: "Gerou
+        // recibo", ou qualquer ação futura que ainda não tenha sido
+        // adicionada aqui em separado) também regista o nome e número,
+        // mesmo sem conseguir extrair plano/vencimento específicos —
+        // melhor aparecer como candidato genérico do que não aparecer
+        // de todo.
+        registar(m[1], m[2], { data, hora, texto: acao || "Mencionado na auditoria", plano: null, vencimento: null });
       }
     } catch {
       // um registo estranho não pode derrubar a página inteira — ignora-o e segue para o próximo
     }
   });
 
-  return Object.values(porNome)
+  return Object.values(porNome).map((c) => {
+    const eventos = c.eventos.sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1));
+    const comPlano = eventos.find((e) => e.plano || e.vencimento);
+    const eliminado = eventos.find((e) => e.eliminado);
+    return { ...c, eventos, ultimoPlano: comPlano?.plano || null, ultimoVencimento: comPlano?.vencimento || null, eliminadoEm: eliminado?.data || null };
+  });
+}
+
+function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
+  const nomesAtuais = new Set(membrosAtuais.map((m) => (m.nome || "").trim().toLowerCase()));
+  return extrairEventosPorNomeDaAuditoria(auditLog)
     .filter((c) => !nomesAtuais.has(c.nome.toLowerCase()))
-    .map((c) => {
-      const eventos = c.eventos.sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1));
-      const comPlano = eventos.find((e) => e.plano || e.vencimento);
-      const eliminado = eventos.find((e) => e.eliminado);
-      return { ...c, eventos, ultimoPlano: comPlano?.plano || null, ultimoVencimento: comPlano?.vencimento || null, eliminadoEm: eliminado?.data || null };
-    })
     .sort((a, b) => ((a.eventos[0]?.data || "") < (b.eventos[0]?.data || "") ? 1 : -1));
 }
 
@@ -8567,7 +8833,22 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
 // ---------------------------------------------------------------------
 function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
   const porChave = {}; // "numero|data" -> { nome, numero, data, entrada, saida }
-  const existentes = new Set((acessosAtuais || []).map((a) => `${a?.numero}|${a?.data}`));
+  // "Já coberto" inclui não só o dia exato de cada acesso real, mas
+  // também o dia SEGUINTE — porque quando uma sessão atravessa a meia-
+  // noite (entrou às 23:50, saiu às 00:10), a saída fica registada na
+  // Auditoria com a data do dia seguinte, mesmo pertencendo à mesma
+  // sessão que já está gravada no dia anterior. Sem esta tolerância, a
+  // "saída" reconstruída parecia um acesso novo e perdido nesse segundo
+  // dia, e a pessoa acabava com um registo fantasma a mais.
+  const existentes = new Set();
+  (acessosAtuais || []).forEach((a) => {
+    if (!a?.numero || !a?.data) return;
+    existentes.add(`${a.numero}|${a.data}`);
+    const dataSeguinte = new Date(a.data + "T00:00:00");
+    dataSeguinte.setDate(dataSeguinte.getDate() + 1);
+    existentes.add(`${a.numero}|${dataLocalISO(dataSeguinte)}`);
+  });
+  const lista = auditLog || [];
 
   // A auditoria grava a data como "DD/MM/AAAA" (toLocaleDateString), mas
   // os acessos guardam sempre "AAAA-MM-DD" — sem esta conversão, o acesso
@@ -8579,9 +8860,26 @@ function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
     return m ? `${m[3]}-${m[2]}-${m[1]}` : dataPT;
   };
 
+  // Primeira passagem: mapa "nome → número", construído a partir de
+  // qualquer registo que tenha os dois — usado a seguir para resolver
+  // "Adicionou registo manualmente" e "Corrigiu as horas", que só
+  // mencionam o nome, nunca o número.
+  const nomeParaNumero = {};
+  lista.forEach((r) => {
+    try {
+      const m = (r?.detalhe || "").match(/^(.+?) — (CG-\d+)/);
+      if (m) nomeParaNumero[m[1].trim().toLowerCase()] = m[2];
+    } catch {
+      // ignora
+    }
+  });
+
   // Blindado contra registos malformados, pela mesma razão da função
   // acima — nunca deixar um registo inesperado rebentar a página toda.
-  (auditLog || []).forEach((r) => {
+  // Cobre também "Corrigiu as horas" (para o caso de a correção ter sido
+  // feita, mas depois o registo em si ter desaparecido de qualquer
+  // forma), não só a criação original.
+  lista.forEach((r) => {
     try {
       const acao = r?.acao || "";
       const d = r?.detalhe || "";
@@ -8598,11 +8896,17 @@ function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
         if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: m[2], data: dataISO };
         porChave[chave].saida = hora;
       } else if (acao === "Adicionou registo de acesso manualmente" && (m = d.match(/^(.+?) — (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?/))) {
-        // Este tipo não tem o número do sócio no texto — casa pelo nome com
-        // o membro atual, se ainda existir; senão fica sem número (só serve
-        // de registo informativo, não dá para recriar sem número).
-        const chave = `nome:${m[1]}|${dataISO}`;
-        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero: null, data: dataISO };
+        const numero = nomeParaNumero[m[1].trim().toLowerCase()] || null;
+        const chave = numero ? `${numero}|${dataISO}` : `nome:${m[1]}|${dataISO}`;
+        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero, data: dataISO };
+        porChave[chave].entrada = m[2];
+        if (m[3]) porChave[chave].saida = m[3];
+      } else if (acao === "Corrigiu as horas de um acesso" && (m = d.match(/^(.+?) — de .+? para (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?/))) {
+        // O "para" é o resultado final da correção — é essa versão que
+        // interessa reconstruir, não a hora errada de antes.
+        const numero = nomeParaNumero[m[1].trim().toLowerCase()] || null;
+        const chave = numero ? `${numero}|${dataISO}` : `nome:${m[1]}|${dataISO}`;
+        if (!porChave[chave]) porChave[chave] = { nome: m[1], numero, data: dataISO };
         porChave[chave].entrada = m[2];
         if (m[3]) porChave[chave].saida = m[3];
       }
@@ -8614,6 +8918,113 @@ function extrairAcessosDaAuditoria(auditLog, acessosAtuais) {
   return Object.values(porChave)
     .filter((c) => c.numero && !existentes.has(`${c.numero}|${c.data}`))
     .sort((a, b) => (a.data < b.data ? 1 : -1));
+}
+
+// ---------------------------------------------------------------------
+// CAIXA DE OPINIÕES — vista do administrador: tudo o que os atletas
+// deixaram através do link público, com o link para partilhar, filtro
+// por assunto, e marcação de lida.
+// ---------------------------------------------------------------------
+const ROTULO_ASSUNTO_OPINIAO = {
+  ginasio: { texto: "O ginásio", cor: "bg-blue-50 text-blue-700" },
+  atleta: { texto: "Outro atleta", cor: "bg-purple-50 text-purple-700" },
+  sugestao: { texto: "Sugestão", cor: "bg-emerald-50 text-emerald-700" },
+  outro: { texto: "Outra coisa", cor: "bg-slate-100 text-slate-600" },
+};
+
+function CaixaOpinioesAdmin({ opinioes, dadosGinasio, onMarcarLida, onEliminar }) {
+  const [filtroAssunto, setFiltroAssunto] = useState("TODOS");
+  const [copiado, setCopiado] = useState(false);
+  const [aVerCartaz, setAVerCartaz] = useState(false);
+
+  const link = typeof window !== "undefined" ? `${window.location.origin}${window.location.pathname}?opinioes=1` : "";
+
+  const copiarLink = () => {
+    navigator.clipboard?.writeText(link);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 2000);
+  };
+
+  const lista = (opinioes || [])
+    .filter((o) => filtroAssunto === "TODOS" || o.assunto === filtroAssunto)
+    .sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1));
+
+  const porLer = (opinioes || []).filter((o) => !o.lida).length;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">Link para partilhar com os atletas</p>
+        <div className="flex items-center gap-2">
+          <input readOnly value={link} className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+          <button onClick={copiarLink} className="shrink-0 text-sm font-semibold bg-[#3F8F87] text-white px-4 py-2 rounded-lg">
+            {copiado ? "Copiado!" : "Copiar"}
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2">
+          Qualquer pessoa que abra este link pode deixar uma opinião — não precisa de conta nem de login. Partilha-o
+          no WhatsApp, ou usa o cartaz abaixo para colar na parede.
+        </p>
+        {link && (
+          <div className="flex flex-col items-center gap-2 mt-4 p-4 bg-slate-50 dark:bg-slate-900 rounded-xl">
+            <QRCodeSVG valor={link} tamanho={140} />
+            <button onClick={() => setAVerCartaz(true)} className="mt-1 text-xs font-semibold text-[#3F8F87] hover:underline">
+              Ver cartaz para imprimir
+            </button>
+          </div>
+        )}
+      </Card>
+
+      <Card title={`${lista.length} opiniões${porLer > 0 ? ` · ${porLer} por ler` : ""}`} action={
+        <select value={filtroAssunto} onChange={(e) => setFiltroAssunto(e.target.value)}
+          className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+          <option value="TODOS">Todos os assuntos</option>
+          {Object.entries(ROTULO_ASSUNTO_OPINIAO).map(([k, v]) => <option key={k} value={k}>{v.texto}</option>)}
+        </select>
+      }>
+        {lista.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há opiniões.</p>
+        ) : (
+          <div className="space-y-3">
+            {lista.map((o) => {
+              const rotulo = ROTULO_ASSUNTO_OPINIAO[o.assunto] || ROTULO_ASSUNTO_OPINIAO.outro;
+              return (
+                <div key={o.id} className={`rounded-xl p-3 ring-1 ${o.lida ? "ring-slate-100 dark:ring-slate-700" : "ring-[#3F8F87] bg-[#EAF5F4] dark:bg-slate-900"}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${rotulo.cor}`}>{rotulo.texto}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">{o.nome || "Anónimo"} · {o.data} {o.hora}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!o.lida && (
+                        <button onClick={() => onMarcarLida(o.id)} className="text-xs font-semibold text-[#3F8F87] hover:underline">
+                          Marcar como lida
+                        </button>
+                      )}
+                      <button onClick={() => onEliminar(o.id)} className="text-slate-300 hover:text-red-500">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{o.texto}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {aVerCartaz && (
+        <CartazQR
+          titulo="Deixa a tua opinião"
+          subtitulo="Sobre o ginásio, sobre outro atleta, ou uma sugestão — aponta a câmara e escreve à vontade"
+          valor={link}
+          dadosGinasio={dadosGinasio}
+          onFechar={() => setAVerCartaz(false)}
+        />
+      )}
+    </div>
+  );
 }
 
 function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAcessoManual }) {
@@ -9392,6 +9803,16 @@ function inferirVencimentoDeReciboAntigo(fatura, planos) {
     return { planoSubscricao: plano.nome, vencimentoSubscricao: vencimento };
   }
   return null;
+}
+
+// Taxas de sessão longa ainda por pagar de um atleta específico — usada
+// tanto no ecrã normal de Subscrições como no Balcão, para nunca se
+// esquecer de cobrar isto junto com a renovação.
+function taxasSessaoLongaPendentesDoMembro(membro, faturas) {
+  const pendentes = (faturas || []).filter(
+    (f) => f.tipo === "FATURA" && f.estado !== "paga" && f.membro?.numero === membro?.numero && (f.itens || []).some((i) => i.referencia === "TAXA-SESSAO-LONGA")
+  );
+  return { total: pendentes.reduce((s, f) => s + (f.valor || 0), 0), faturas: pendentes };
 }
 
 function vencimentoEfetivoDoMembro(membro, faturas, planos) {
@@ -11853,6 +12274,7 @@ const MENU_ADMIN = [
     itens: [
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
       { id: "avisos", label: "Central de Avisos", icon: Megaphone },
+      { id: "caixa-opinioes", label: "Caixa de Opiniões", icon: MessageCircle },
     ],
   },
   {
@@ -11861,6 +12283,7 @@ const MENU_ADMIN = [
       { id: "notificacoes", label: "Notificações", icon: Bell },
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
+      { id: "taxas-sessao-longa", label: "Taxas de Sessão Longa", icon: Clock },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
@@ -12420,6 +12843,97 @@ function PesquisaGlobal({ membros, onIrParaMembros }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// CAIXA DE OPINIÕES — ecrã público, sem login nenhum, acessível só pelo
+// link (?opinioes=1). Os atletas deixam a opinião deles sobre o que
+// quiserem — o ginásio, outros atletas, sugestões — e o administrador vê
+// tudo depois no ecrã "Caixa de Opiniões" dentro do sistema.
+// ---------------------------------------------------------------------
+function CaixaOpinioesPublica({ dadosGinasio, onEnviar }) {
+  const [nome, setNome] = useState("");
+  const [assunto, setAssunto] = useState("ginasio");
+  const [texto, setTexto] = useState("");
+  const [enviado, setEnviado] = useState(false);
+
+  const enviar = () => {
+    if (!texto.trim()) return;
+    onEnviar({ nome: nome.trim() || null, assunto, texto: texto.trim() });
+    setEnviado(true);
+  };
+
+  return (
+    <div className="min-h-screen bg-[#F4FBFA] flex items-center justify-center p-4">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-6">
+        <div className="flex items-center gap-3 mb-5">
+          {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
+          <div>
+            <h1 className="text-lg font-extrabold text-slate-900">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
+            <p className="text-xs text-slate-400">Caixa de Opiniões</p>
+          </div>
+        </div>
+
+        {enviado ? (
+          <div className="text-center py-8">
+            <CheckCircle2 size={40} className="text-emerald-500 mx-auto mb-3" />
+            <p className="font-semibold text-slate-900">Obrigado pela tua opinião!</p>
+            <p className="text-sm text-slate-500 mt-1">Já chegou até nós.</p>
+            <button
+              onClick={() => { setEnviado(false); setTexto(""); setNome(""); setAssunto("ginasio"); }}
+              className="mt-5 text-sm font-semibold text-[#3F8F87] hover:underline"
+            >
+              Deixar outra opinião
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-slate-500 mb-4">
+              Diz-nos o que pensas — sobre o ginásio, sobre outro atleta, uma sugestão, ou o que quiseres. Podes
+              deixar o teu nome ou ficar anónimo.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500">O teu nome (opcional)</label>
+                <input
+                  value={nome} onChange={(e) => setNome(e.target.value)}
+                  placeholder="Deixa em branco para ficar anónimo"
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">Sobre o quê?</label>
+                <select
+                  value={assunto} onChange={(e) => setAssunto(e.target.value)}
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+                >
+                  <option value="ginasio">O ginásio</option>
+                  <option value="atleta">Outro atleta</option>
+                  <option value="sugestao">Uma sugestão</option>
+                  <option value="outro">Outra coisa</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500">A tua opinião</label>
+                <textarea
+                  value={texto} onChange={(e) => setTexto(e.target.value)}
+                  rows={5}
+                  placeholder="Escreve aqui..."
+                  className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#BFE4E1] resize-none"
+                />
+              </div>
+              <button
+                onClick={enviar} disabled={!texto.trim()}
+                className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-3 rounded-lg disabled:opacity-40"
+              >
+                Enviar
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function CatumbelaGymApp() {
   const [autenticado, setAutenticado] = useLocalOnly("autenticado", false);
   const [perfil, setPerfil] = useLocalOnly("perfil", null);
@@ -12457,6 +12971,15 @@ export default function CatumbelaGymApp() {
   const [abrirInscricaoDireta] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("inscricao") === "1";
+  });
+
+  // A Caixa de Opiniões é um link completamente à parte — ninguém precisa
+  // de sessão nenhuma para deixar uma opinião, por isso isto é verificado
+  // ANTES de qualquer ecrã de login. Basta entrares no link com
+  // "?opinioes=1" para caíres logo no formulário, sem mais nada à volta.
+  const [modoOpinioesPublico] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("opinioes") === "1";
   });
   useEffect(() => {
     if (abrirInscricaoDireta && window.history?.replaceState) {
@@ -12743,7 +13266,7 @@ export default function CatumbelaGymApp() {
   const registarHistoricoSubscricao = (membro, dados) => {
     setHistoricoSubscricoes((atual) => [
       {
-        id: `${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        id: gerarIdUnico(),
         membroId: membro.id,
         membroNome: membro.nome,
         membroNumero: membro.numero,
@@ -12755,6 +13278,12 @@ export default function CatumbelaGymApp() {
       ...atual,
     ]);
   };
+
+  // Caixa de Opiniões — um link à parte, sem login nenhum, onde os
+  // atletas deixam a opinião deles (sobre o ginásio, sobre outros
+  // atletas, sobre o que quiserem). A gravação atómica evita perder uma
+  // opinião só porque outra pessoa submeteu a dela quase ao mesmo tempo.
+  const [opinioesAtletas, setOpinioesAtletas, adicionarOpiniaoSegura] = usePersistente("opinioesAtletas", [], setStatusSync);
 
   // NOTIFICAÇÕES PUSH DO NAVEGADOR — reais (não são links de WhatsApp),
   // usando a Notification API. Funcionam enquanto este browser estiver
@@ -12884,7 +13413,7 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoIdMembro = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoIdMembro = gerarIdUnico();
     const hojeStr = new Date().toISOString().slice(0, 10);
     // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
     // de inscrição definida em Configurações — fica pendente e é cobrada
@@ -12907,12 +13436,31 @@ export default function CatumbelaGymApp() {
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
-    const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    const novaConta = { id: gerarIdUnico(), nome, email, senha, perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
     registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
     entrarComConta(novaConta);
   };
+
+  // A Caixa de Opiniões é verificada ANTES de qualquer coisa de login —
+  // ninguém precisa de conta nenhuma para lá chegar, é só o link.
+  if (modoOpinioesPublico) {
+    return (
+      <CaixaOpinioesPublica
+        dadosGinasio={dadosGinasio}
+        onEnviar={({ nome, assunto, texto }) => {
+          adicionarOpiniaoSegura({
+            id: gerarIdUnico(),
+            nome, assunto, texto,
+            data: new Date().toISOString().slice(0, 10),
+            hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+            lida: false,
+          });
+        }}
+      />
+    );
+  }
 
   if (!autenticado) {
     return (
@@ -12955,7 +13503,7 @@ export default function CatumbelaGymApp() {
     const vencimentoFinal = novo.vencimento || null;
     const estadoFinal = vencimentoFinal ? "ativo" : "sem-subscricao";
     const dataInscricaoFinal = novo.dataInscricao || new Date().toISOString().slice(0, 10);
-    const novoId = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
       numero,
@@ -12977,7 +13525,7 @@ export default function CatumbelaGymApp() {
       setContas((atual) => [
         ...atual,
         {
-          id: Math.max(0, ...atual.map((c) => c.id)) + 1,
+          id: gerarIdUnico(),
           nome: novo.nome,
           email: novo.email,
           senha: novo.senha,
@@ -13021,7 +13569,7 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoId = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
       numero,
@@ -13108,7 +13656,7 @@ export default function CatumbelaGymApp() {
         if (!dados.senha) return atual; // precisa de senha para criar acesso novo
         return [
           ...atual,
-          { id: Math.max(0, ...atual.map((c) => c.id)) + 1, nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
+          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
         ];
       });
     } else if (contaExistente) {
@@ -13136,7 +13684,7 @@ export default function CatumbelaGymApp() {
     const membroId = contaAtual?.membroId;
     setAvaliacoesTrainer((atual) => [
       ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
+      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
     ]);
   };
 
@@ -13232,7 +13780,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria(
@@ -13267,7 +13815,7 @@ export default function CatumbelaGymApp() {
       if (dados.id) {
         return atual.map((p) => (p.id === dados.id ? { ...p, ...dados } : p));
       }
-      return [...atual, { ...dados, id: Math.max(0, ...atual.map((p) => p.id)) + 1 }];
+      return [...atual, { ...dados, id: gerarIdUnico() }];
     });
     // Se o NOME do plano mudou, atualiza também todos os membros que já
     // estavam nesse plano — a ligação é feita pelo nome, por isso, sem isto,
@@ -13307,7 +13855,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarTrainer = (novo) => {
-    setTrainers([...trainers, { ...novo, id: Math.max(0, ...trainers.map((t) => t.id)) + 1 }]);
+    setTrainers([...trainers, { ...novo, id: gerarIdUnico() }]);
   };
 
   // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
@@ -13327,7 +13875,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarProduto = (novo) => {
-    setProdutos([...produtos, { ...novo, id: Math.max(0, ...produtos.map((p) => p.id)) + 1 }]);
+    setProdutos([...produtos, { ...novo, id: gerarIdUnico() }]);
     registarAuditoria("Criou novo produto", novo.nome);
   };
 
@@ -13374,7 +13922,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas([...contas, { ...nova, id: Math.max(0, ...contas.map((c) => c.id)) + 1 }]);
+    setContas([...contas, { ...nova, id: gerarIdUnico() }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
@@ -13423,7 +13971,7 @@ export default function CatumbelaGymApp() {
     setVendasProdutos((atual) => [
       ...atual,
       ...itens.map((i, idx) => ({
-        id: `${Date.now()}-${idx}-${Math.floor(Math.random() * 10000)}`,
+        id: gerarIdUnico(),
         produtoId: i.produtoId, quantidade: i.quantidade, subtotal: i.subtotal, metodo,
         data: new Date().toLocaleDateString("pt-PT"),
         custoUnitario: i.produto.precoCusto || 0,
@@ -13448,7 +13996,7 @@ export default function CatumbelaGymApp() {
     // 4. se a compra foi feita por um membro, guarda no histórico da conta dele
     if (membro) {
       setComprasMembros((atual) => [
-        { id: Math.max(0, ...atual.map((c) => c.id || 0)) + 1, membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
+        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
         ...atual,
       ]);
     }
@@ -13480,6 +14028,14 @@ export default function CatumbelaGymApp() {
     const contadorAtual = faturas.filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`)).length;
     const numero = `${prefixo}-${ano}-` + String(contadorAtual + 1).padStart(6, "0");
     const documento = {
+      // "id" separado do "numero" — a fusão entre dispositivos precisa de
+      // um identificador que nunca muda, e o "numero" sozinho não bastava
+      // aqui (esta coleção inteira nunca teve "id" nenhum até agora, o
+      // que a deixava sem NENHUMA proteção de fusão item a item — bastava
+      // dois dispositivos gravarem faturas quase ao mesmo tempo para um
+      // apagar por completo os recibos que o outro tinha acabado de
+      // criar, em vez de os dois ficarem guardados).
+      id: gerarIdUnico(),
       numero,
       tipo,
       membro,
@@ -13517,7 +14073,7 @@ export default function CatumbelaGymApp() {
       // indicada a conta/Express específica, fica ligado a ela.
       const contaEscolhida = contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId)) : null;
       const registoLedger = {
-        id: Date.now(),
+        id: gerarIdUnico(),
         direcao: "entrada",
         subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
         valor,
@@ -13938,7 +14494,7 @@ export default function CatumbelaGymApp() {
     // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
     // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
     // a nenhum custo real.
-    const novoId = Math.max(0, ...custos.map((c) => c.id || 0)) + 1;
+    const novoId = gerarIdUnico();
     setCustos((atual) => [
       { ...custo, id: novoId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
       ...atual,
@@ -13970,7 +14526,7 @@ export default function CatumbelaGymApp() {
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
-      { ...item, id: Math.max(0, ...atual.map((i) => i.id || 0)) + 1, estado: "planeado", data: new Date().toISOString().slice(0, 10) },
+      { ...item, id: gerarIdUnico(), estado: "planeado", data: new Date().toISOString().slice(0, 10) },
       ...atual,
     ]);
     registarAuditoria("Adicionou item ao orçamento", `${item.nome} — ${kz(item.valorEstimado)}`);
@@ -14024,7 +14580,7 @@ export default function CatumbelaGymApp() {
 
   // PLANO DE ATIVIDADES
   const adicionarAtividade = (dados) => {
-    setAtividades((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1 }]);
+    setAtividades((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Criou atividade no horário", `${dados.nome} — ${dados.diaSemana} ${dados.horaInicio}`);
   };
 
@@ -14092,7 +14648,7 @@ export default function CatumbelaGymApp() {
   const adicionarAvaliacaoFisica = (membroId, dados) => {
     const membro = membros.find((m) => m.id === membroId);
     setAvaliacoesFisicas((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...dados, id: gerarIdUnico(), membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria("Registou avaliação física", `${membro?.nome || membroId} — ${dados.peso ? dados.peso + "kg" : ""}`);
@@ -14132,7 +14688,7 @@ export default function CatumbelaGymApp() {
   // com o que o sistema esperava, para detetar diferenças cedo.
   const registarFechoTurno = (dados) => {
     setFechosTurno((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((f) => f.id || 0)) + 1, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
     // Se a contagem física não bateu certo com o sistema, ajusta logo o saldo
@@ -14141,7 +14697,7 @@ export default function CatumbelaGymApp() {
     if (dados.diferenca !== 0) {
       setMovimentosCaixa((atual) => [
         {
-          id: Date.now(),
+          id: gerarIdUnico(),
           direcao: dados.diferenca > 0 ? "entrada" : "saida",
           subtipo: "Ajuste de caixa (fecho de turno)",
           valor: Math.abs(dados.diferenca),
@@ -14160,13 +14716,13 @@ export default function CatumbelaGymApp() {
   };
 
   const registarPonto = (dados) => {
-    setRegistosPonto((atual) => [{ ...dados, id: Math.max(0, ...atual.map((r) => r.id || 0)) + 1 }, ...atual]);
+    setRegistosPonto((atual) => [{ ...dados, id: gerarIdUnico() }, ...atual]);
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
   };
 
   // MANUTENÇÃO DE EQUIPAMENTOS
   const adicionarEquipamento = (dados) => {
-    setEquipamentos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((e) => e.id || 0)) + 1 }]);
+    setEquipamentos((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Adicionou equipamento", dados.nome);
   };
   const atualizarEquipamento = (id, dados) => {
@@ -14181,7 +14737,7 @@ export default function CatumbelaGymApp() {
 
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
-    setAvisos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, data: new Date().toISOString().slice(0, 10) }]);
+    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10) }]);
     registarAuditoria("Publicou aviso", dados.titulo);
   };
   const removerAviso = (id) => {
@@ -14233,9 +14789,8 @@ export default function CatumbelaGymApp() {
       data: agora.toLocaleDateString("pt-PT"),
       hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
     };
-    let proximoId = Math.max(0, ...mensagens.map((m) => m.id || 0)) + 1;
     const novasMensagens = membros.map((m) => ({
-      id: proximoId++,
+      id: gerarIdUnico(),
       participanteId: m.id,
       participanteNome: m.nome,
       participanteTipo: "membro",
@@ -14251,7 +14806,7 @@ export default function CatumbelaGymApp() {
   const adicionarMovimento = (ledger, movimento) => {
     const registo = {
       ...movimento,
-      id: Date.now(),
+      id: gerarIdUnico(),
       data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       registadoPor: contaAtual?.nome || "—",
     };
@@ -14354,6 +14909,14 @@ export default function CatumbelaGymApp() {
       // individualmente.
       { id: chave, chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
     ]);
+  };
+
+  const marcarOpiniaoLida = (id) => {
+    setOpinioesAtletas((atual) => atual.map((o) => (o.id === id ? { ...o, lida: true } : o)));
+  };
+
+  const eliminarOpiniao = (id) => {
+    setOpinioesAtletas((atual) => atual.filter((o) => o.id !== id));
   };
 
   const registarEntrada = (membro) => {
@@ -14793,7 +15356,7 @@ export default function CatumbelaGymApp() {
             <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
-            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} />
+            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} faturas={faturas} />
           )}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
@@ -14836,7 +15399,7 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "balcao" && (
             <Balcao
-              membros={membros} planos={planos} acessos={acessos} pagamentosPendentes={pagamentosPendentes}
+              membros={membros} planos={planos} acessos={acessos} faturas={faturas} pagamentosPendentes={pagamentosPendentes}
               dadosGinasio={dadosGinasio} contaAtual={contaAtual}
               onCriarMembro={adicionarMembro}
               onAtualizarSubscricao={atualizarSubscricao}
@@ -14857,9 +15420,12 @@ export default function CatumbelaGymApp() {
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "sem-recibo" && perfil === "administrador" && (
             <div className="space-y-4">
-              <SubscricoesDivergentes membros={membros} historicoSubscricoes={historicoSubscricoes} onRepor={reporSubscricao} />
+              <SubscricoesDivergentes membros={membros} historicoSubscricoes={historicoSubscricoes} auditLog={auditLog} onRepor={reporSubscricao} />
               <SubscricoesSemRecibo membros={membros} faturas={faturas} planos={planos} historicoSubscricoes={historicoSubscricoes} />
             </div>
+          )}
+          {telaAtual === "taxas-sessao-longa" && perfil === "administrador" && (
+            <TaxasSessaoLongaPendentes membros={membros} faturas={faturas} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
@@ -14897,6 +15463,9 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "avisos" && perfil === "administrador" && (
             <CentralAvisos avisos={avisos} onAdicionar={adicionarAviso} onRemover={removerAviso} />
+          )}
+          {telaAtual === "caixa-opinioes" && perfil === "administrador" && (
+            <CaixaOpinioesAdmin opinioes={opinioesAtletas} dadosGinasio={dadosGinasio} onMarcarLida={marcarOpiniaoLida} onEliminar={eliminarOpiniao} />
           )}
           {telaAtual === "utilizadores" && perfil === "administrador" && (
             <Utilizadores contas={contas} trainers={trainers} onAdd={adicionarConta} onRemove={removerConta} onCancelar={cancelarConta} onReativar={reativarConta} onReporSenha={reporSenhaConta} />
