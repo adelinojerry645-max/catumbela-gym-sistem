@@ -43,12 +43,92 @@ const CONTAS_INICIAIS = [];
 
 const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 
-// Formata uma data LOCAL como "AAAA-MM-DD" sem passar por toISOString() —
-// toISOString() converte para UTC, o que em fusos horários à frente de UTC
-// (como Angola, UTC+1) fazia "perder" sempre 1 dia em qualquer conta feita
-// com .setDate(), podendo até fazer um vencimento DIMINUIR em vez de
-// aumentar ao recalcular. Usa sempre esta função depois de .setDate().
-const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// Angola está sempre em UTC+1, o ano inteiro (nunca muda a hora, não tem
+// horário de verão) — por isso o fuso horário pode ser um número fixo,
+// em vez de depender do que estiver configurado no sistema operativo do
+// aparelho. Isto é o que faz TODA a diferença: getFullYear(), getDate(),
+// toLocaleDateString(), etc. usam sempre o fuso horário do Windows/telemóvel
+// de quem está a usar a app — se esse fuso horário estiver mal
+// configurado no aparelho (não só a hora errada, mas o FUSO em si, ex.:
+// alguém define "UTC" ou outro país sem querer), a data ficava errada
+// mesmo com a hora certa. As funções abaixo calculam a data/hora
+// diretamente a partir do instante UTC verdadeiro (já corrigido pela
+// internet), aplicando sempre +1h fixo de Angola — nunca perguntam ao
+// aparelho que fuso horário ele pensa que está.
+const FUSO_ANGOLA_MINUTOS = 60;
+
+// Devolve um Date cujos métodos getUTC*() já dão diretamente os
+// componentes de calendário de Angola — um truque simples: soma o
+// desvio de Angola ao instante e lê como se fosse UTC, ignorando por
+// completo o fuso horário do sistema operativo.
+const emAngola = (d) => new Date(d.getTime() + FUSO_ANGOLA_MINUTOS * 60000);
+
+// Formata uma data LOCAL (de Angola) como "AAAA-MM-DD" — nunca usa
+// getFullYear()/getMonth()/getDate() diretamente (que dependem do fuso
+// horário do aparelho); passa sempre primeiro por emAngola().
+const dataLocalISO = (d) => {
+  const a = emAngola(d);
+  return `${a.getUTCFullYear()}-${String(a.getUTCMonth() + 1).padStart(2, "0")}-${String(a.getUTCDate()).padStart(2, "0")}`;
+};
+
+// Formata uma data/hora como "DD/MM/AAAA" e "HH:MM" no fuso de Angola —
+// substituem toLocaleDateString("pt-PT") e toLocaleTimeString("pt-PT",
+// {hour:"2-digit", minute:"2-digit"}), que dependiam do fuso horário do
+// aparelho para converter o instante UTC em data/hora visíveis.
+const dataAngolaPT = (d) => {
+  const a = emAngola(d);
+  return `${String(a.getUTCDate()).padStart(2, "0")}/${String(a.getUTCMonth() + 1).padStart(2, "0")}/${a.getUTCFullYear()}`;
+};
+const horaAngolaHM = (d) => {
+  const a = emAngola(d);
+  return `${String(a.getUTCHours()).padStart(2, "0")}:${String(a.getUTCMinutes()).padStart(2, "0")}`;
+};
+
+// Hora "corrigida" pela internet — em vez de confiar cegamente no relógio
+// de CADA dispositivo (que pode estar mal-acertado, atrasado, ou com o
+// fuso horário errado configurado no Windows), o sistema busca a hora
+// real de Angola a um servidor assim que abre, e usa a DIFERENÇA entre
+// essa hora real e o relógio do próprio aparelho para corrigir tudo o
+// que vier a seguir — mesmo que o relógio do dispositivo esteja errado
+// em minutos, horas, ou até dias. Se não houver rede (ou o serviço
+// estiver em baixo), fica sem correção nenhuma e usa o relógio do
+// aparelho tal como antes — nunca bloqueia nem impede o uso offline.
+let desvioRelogioMs = 0;
+let desvioRelogioConfirmado = false;
+const agoraCorrigido = () => new Date(Date.now() + desvioRelogioMs);
+
+async function sincronizarRelogioComInternet() {
+  // Duas fontes, para não ficar dependente de um único serviço — tenta a
+  // primeira, e só usa a segunda se a primeira falhar ou não responder.
+  const fontes = [
+    async () => {
+      const r = await fetch("https://worldtimeapi.org/api/timezone/Africa/Luanda", { cache: "no-store" });
+      const j = await r.json();
+      return new Date(j.utc_datetime).getTime();
+    },
+    async () => {
+      const r = await fetch("https://timeapi.io/api/Time/current/zone?timeZone=Africa/Luanda", { cache: "no-store" });
+      const j = await r.json();
+      return new Date(Date.UTC(j.year, j.month - 1, j.day, j.hour, j.minute, j.seconds)).getTime();
+    },
+  ];
+  for (const buscar of fontes) {
+    try {
+      const antesMs = Date.now();
+      const horaRealMs = await buscar();
+      const depoisMs = Date.now();
+      // Desconta o tempo que o próprio pedido demorou a viajar (ida e
+      // volta), para a correção ficar mais precisa.
+      const atrasoRede = (depoisMs - antesMs) / 2;
+      desvioRelogioMs = horaRealMs + atrasoRede - depoisMs;
+      desvioRelogioConfirmado = true;
+      return true;
+    } catch {
+      // tenta a fonte seguinte
+    }
+  }
+  return false;
+}
 
 // Gera um id com entropia suficiente para nunca colidir, mesmo quando
 // vários dispositivos criam registos ao mesmo tempo (ex.: hora de ponta
@@ -1173,7 +1253,7 @@ function StatCard({ icon: Icon, label, value, sub, tone }) {
 // de nenhum calendário nativo — nunca têm esse problema.
 // ---------------------------------------------------------------------
 function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4, anosAFrente = 1 }) {
-  const hoje = new Date();
+  const hoje = agoraCorrigido();
   const temValor = !!valor;
   const [ano, mes, dia] = valor ? valor.split("-").map(Number) : [hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate()];
 
@@ -1191,7 +1271,7 @@ function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4,
     return (
       <button
         type="button"
-        onClick={() => onMudar(new Date().toISOString().slice(0, 10))}
+        onClick={() => onMudar(dataLocalISO(agoraCorrigido()))}
         className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 text-xs text-left"
       >
         Deixa em branco (toca para definir uma data)
@@ -1368,7 +1448,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
   const custosTotal = custos.reduce((s, c) => s + c.valor, 0);
   const lucro = receitaTotal - custosTotal;
 
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(agoraCorrigido());
   const checkinsHoje = acessos.filter((a) => a.data === hojeStr);
 
   // RESUMO DO DIA — para o administrador mandar por WhatsApp ao fim do dia,
@@ -1380,7 +1460,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
     return dias !== null && dias < 0;
   });
   const construirResumoDoDia = () => {
-    let msg = `📋 Resumo de hoje (${new Date().toLocaleDateString("pt-PT")}) — ${dadosGinasio?.nome || "Catumbela Gym"}:\n\n`;
+    let msg = `📋 Resumo de hoje (${dataAngolaPT(agoraCorrigido())}) — ${dadosGinasio?.nome || "Catumbela Gym"}:\n\n`;
     msg += `🚪 Check-ins: ${checkinsHoje.length}\n`;
     msg += `🆕 Novas inscrições: ${novasInscricoesHoje}\n`;
     msg += `💰 Receita de hoje: ${kz(receitaHoje)}\n`;
@@ -1392,7 +1472,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
   // Aniversários nos próximos 7 dias (incluindo hoje) — compara só mês/dia,
   // não o ano, e ordena pela proximidade.
   const aniversariosProximos = useMemo(() => {
-    const hoje = new Date();
+    const hoje = agoraCorrigido();
     return membros
       .filter((m) => m.dataNascimento)
       .map((m) => {
@@ -1412,7 +1492,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
   // aparecem no ginásio há mais de 14 dias (pode estar prestes a desistir,
   // mesmo sem ainda ter vencido).
   const membrosEmRisco = useMemo(() => {
-    const hoje = new Date();
+    const hoje = agoraCorrigido();
     return membros
       .filter((m) => m.estado === "ativo")
       .map((m) => {
@@ -1428,7 +1508,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 
   // Crescimento de membros — acumulado por mês, últimos 6 meses (baseado na data de inscrição real)
   const crescimento = useMemo(() => {
-    const hoje = new Date();
+    const hoje = agoraCorrigido();
     const meses = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
@@ -1643,8 +1723,8 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
           <div className="divide-y divide-slate-100 dark:divide-slate-700">
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
-              const hoje = new Date().toISOString().slice(0, 10);
-              const em3Dias = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+              const hoje = dataLocalISO(agoraCorrigido());
+              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).map((m) => (
               <div key={m.id} className="flex items-center justify-between py-2.5">
@@ -1664,8 +1744,8 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
             ))}
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
-              const hoje = new Date().toISOString().slice(0, 10);
-              const em3Dias = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+              const hoje = dataLocalISO(agoraCorrigido());
+              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).length === 0 && (
               <p className="text-sm text-slate-400 dark:text-slate-500 py-3">Ninguém a vencer nos próximos 3 dias.</p>
@@ -1770,7 +1850,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 // para imprimir (ou gerar PDF, via imprimirElemento) e entregar/mostrar
 // fisicamente ao atleta, com uma linha para ele assinar a tomar conhecimento.
 function DocumentoAdvertencias({ docRef, membro, advertencias, dadosGinasio }) {
-  const hoje = new Date().toLocaleDateString("pt-PT");
+  const hoje = dataAngolaPT(agoraCorrigido());
   return (
     <div ref={docRef} className="bg-white text-slate-800 p-6 text-xs" style={{ fontFamily: "Arial, sans-serif" }}>
       <div className="flex items-start justify-between border-b-2 border-slate-800 pb-3 mb-3">
@@ -2063,7 +2143,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
 
   const abrirNovo = () => {
     setEditandoId(null);
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = dataLocalISO(agoraCorrigido());
     // Vencimento e plano ficam vazios por defeito — um atleta novo só
     // escolhe o plano e ativa depois de subscrever e pagar, em Subscrições.
     // Só preenches o vencimento aqui se for um membro que já existia antes
@@ -2510,7 +2590,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
       setHistoricoPreco((h) => ({
         ...h,
         [editando.id]: [
-          { de: precoAntigo, para: Number(form.preco), data: new Date().toLocaleDateString("pt-PT") },
+          { de: precoAntigo, para: Number(form.preco), data: dataAngolaPT(agoraCorrigido()) },
           ...(h[editando.id] || []),
         ],
       }));
@@ -3452,7 +3532,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
 
   useEffect(() => { inputRef.current?.focus(); }, [membroSelecionado, aCriarNovo]);
 
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(agoraCorrigido());
 
   // Cada cartão de resumo tem a lista de quem está nessa situação, já
   // pronta para mostrar assim que se clica no cartão — evita ter de ir a
@@ -4163,7 +4243,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           </div>
         )}
         {encontrado && encontrado !== "nao-encontrado" && (() => {
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(agoraCorrigido());
           // Qualquer entrada em aberto, não só a de hoje — se ficou uma
           // entrada por fechar de um dia anterior (esqueceram-se de
           // registar a saída), é essa que tem de aparecer aqui.
@@ -4785,7 +4865,7 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
   // ele só pode registar ponto da sua própria conta aqui.
   const todosFuncionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
   const funcionarios = perfil === "administrador" ? todosFuncionarios : todosFuncionarios.filter((c) => c.id === contaAtual?.id);
-  const hojeStr = new Date().toLocaleDateString("pt-PT");
+  const hojeStr = dataAngolaPT(agoraCorrigido());
   // registarPonto já grava os registos mais recentes no início da lista —
   // não precisamos (nem devemos) inverter aqui, ou o estado de "está no
   // ginásio / já saiu" passa a olhar para o registo mais ANTIGO do dia em
@@ -4801,7 +4881,7 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
 
   const registar = (conta, tipo) => {
     if (conta.id !== contaAtual?.id) return; // proteção extra: nunca registar ponto de outra pessoa
-    onRegistarPonto({ funcionarioId: conta.id, funcionarioNome: conta.nome, tipo, data: hojeStr, hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) });
+    onRegistarPonto({ funcionarioId: conta.id, funcionarioNome: conta.nome, tipo, data: hojeStr, hora: horaAngolaHM(agoraCorrigido()) });
     setARegistar(null);
   };
 
@@ -5539,13 +5619,13 @@ function diasAteProximaManutencao(equipamento) {
   const ultima = new Date(equipamento.dataUltimaManutencao + "T00:00:00");
   const proxima = new Date(ultima);
   proxima.setDate(proxima.getDate() + (equipamento.intervaloDias || 90));
-  const hoje = new Date();
+  const hoje = agoraCorrigido();
   hoje.setHours(0, 0, 0, 0);
   return Math.round((proxima - hoje) / (1000 * 60 * 60 * 24));
 }
 
 function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
-  const vazio = { nome: "", grupo: "treino", categoria: "Musculação", quantidade: 1, quantidadeEmManutencao: 0, dataUltimaManutencao: new Date().toISOString().slice(0, 10), intervaloDias: 90, notas: "" };
+  const vazio = { nome: "", grupo: "treino", categoria: "Musculação", quantidade: 1, quantidadeEmManutencao: 0, dataUltimaManutencao: dataLocalISO(agoraCorrigido()), intervaloDias: 90, notas: "" };
   const [novo, setNovo] = useState(vazio);
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -5579,7 +5659,7 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
   };
 
   const registarManutencaoFeitaHoje = (eq) => {
-    onUpdate(eq.id, { ...eq, dataUltimaManutencao: new Date().toISOString().slice(0, 10), quantidadeEmManutencao: 0 });
+    onUpdate(eq.id, { ...eq, dataUltimaManutencao: dataLocalISO(agoraCorrigido()), quantidadeEmManutencao: 0 });
   };
 
   const filtrados = filtroGrupo === "todos" ? equipamentos : equipamentos.filter((eq) => (eq.grupo || "treino") === filtroGrupo);
@@ -6013,7 +6093,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     // visualmente a primeira opção, mas por baixo ficava "vazio" até a
     // pessoa mexer manualmente, e confirmar sem mexer não gerava nada.
     setNovoPlano(membro.plano || planos[0]?.nome || "");
-    setDataInicio(new Date().toISOString().slice(0, 10));
+    setDataInicio(dataLocalISO(agoraCorrigido()));
     setMetodoPagamento("dinheiro");
     setContaBancariaId("");
     setSemPagamentoAgora(false);
@@ -6029,7 +6109,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
 
   const diasRestantes = (vencimento) => {
     if (!vencimento) return null;
-    const agora = new Date();
+    const agora = agoraCorrigido();
     const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
     const [ano, mes, dia] = vencimento.split("-").map(Number);
     const venc = new Date(ano, mes - 1, dia);
@@ -6282,6 +6362,11 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
 
   return (
     <Card title={`Histórico de documentos (${faturasVisiveis.length})`}>
+      {perfil !== "administrador" && (
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+          Só mostra os documentos que tu registaste — o administrador vê o histórico completo do ginásio.
+        </p>
+      )}
       <div className="flex flex-col sm:flex-row gap-2 mb-4">
         <input
           value={pesquisa}
@@ -6466,7 +6551,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
           onClick={() => setAba("historico")}
           className={`text-sm font-semibold px-4 py-2 rounded-lg ring-1 ${aba === "historico" ? "bg-[#3F8F87] text-white ring-[#3F8F87]" : "ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300"}`}
         >
-          Histórico completo ({faturas.length})
+          Histórico completo ({perfil === "administrador" ? faturas.length : faturas.filter((f) => f.registadoPor === nomeAtual).length})
         </button>
       </div>
 
@@ -6778,7 +6863,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 const DIAS_PARA_SER_CONSIDERADO_PERDIDO = 15;
 
 function calcularAtletasPerdidos(membros, pagamentosFeitos, faturas) {
-  const hoje = new Date();
+  const hoje = agoraCorrigido();
   const hojeSemHora = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   return membros
     .filter((m) => m.estado === "vencido" && m.vencimento)
@@ -6813,7 +6898,7 @@ function calcularNotificacoes(membros, planos) {
   // Compara só as DATAS (sem hora), para o resultado não variar consoante a
   // hora do dia em que alguém abre o site — antes disto, "vencer daqui a 5
   // dias" podia contar como 4 dias se já fosse tarde no dia de hoje.
-  const agora = new Date();
+  const agora = agoraCorrigido();
   const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
   return membros
     .filter((m) => m.vencimento) // ignora membros sem subscrição ativa — não têm vencimento para avisar
@@ -8508,7 +8593,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
 // análise financeira geral.
 // ---------------------------------------------------------------------
 function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
-  const [dia, setDia] = useState(new Date().toISOString().slice(0, 10));
+  const [dia, setDia] = useState(dataLocalISO(agoraCorrigido()));
 
   const pagamentosDoDia = useMemo(
     () => pagamentosFeitos.filter((p) => p.data === dia),
@@ -9267,7 +9352,7 @@ function exportarExcelCompleto({ membros, planos, pagamentosFeitos, custos, prod
   );
   XLSX.utils.book_append_sheet(livro, folhaPlanos, "Planos");
 
-  XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Completo-${mesEscolhido || new Date().toISOString().slice(0, 7)}.xlsx`);
+  XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Completo-${mesEscolhido || dataLocalISO(agoraCorrigido()).slice(0, 7)}.xlsx`);
 }
 
 // ---------------------------------------------------------------------
@@ -9284,10 +9369,10 @@ function descarregarCopiaSeguranca() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `catumbela-gym-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `catumbela-gym-backup-${dataLocalISO(agoraCorrigido())}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  window.localStorage.setItem(CHAVE_ULTIMO_BACKUP, new Date().toISOString());
+  window.localStorage.setItem(CHAVE_ULTIMO_BACKUP, agoraCorrigido().toISOString());
 }
 
 const FREQUENCIAS_BACKUP = {
@@ -9577,7 +9662,7 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
 
   // Relatório mensal — para se poder mandar ao atleta todos os meses um
   // resumo novo, em vez de sempre o histórico completo desde o início.
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(dataLocalISO(agoraCorrigido()).slice(0, 7));
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
 
   const avaliacoesDoMembro = avaliacoesFisicas.filter((a) => a.membroId === membroId).slice().sort((a, b) => a.data.localeCompare(b.data));
@@ -9649,7 +9734,7 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Relatório de evolução de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Relatório de evolução de {nomeMes} — gerado em {dataAngolaPT(agoraCorrigido())}</p>
           </div>
         </div>
 
@@ -9830,7 +9915,7 @@ function taxasSessaoLongaPendentesDoMembro(membro, faturas) {
 }
 
 function vencimentoEfetivoDoMembro(membro, faturas, planos) {
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(agoraCorrigido());
   const recibosDoMembro = faturas
     .filter((f) => f.tipo === "RECIBO" && f.membro?.numero === membro.numero)
     .map((f) => {
@@ -9913,7 +9998,7 @@ function RelatorioHorasIndividual({ membro, sessoes, mesEscolhido, limiteHoras, 
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Horas de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Horas de {nomeMes} — gerado em {dataAngolaPT(agoraCorrigido())}</p>
           </div>
         </div>
 
@@ -9963,7 +10048,7 @@ function RelatorioHorasIndividual({ membro, sessoes, mesEscolhido, limiteHoras, 
 }
 
 function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(dataLocalISO(agoraCorrigido()).slice(0, 7));
   const [aVerIndividual, setAVerIndividual] = useState(null); // { membro, sessoes }
   const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
 
@@ -10088,7 +10173,7 @@ function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
 }
 
 function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(dataLocalISO(agoraCorrigido()).slice(0, 7));
 
   const ranking = useMemo(() => {
     const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
@@ -10159,7 +10244,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Melhor atleta de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Melhor atleta de {nomeMes} — gerado em {dataAngolaPT(agoraCorrigido())}</p>
           </div>
         </div>
 
@@ -10253,7 +10338,7 @@ function RelatorioMensalEvolucao({ mesEscolhido, resumoMensal, membros, dadosGin
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Relatório de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Relatório de {nomeMes} — gerado em {dataAngolaPT(agoraCorrigido())}</p>
           </div>
         </div>
 
@@ -10310,7 +10395,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   const receitaTotal = pagamentosFeitos.reduce((s, p) => s + p.valor, 0) + saldoInicialTotal;
   const custosTotal = custos.reduce((s, c) => s + c.valor, 0);
   const lucro = receitaTotal - custosTotal;
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
+  const [mesEscolhido, setMesEscolhido] = useState(dataLocalISO(agoraCorrigido()).slice(0, 7)); // "YYYY-MM"
   const [aVerRelatorioMensal, setAVerRelatorioMensal] = useState(false);
   const [aVerEvolucaoTreino, setAVerEvolucaoTreino] = useState(false);
   const [aVerMelhorAtleta, setAVerMelhorAtleta] = useState(false);
@@ -10340,7 +10425,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
 
   // Lucro por mês — últimos 6 meses, para perceber a tendência (não só o total acumulado)
   const lucroPorMes = useMemo(() => {
-    const hoje = new Date();
+    const hoje = agoraCorrigido();
     const meses = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
@@ -10447,8 +10532,8 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   // quem tem o vencimento nesse período, assumindo que renovam. É só uma
   // estimativa (nem todos renovam), não uma garantia.
   const previsaoReceita30Dias = useMemo(() => {
-    const hojeStr = new Date().toISOString().slice(0, 10);
-    const em30DiasStr = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
+    const em30DiasStr = dataLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
     const membrosAVencer = membros.filter((m) => m.estado === "ativo" && m.vencimento >= hojeStr && m.vencimento <= em30DiasStr);
     const total = membrosAVencer.reduce((s, m) => {
       const plano = planos.find((p) => p.nome === m.plano);
@@ -10920,7 +11005,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   // Só os pagamentos/vendas processados por esta conta, e só de HOJE — sem
   // o filtro de data, o turno somava tudo o que a pessoa já tinha
   // registado desde sempre, não só o turno do dia atual.
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(agoraCorrigido());
   const meusPagamentos = pagamentosFeitos.filter((p) => p.registadoPor === nomeAtual && p.data === hojeStr);
 
   const totais = useMemo(() => {
@@ -11811,7 +11896,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
   const plano = planos.find((p) => p.nome === membro.plano);
   const temTaxaInscricaoPendente = !membro.taxaInscricaoPaga && Number(membro.taxaInscricaoPendente) > 0;
   const minhasCompras = compras.filter((c) => c.membroId === membro.id);
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(agoraCorrigido());
   const entradaAbertaHoje = acessos?.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida) || null;
   const naoLidas = mensagens.filter((m) => m.participanteId === membro.id && m.participanteTipo === "membro" && m.deAdmin && !m.lida).length;
   const abas = [
@@ -12952,6 +13037,18 @@ export default function CatumbelaGymApp() {
   const [autenticado, setAutenticado] = useLocalOnly("autenticado", false);
   const [perfil, setPerfil] = useLocalOnly("perfil", null);
   const [contaAtual, setContaAtual] = useLocalOnly("contaAtual", null);
+
+  // Assim que a app abre, sincroniza o relógio com a hora real de Angola
+  // pela internet — corrige qualquer desvio do relógio deste aparelho em
+  // particular (útil quando um PC específico tem a data errada, ou
+  // simplesmente atrasa com o tempo). Repete de vez em quando para
+  // acompanhar qualquer deriva, e nunca bloqueia nada se não houver rede.
+  useEffect(() => {
+    sincronizarRelogioComInternet();
+    const intervalo = setInterval(sincronizarRelogioComInternet, 30 * 60 * 1000); // a cada 30 minutos
+    return () => clearInterval(intervalo);
+  }, []);
+
   // Identifica ESTE dispositivo/separador de forma única — usado para saber
   // se a sessão aqui ainda é a "oficial" da conta ou se foi substituída por
   // um login mais recente noutro aparelho (ver sessoesAtivas mais abaixo).
@@ -13099,7 +13196,7 @@ export default function CatumbelaGymApp() {
   // apagando os membros verdadeiros mesmo antes de eles chegarem a aparecer.
   useEffect(() => {
     const recalcular = () => {
-      const hojeStr = new Date().toISOString().slice(0, 10);
+      const hojeStr = dataLocalISO(agoraCorrigido());
       setMembros((atual) => {
         let mudouAlgumaCoisa = false;
         const novo = atual.map((m) => {
@@ -13284,8 +13381,8 @@ export default function CatumbelaGymApp() {
         membroId: membro.id,
         membroNome: membro.nome,
         membroNumero: membro.numero,
-        data: new Date().toISOString().slice(0, 10),
-        hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        data: dataLocalISO(agoraCorrigido()),
+        hora: horaAngolaHM(agoraCorrigido()),
         registadoPor: contaAtual?.nome || "—",
         ...dados,
       },
@@ -13339,12 +13436,12 @@ export default function CatumbelaGymApp() {
 
   const registarAuditoria = (acao, detalhe, destino) => {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
-    const agora = new Date();
+    const agora = agoraCorrigido();
     setAuditLog((atual) => [
       // O "id" aqui não tem outro propósito — é só para a fusão entre
       // dispositivos conseguir tratar cada registo individualmente em vez
       // de em bloco, tal como já acontece com as outras coleções.
-      { id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`, utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`, utilizador: nomeAtor, acao, detalhe, destino, data: dataAngolaPT(agora), hora: horaAngolaHM(agora) },
       ...atual,
     ]);
   };
@@ -13369,7 +13466,7 @@ export default function CatumbelaGymApp() {
     setContas([conta]);
     const token = gerarTokenSessao();
     setMeuTokenSessao(token);
-    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: new Date().toISOString() } }));
+    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: agoraCorrigido().toISOString() } }));
     setPerfil("administrador");
     setContaAtual(conta);
     setTela("dashboard");
@@ -13382,7 +13479,7 @@ export default function CatumbelaGymApp() {
     // (sessoesAtivas sincroniza em tempo real) e termina a sessão dele.
     const token = gerarTokenSessao();
     setMeuTokenSessao(token);
-    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: new Date().toISOString() } }));
+    setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: agoraCorrigido().toISOString() } }));
     setAvisoSessaoEncerrada(false);
     setPerfil(conta.perfil);
     setContaAtual(conta);
@@ -13428,7 +13525,7 @@ export default function CatumbelaGymApp() {
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
     const novoIdMembro = gerarIdUnico();
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
     // de inscrição definida em Configurações — fica pendente e é cobrada
     // junto com a primeira mensalidade, em "Pagar mensalidade".
@@ -13467,8 +13564,8 @@ export default function CatumbelaGymApp() {
           adicionarOpiniaoSegura({
             id: gerarIdUnico(),
             nome, assunto, texto,
-            data: new Date().toISOString().slice(0, 10),
-            hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+            data: dataLocalISO(agoraCorrigido()),
+            hora: horaAngolaHM(agoraCorrigido()),
             lida: false,
           });
         }}
@@ -13516,7 +13613,7 @@ export default function CatumbelaGymApp() {
     // antes deste sistema, que já tinha uma subscrição paga).
     const vencimentoFinal = novo.vencimento || null;
     const estadoFinal = vencimentoFinal ? "ativo" : "sem-subscricao";
-    const dataInscricaoFinal = novo.dataInscricao || new Date().toISOString().slice(0, 10);
+    const dataInscricaoFinal = novo.dataInscricao || dataLocalISO(agoraCorrigido());
     const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
@@ -13592,10 +13689,10 @@ export default function CatumbelaGymApp() {
       plano: planoNome || null,
       foto: null,
       email: null,
-      dataInscricao: new Date().toISOString().slice(0, 10),
+      dataInscricao: dataLocalISO(agoraCorrigido()),
       dataNascimento: null,
       vencimento: vencimento || null,
-      estado: vencimento ? (vencimento < new Date().toISOString().slice(0, 10) ? "vencido" : "ativo") : "sem-subscricao",
+      estado: vencimento ? (vencimento < dataLocalISO(agoraCorrigido()) ? "vencido" : "ativo") : "sem-subscricao",
       assinaturaContrato: null,
       dataAssinaturaContrato: null,
     };
@@ -13613,7 +13710,7 @@ export default function CatumbelaGymApp() {
   // para corrigir sem teres de refazer a subscrição do zero.
   const reporSubscricao = (membroId, plano, vencimento) => {
     const membro = membros.find((m) => m.id === membroId);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     setMembros((atual) =>
       atual.map((m) =>
         m.id === membroId
@@ -13632,7 +13729,7 @@ export default function CatumbelaGymApp() {
       atual.map((m) => {
         if (m.id !== id) return m;
         const vencimento = dados.vencimento || m.vencimento;
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(agoraCorrigido());
         const novoEstado =
           m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado"
             ? m.estado
@@ -13698,7 +13795,7 @@ export default function CatumbelaGymApp() {
     const membroId = contaAtual?.membroId;
     setAvaliacoesTrainer((atual) => [
       ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
-      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
+      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: dataLocalISO(agoraCorrigido()) },
     ]);
   };
 
@@ -13752,7 +13849,7 @@ export default function CatumbelaGymApp() {
     setMembros((atual) =>
       atual.map((m) => {
         if (m.id !== id) return m;
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(agoraCorrigido());
         const { estadoAntesCancelar, ...resto } = m;
         const estadoRestaurado = estadoAntesCancelar || (!m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo");
         return { ...resto, estado: estadoRestaurado };
@@ -13777,7 +13874,7 @@ export default function CatumbelaGymApp() {
         if (aSuspender) {
           return { ...m, estadoAntesSuspender: m.estado, estado: "suspenso" };
         }
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(agoraCorrigido());
         const { estadoAntesSuspender, ...resto } = m;
         const estadoRestaurado = !m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo";
         return { ...resto, estado: estadoRestaurado };
@@ -13794,7 +13891,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: dataAngolaPT(agoraCorrigido()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria(
@@ -13987,7 +14084,7 @@ export default function CatumbelaGymApp() {
       ...itens.map((i, idx) => ({
         id: gerarIdUnico(),
         produtoId: i.produtoId, quantidade: i.quantidade, subtotal: i.subtotal, metodo,
-        data: new Date().toLocaleDateString("pt-PT"),
+        data: dataAngolaPT(agoraCorrigido()),
         custoUnitario: i.produto.precoCusto || 0,
         custoTotal: (i.produto.precoCusto || 0) * i.quantidade,
       })),
@@ -14010,7 +14107,7 @@ export default function CatumbelaGymApp() {
     // 4. se a compra foi feita por um membro, guarda no histórico da conta dele
     if (membro) {
       setComprasMembros((atual) => [
-        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
+        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: dataAngolaPT(agoraCorrigido()) },
         ...atual,
       ]);
     }
@@ -14031,7 +14128,7 @@ export default function CatumbelaGymApp() {
       // em si (que já tinha "id") tivesse sobrevivido — explicando
       // recibos visíveis mas sem o pagamento correspondente a aparecer
       // nos relatórios.
-      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
+      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: dataLocalISO(agoraCorrigido()) },
     ]);
     registarAuditoria(
       `Registou pagamento de ${kz(recibo.valor)}`,
@@ -14045,7 +14142,7 @@ export default function CatumbelaGymApp() {
   // pagamentos (senão nunca entraria nos relatórios/lucro).
   const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
-    const ano = new Date().getFullYear();
+    const ano = agoraCorrigido().getFullYear();
     // O número tem de vir do MAIOR já usado, nunca de contar quantos
     // documentos existem — contar por quantidade parte do princípio de
     // que nunca nenhum foi eliminado nem está em falta por sincronizar,
@@ -14075,8 +14172,8 @@ export default function CatumbelaGymApp() {
       valor,
       metodo: metodo || null,
       estado: tipo === "FATURA" ? "emitida" : undefined,
-      data: new Date().toLocaleDateString("pt-PT"),
-      hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataAngolaPT(agoraCorrigido()),
+      hora: horaAngolaHM(agoraCorrigido()),
       registadoPor: contaAtual?.nome || "—",
       // Para recibos de mensalidade: guarda aqui o plano e o vencimento a
       // que este pagamento dá direito. Isto torna o recibo a fonte de
@@ -14097,7 +14194,7 @@ export default function CatumbelaGymApp() {
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
+        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: dataLocalISO(agoraCorrigido()) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -14110,7 +14207,7 @@ export default function CatumbelaGymApp() {
         subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
         valor,
         descricao: `${numero} — ${membro.nome}`,
-        data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        data: dataAngolaPT(agoraCorrigido()) + " " + horaAngolaHM(agoraCorrigido()),
         registadoPor: contaAtual?.nome || "—",
         origem: "recibo",
         origemNumero: numero,
@@ -14149,7 +14246,7 @@ export default function CatumbelaGymApp() {
       setMembros((atual) =>
         atual.map((m) => {
           if (m.id !== membroAfetado.id) return m;
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(agoraCorrigido());
           const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
           const novoVencimento = vencimentoAnterior || null;
           const novoPlano = planoAnterior || null;
@@ -14208,7 +14305,7 @@ export default function CatumbelaGymApp() {
       valorTaxaInscricao: incluiTaxaInscricao ? Number(valorTaxaInscricao) || 0 : 0,
       submetidoPor: nomeAtor,
       submetidoPorNome: contaAtual?.nome || membro?.nome || "—",
-      data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataAngolaPT(agoraCorrigido()) + " " + horaAngolaHM(agoraCorrigido()),
     };
     adicionarPagamentoPendenteSeguro(novoPendente);
     registarAuditoria(
@@ -14222,10 +14319,10 @@ export default function CatumbelaGymApp() {
     const plano = planos.find((p) => p.nome === (pendente.planoNome || pendente.membro.plano));
     // Estende a partir do vencimento atual (se ainda não passou) ou de hoje —
     // a mesma regra usada em Subscrições, para nunca "perder" dias já pagos.
-    const base = new Date(pendente.membro.vencimento) > new Date() ? new Date(pendente.membro.vencimento) : new Date();
+    const base = new Date(pendente.membro.vencimento) > agoraCorrigido() ? new Date(pendente.membro.vencimento) : agoraCorrigido();
     base.setDate(base.getDate() + (plano ? plano.duracaoDias : 30));
     const novoVencimento = dataLocalISO(base);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     // Se este pagamento incluir a taxa de inscrição (típico de quem se
     // inscreveu sozinho pelo QR/link), separa o valor: a mensalidade gera o
     // recibo normal de "mensalidade", e a taxa gera o seu próprio recibo de
@@ -14318,10 +14415,10 @@ export default function CatumbelaGymApp() {
       alert("Escolhe um plano válido antes de confirmar.");
       return null;
     }
-    const base = new Date((dataInicio || new Date().toISOString().slice(0, 10)) + "T00:00:00");
+    const base = new Date((dataInicio || dataLocalISO(agoraCorrigido())) + "T00:00:00");
     base.setDate(base.getDate() + plano.duracaoDias);
     const novoVencimento = dataLocalISO(base);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     let documento = null;
     if (metodo) {
       documento = gerarDocumentoFaturacao({
@@ -14377,7 +14474,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const plano = planos.find((p) => p.nome === nomePlanoPago);
     if (!membro || !plano) return;
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     // Renova a partir do vencimento atual, se ainda estiver a decorrer — ou
     // a partir de hoje, se já tiver expirado (mesma regra usada na aprovação
     // de pagamentos por transferência).
@@ -14421,7 +14518,7 @@ export default function CatumbelaGymApp() {
       setMembros((atual) =>
         atual.map((m) => {
           if (m.id !== membroId) return m;
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(agoraCorrigido());
           const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
           return {
             ...resto,
@@ -14451,7 +14548,7 @@ export default function CatumbelaGymApp() {
     setMembros((atual) =>
       atual.map((m) =>
         m.id === membroId
-          ? { ...m, estadoAntesPausa: m.estado, dataPausa: new Date().toISOString().slice(0, 10), estado: "pausada" }
+          ? { ...m, estadoAntesPausa: m.estado, dataPausa: dataLocalISO(agoraCorrigido()), estado: "pausada" }
           : m
       )
     );
@@ -14491,7 +14588,7 @@ export default function CatumbelaGymApp() {
     if (!membro || membro.estado !== "pausada" || !membro.dataPausa) return;
     const diasPausados = Math.max(
       0,
-      Math.round((new Date() - new Date(membro.dataPausa + "T00:00:00")) / (1000 * 60 * 60 * 24))
+      Math.round((agoraCorrigido() - new Date(membro.dataPausa + "T00:00:00")) / (1000 * 60 * 60 * 24))
     );
     // Monta a nova data manualmente, sem passar por toISOString() — isso
     // converte para UTC e, em fusos horários à frente de UTC (como Angola,
@@ -14500,7 +14597,7 @@ export default function CatumbelaGymApp() {
     const novoVenc = new Date(membro.vencimento + "T00:00:00");
     novoVenc.setDate(novoVenc.getDate() + diasPausados);
     const novoVencStr = dataLocalISO(novoVenc);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     setMembros((atual) =>
       atual.map((m) => {
         if (m.id !== membroId) return m;
@@ -14528,7 +14625,7 @@ export default function CatumbelaGymApp() {
     // a nenhum custo real.
     const novoId = gerarIdUnico();
     setCustos((atual) => [
-      { ...custo, id: novoId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...custo, id: novoId, data: dataLocalISO(agoraCorrigido()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     // Liga automaticamente ao Caixa ou ao Banco (consoante escolhido), como
@@ -14558,7 +14655,7 @@ export default function CatumbelaGymApp() {
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
-      { ...item, id: gerarIdUnico(), estado: "planeado", data: new Date().toISOString().slice(0, 10) },
+      { ...item, id: gerarIdUnico(), estado: "planeado", data: dataLocalISO(agoraCorrigido()) },
       ...atual,
     ]);
     registarAuditoria("Adicionou item ao orçamento", `${item.nome} — ${kz(item.valorEstimado)}`);
@@ -14575,7 +14672,7 @@ export default function CatumbelaGymApp() {
   const marcarItemComprado = (id, { valorReal, pagoDe, contaBancariaId }) => {
     const item = orcamento.find((i) => i.id === id);
     if (!item) return;
-    setOrcamento((atual) => atual.map((i) => (i.id === id ? { ...i, estado: "comprado", valorReal, dataCompra: new Date().toISOString().slice(0, 10) } : i)));
+    setOrcamento((atual) => atual.map((i) => (i.id === id ? { ...i, estado: "comprado", valorReal, dataCompra: dataLocalISO(agoraCorrigido()) } : i)));
     adicionarCusto({ categoria: item.categoria, descricao: `Compra: ${item.nome}`, valor: valorReal, pagoDe, contaBancariaId });
   };
 
@@ -14596,7 +14693,7 @@ export default function CatumbelaGymApp() {
               valorPago: jaPago,
               estado: totalmentePago ? "comprado" : "planeado",
               valorReal: totalmentePago ? jaPago : i.valorReal,
-              dataCompra: totalmentePago ? new Date().toISOString().slice(0, 10) : i.dataCompra,
+              dataCompra: totalmentePago ? dataLocalISO(agoraCorrigido()) : i.dataCompra,
             }
           : i
       )
@@ -14641,7 +14738,7 @@ export default function CatumbelaGymApp() {
       atividadeId,
       membroId: membro.id,
       membroNome: membro.nome,
-      data: new Date().toISOString().slice(0, 10),
+      data: dataLocalISO(agoraCorrigido()),
     };
 
     try {
@@ -14680,7 +14777,7 @@ export default function CatumbelaGymApp() {
   const adicionarAvaliacaoFisica = (membroId, dados) => {
     const membro = membros.find((m) => m.id === membroId);
     setAvaliacoesFisicas((atual) => [
-      { ...dados, id: gerarIdUnico(), membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...dados, id: gerarIdUnico(), membroId, data: dataLocalISO(agoraCorrigido()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria("Registou avaliação física", `${membro?.nome || membroId} — ${dados.peso ? dados.peso + "kg" : ""}`);
@@ -14701,12 +14798,12 @@ export default function CatumbelaGymApp() {
       // identifica este registo de forma única e estável, o que é
       // exatamente o que a fusão entre dispositivos precisa para tratar
       // cada plano individualmente em vez de em bloco.
-      return [...semEsteMembro, { ...dados, id: membroId, membroId, atualizadoEm: new Date().toISOString().slice(0, 10), criadoPor: contaAtual?.nome || "—" }];
+      return [...semEsteMembro, { ...dados, id: membroId, membroId, atualizadoEm: dataLocalISO(agoraCorrigido()), criadoPor: contaAtual?.nome || "—" }];
     });
     // Regista no histórico a carga de cada exercício com peso preenchido —
     // é isto que permite depois mostrar a evolução ao longo do tempo (ex.:
     // "Supino: 20kg em julho → 25kg em agosto"), não só o valor mais recente.
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agoraCorrigido());
     const novasEntradas = (dados.exercicios || [])
       .filter((ex) => ex.carga && Number(ex.carga) > 0)
       .map((ex) => ({ id: gerarIdUnico(), membroId, exercicio: ex.nome, carga: Number(ex.carga), data: hojeStr }));
@@ -14720,7 +14817,7 @@ export default function CatumbelaGymApp() {
   // com o que o sistema esperava, para detetar diferenças cedo.
   const registarFechoTurno = (dados) => {
     setFechosTurno((atual) => [
-      { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { ...dados, id: gerarIdUnico(), data: dataLocalISO(agoraCorrigido()), hora: horaAngolaHM(agoraCorrigido()) },
       ...atual,
     ]);
     // Se a contagem física não bateu certo com o sistema, ajusta logo o saldo
@@ -14734,7 +14831,7 @@ export default function CatumbelaGymApp() {
           subtipo: "Ajuste de caixa (fecho de turno)",
           valor: Math.abs(dados.diferenca),
           descricao: `Contagem de ${dados.nomeFuncionario}${dados.observacoes ? ` — ${dados.observacoes}` : ""}`,
-          data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          data: dataAngolaPT(agoraCorrigido()) + " " + horaAngolaHM(agoraCorrigido()),
           registadoPor: dados.nomeFuncionario,
           origem: "fecho-turno",
         },
@@ -14769,7 +14866,7 @@ export default function CatumbelaGymApp() {
 
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
-    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10) }]);
+    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: dataLocalISO(agoraCorrigido()) }]);
     registarAuditoria("Publicou aviso", dados.titulo);
   };
   const removerAviso = (id) => {
@@ -14788,8 +14885,8 @@ export default function CatumbelaGymApp() {
       texto,
       deAdmin,
       lida: deAdmin, // mensagens do admin já ficam "lidas" para ele mesmo; as do participante ficam por ler até o admin abrir a conversa
-      data: new Date().toLocaleDateString("pt-PT"),
-      hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataAngolaPT(agoraCorrigido()),
+      hora: horaAngolaHM(agoraCorrigido()),
     };
     // Gravação atómica — vários membros podem escrever mensagens ao mesmo
     // tempo, em conversas diferentes.
@@ -14813,13 +14910,13 @@ export default function CatumbelaGymApp() {
   // fechado no feriado") — cria uma mensagem na conversa de cada um.
   const enviarMensagemGeral = (texto) => {
     if (!texto.trim() || membros.length === 0) return;
-    const agora = new Date();
+    const agora = agoraCorrigido();
     const base = {
       texto: texto.trim(),
       deAdmin: true,
       lida: true,
-      data: agora.toLocaleDateString("pt-PT"),
-      hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataAngolaPT(agora),
+      hora: horaAngolaHM(agora),
     };
     const novasMensagens = membros.map((m) => ({
       id: gerarIdUnico(),
@@ -14839,7 +14936,7 @@ export default function CatumbelaGymApp() {
     const registo = {
       ...movimento,
       id: gerarIdUnico(),
-      data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataAngolaPT(agoraCorrigido()) + " " + horaAngolaHM(agoraCorrigido()),
       registadoPor: contaAtual?.nome || "—",
     };
     if (ledger === "banco") {
@@ -14865,8 +14962,8 @@ export default function CatumbelaGymApp() {
     const tipo = TIPOS_MOVIMENTO.find((t) => t.rotulo === subtipo);
     if (!tipo) return;
     const conta = obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId));
-    const agora = new Date();
-    const dataHora = agora.toLocaleDateString("pt-PT") + " " + agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+    const agora = agoraCorrigido();
+    const dataHora = dataAngolaPT(agora) + " " + horaAngolaHM(agora);
     const idPartilhado = `TRF-${Date.now()}`;
     const base = { subtipo, valor: Number(valor), descricao, data: dataHora, registadoPor: contaAtual?.nome || "—", origemTransferencia: idPartilhado };
 
@@ -14939,7 +15036,7 @@ export default function CatumbelaGymApp() {
       // vencimento), por isso serve perfeitamente como identificador
       // estável para a fusão entre dispositivos tratar cada aviso
       // individualmente.
-      { id: chave, chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { id: chave, chave, membroId, tipo, canal, data: dataLocalISO(agoraCorrigido()), hora: horaAngolaHM(agoraCorrigido()) },
     ]);
   };
 
@@ -14952,14 +15049,14 @@ export default function CatumbelaGymApp() {
   };
 
   const registarEntrada = (membro) => {
-    const agora = new Date();
+    const agora = agoraCorrigido();
     const novoAcesso = {
       id: gerarIdUnico(),
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
-      data: agora.toISOString().slice(0, 10),
-      entrada: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: dataLocalISO(agora),
+      entrada: horaAngolaHM(agora),
       saida: null,
     };
     // Gravação atómica — importante aqui, porque pode haver vários atletas a
@@ -14971,9 +15068,9 @@ export default function CatumbelaGymApp() {
   };
 
   const registarSaida = (membro) => {
-    const agora = new Date();
-    const hojeStr = agora.toISOString().slice(0, 10);
-    const horaSaida = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+    const agora = agoraCorrigido();
+    const hojeStr = dataLocalISO(agora);
+    const horaSaida = horaAngolaHM(agora);
     // Procura QUALQUER entrada em aberto deste membro, não só a de hoje —
     // se ninguém deu saída há dois dias (esqueceram-se), a entrada antiga
     // continua aberta, e é essa que precisa de ser fechada agora. Filtrar
@@ -15071,7 +15168,7 @@ export default function CatumbelaGymApp() {
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
-      data: data || new Date().toISOString().slice(0, 10),
+      data: data || dataLocalISO(agoraCorrigido()),
       entrada,
       saida: saida || null,
     };
