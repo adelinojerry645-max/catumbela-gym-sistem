@@ -84,6 +84,36 @@ const horaAngolaHM = (d) => {
   return `${String(a.getUTCHours()).padStart(2, "0")}:${String(a.getUTCMinutes()).padStart(2, "0")}`;
 };
 
+// Converte uma data em qualquer um dos dois formatos usados no sistema
+// ("DD/MM/AAAA" ou "AAAA-MM-DD") para "AAAA-MM-DD" — só para poder
+// ORDENAR corretamente por data (strings "DD/MM/AAAA" não ordenam bem
+// alfabeticamente; "AAAA-MM-DD" sim).
+const paraOrdenacaoISO = (dataStr) => {
+  if (!dataStr) return "";
+  const partesPT = dataStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (partesPT) return `${partesPT[3]}-${partesPT[2]}-${partesPT[1]}`;
+  return dataStr; // já está em AAAA-MM-DD (ou é outra coisa — fica como está)
+};
+
+// Agrupa uma lista de itens pela data (no formato em que já vier, "DD/MM/AAAA"
+// ou "AAAA-MM-DD" — mantém o mesmo formato ao mostrar), com os grupos
+// ordenados por data real — mais recente primeiro por defeito. Usada em
+// vários ecrãs (custos, histórico de subscrição, movimentos) para mostrar
+// sempre "15/09/2026", "14/09/2026", etc. como cabeçalhos, em vez de uma
+// lista corrida sem organização nenhuma.
+const agruparPorData = (lista, obterData, { crescente = false } = {}) => {
+  const mapa = {};
+  (lista || []).forEach((item) => {
+    const data = obterData(item) || "Sem data";
+    if (!mapa[data]) mapa[data] = [];
+    mapa[data].push(item);
+  });
+  return Object.entries(mapa).sort(([a], [b]) => {
+    const cmp = paraOrdenacaoISO(a) < paraOrdenacaoISO(b) ? -1 : paraOrdenacaoISO(a) > paraOrdenacaoISO(b) ? 1 : 0;
+    return crescente ? cmp : -cmp;
+  });
+};
+
 // Hora "corrigida" pela internet — em vez de confiar cegamente no relógio
 // de CADA dispositivo (que pode estar mal-acertado, atrasado, ou com o
 // fuso horário errado configurado no Windows), o sistema busca a hora
@@ -140,6 +170,27 @@ async function sincronizarRelogioComInternet() {
 const gerarIdUnico = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+};
+
+// Garante que todo o item de uma lista tem "id" — mesmo dados antigos,
+// criados numa versão do sistema anterior a isto existir. Isto é
+// importante: a fusão entre dispositivos só consegue proteger item a
+// item quando TODOS os itens de uma coleção têm "id" — bastava UM único
+// item antigo sem "id" (ex.: um custo lançado há meses) para desligar
+// essa proteção para a coleção INTEIRA, deixando até os itens mais
+// recentes vulneráveis a serem apagados numa fusão entre dois
+// dispositivos. Corre sempre que os dados são carregados, silenciosamente.
+const normalizarIds = (valor) => {
+  if (!Array.isArray(valor)) return valor;
+  let mudou = false;
+  const normalizado = valor.map((item) => {
+    if (item && typeof item === "object" && !("id" in item)) {
+      mudou = true;
+      return { ...item, id: gerarIdUnico() };
+    }
+    return item;
+  });
+  return mudou ? normalizado : valor;
 };
 
 // Desde que os "id" passaram a ser identificadores únicos e imprevisíveis
@@ -576,7 +627,7 @@ function useLocalOnly(chave, valorInicial) {
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
-    return chave in guardado ? guardado[chave] : valorInicial;
+    return normalizarIds(chave in guardado ? guardado[chave] : valorInicial);
   });
   // Normalmente, o primeiro carregamento da página não reenvia nada para o
   // Supabase (só busca) — mas logo a seguir a restaurares uma cópia de
@@ -715,7 +766,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
     const tentarLer = () => {
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((dados) => {
+        .then((dadosBrutos) => {
+          const dados = dadosBrutos !== null ? normalizarIds(dadosBrutos) : dadosBrutos;
           if (!cancelado && dados !== null) {
             // A base para comparações futuras segue SEMPRE o valor bruto
             // que veio do Supabase — nunca um resultado já fundido. Uma
@@ -877,7 +929,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // mudanças de cada lado, e só usa a versão remota nos raros casos em
       // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((remoto) => {
+        .then((remotoBruto) => {
+          const remoto = remotoBruto !== null ? normalizarIds(remotoBruto) : remotoBruto;
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
           const houveConflito =
             remotoTexto !== null &&
@@ -5816,8 +5869,16 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
   );
 }
 
+// "Compra de mercadoria" é a única categoria ligada aos PRODUTOS da loja
+// (o que se gasta a repor stock para vender) — todas as outras são custos
+// do GINÁSIO em si (renda, salários, manutenção, etc.). Esta separação
+// existe para poderes ver quanto o ginásio gasta a funcionar, sem isso
+// ficar misturado com o dinheiro que entra e sai só por causa da loja.
+const CATEGORIAS_CUSTO_PRODUTOS = ["Compra de mercadoria"];
+
 function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
+  const [filtroGrupo, setFiltroGrupo] = useState("TODOS");
   const contasBancarias = obterContasBancarias(dadosGinasio);
   const [novo, setNovo] = useState({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
 
@@ -5829,14 +5890,20 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
     setShowForm(false);
   };
 
+  const custosGinasio = custos.filter((c) => !CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
+  const custosLoja = custos.filter((c) => CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
+  const custosFiltrados = filtroGrupo === "GINASIO" ? custosGinasio : filtroGrupo === "LOJA" ? custosLoja : custos;
+
   const totalGeral = custos.reduce((s, c) => s + c.valor, 0);
-  const totalFixo = custos.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
-  const totalVariavel = custos.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalGinasio = custosGinasio.reduce((s, c) => s + c.valor, 0);
+  const totalLoja = custosLoja.reduce((s, c) => s + c.valor, 0);
+  const totalFixo = custosGinasio.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalVariavel = custosGinasio.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
   const porCategoria = useMemo(() => {
     const mapa = {};
-    custos.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
+    custosGinasio.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
     return Object.entries(mapa).sort((a, b) => b[1] - a[1]);
-  }, [custos]);
+  }, [custosGinasio]);
 
   return (
     <div className="space-y-4">
@@ -5850,70 +5917,93 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={TrendingUp} label="Total de custos registados" value={kz(totalGeral)} tone="red" />
-        <StatCard icon={Wallet} label="Custos fixos (renda, salários...)" value={kz(totalFixo)} tone="amber" />
-        <StatCard icon={TrendingUp} label="Custos variáveis" value={kz(totalVariavel)} tone="blue" />
+        <StatCard icon={TrendingUp} label="Total de custos (ginásio + loja)" value={kz(totalGeral)} tone="red" />
+        <StatCard icon={Wallet} label="Custos do ginásio" value={kz(totalGinasio)} tone="amber" />
+        <StatCard icon={Package} label="Custos da loja (produtos)" value={kz(totalLoja)} tone="blue" />
       </div>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        "Fixos" são os que se repetem todos os meses, independentemente de quanto o ginásio vende (renda, salários,
-        internet). "Variáveis" mudam de mês para mês (manutenção, compras avulsas). Saber o total fixo ajuda a
-        perceber quanto precisas de faturar só para cobrir o básico, antes de teres lucro a sério.
+        Separado em dois: o que o ginásio gasta a <strong>funcionar</strong> (renda, salários, manutenção, etc.) e o
+        que se gasta só a <strong>repor stock da loja</strong> — para nunca misturares os dois ao avaliar quanto
+        cada parte do negócio realmente custa.
       </p>
 
-      <Card title="Por categoria">
-        {porCategoria.length === 0 ? (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card title="Custos do ginásio, por categoria">
+          {porCategoria.length === 0 ? (
+            <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos do ginásio registados.</p>
+          ) : (
+            <div className="space-y-2">
+              {porCategoria.map(([cat, valor]) => (
+                <div key={cat} className="flex justify-between text-sm">
+                  <span className="text-slate-600 dark:text-slate-300">{cat}</span>
+                  <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+        <Card title="Custos fixos vs. variáveis (só ginásio)">
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600 dark:text-slate-300">Fixos (renda, salários, internet...)</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(totalFixo)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-600 dark:text-slate-300">Variáveis (manutenção, compras avulsas...)</span>
+              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(totalVariavel)}</span>
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
+            "Fixos" repetem-se todos os meses, independentemente de quanto o ginásio vende. Saber esse total ajuda a
+            perceber quanto precisas de faturar só para cobrir o básico, antes de teres lucro a sério.
+          </p>
+        </Card>
+      </div>
+
+      <Card title="Todos os custos" action={
+        <select value={filtroGrupo} onChange={(e) => setFiltroGrupo(e.target.value)}
+          className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+          <option value="TODOS">Ginásio + Loja</option>
+          <option value="GINASIO">Só ginásio</option>
+          <option value="LOJA">Só loja (produtos)</option>
+        </select>
+      }>
+        {custosFiltrados.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
         ) : (
-          <div className="space-y-2">
-            {porCategoria.map(([cat, valor]) => (
-              <div key={cat} className="flex justify-between text-sm">
-                <span className="text-slate-600 dark:text-slate-300">{cat}</span>
-                <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
+          <div className="space-y-5">
+            {agruparPorData(custosFiltrados, (c) => c.data).map(([data, lista]) => (
+              <div key={data}>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                  {data} · {lista.length} custo{lista.length > 1 ? "s" : ""} · {kz(lista.reduce((s, c) => s + c.valor, 0))}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                      {lista.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                          <td className="py-2">
+                            <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
+                          </td>
+                          <td className="py-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
+                            {c.tipo === "variavel" ? "Variável" : "Fixo"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
+                          <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
+                          <td className="py-2 text-right">
+                            <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
-          </div>
-        )}
-      </Card>
-
-      <Card title="Todos os custos">
-        {custos.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                  <th className="pb-2 font-medium">Data</th>
-                  <th className="pb-2 font-medium">Categoria</th>
-                  <th className="pb-2 font-medium">Tipo</th>
-                  <th className="pb-2 font-medium">Descrição</th>
-                  <th className="pb-2 font-medium">Valor</th>
-                  <th className="pb-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                {custos.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                    <td className="py-2 text-slate-500 dark:text-slate-400">{c.data}</td>
-                    <td className="py-2">
-                      <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
-                    </td>
-                    <td className="py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
-                        {c.tipo === "variavel" ? "Variável" : "Fixo"}
-                      </span>
-                    </td>
-                    <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
-                    <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
-                    <td className="py-2 text-right">
-                      <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         )}
       </Card>
@@ -6000,7 +6090,8 @@ const ROTULO_ACAO_HISTORICO = {
 };
 
 function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
-  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1));
+  const doMembro = historico.filter((h) => h.membroId === membro.id);
+  const gruposPorData = agruparPorData(doMembro, (h) => h.data);
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col">
@@ -6011,32 +6102,39 @@ function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
           </div>
           <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
         </div>
-        <div className="overflow-y-auto p-4 space-y-3">
+        <div className="overflow-y-auto p-4 space-y-4">
           {doMembro.length === 0 ? (
             <p className="text-sm text-slate-400 dark:text-slate-500">Sem histórico registado para este atleta ainda.</p>
           ) : (
-            doMembro.map((h) => {
-              const rotulo = ROTULO_ACAO_HISTORICO[h.acao] || { texto: h.acao, cor: "text-slate-500" };
-              return (
-                <div key={h.id} className="border-l-2 border-slate-100 dark:border-slate-700 pl-3 py-1">
-                  <div className="flex items-center justify-between">
-                    <p className={`text-sm font-semibold ${rotulo.cor}`}>{rotulo.texto}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500">{h.data} · {h.hora}</p>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {h.planoNovo && `${h.planoNovo} · vence ${h.vencimentoNovo}`}
-                  </p>
-                  <p className="text-xs mt-0.5">
-                    {h.temRecibo ? (
-                      <span className="text-emerald-600">✓ Recibo {h.reciboNumero}</span>
-                    ) : (
-                      <span className="text-amber-600">⚠ sem recibo</span>
-                    )}
-                    <span className="text-slate-400 dark:text-slate-500"> · por {h.registadoPor}</span>
-                  </p>
+            gruposPorData.map(([data, lista]) => (
+              <div key={data}>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">{data}</p>
+                <div className="space-y-3">
+                  {lista.sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1)).map((h) => {
+                    const rotulo = ROTULO_ACAO_HISTORICO[h.acao] || { texto: h.acao, cor: "text-slate-500" };
+                    return (
+                      <div key={h.id} className="border-l-2 border-slate-100 dark:border-slate-700 pl-3 py-1">
+                        <div className="flex items-center justify-between">
+                          <p className={`text-sm font-semibold ${rotulo.cor}`}>{rotulo.texto}</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500">{h.hora}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {h.planoNovo && `${h.planoNovo} · vence ${h.vencimentoNovo}`}
+                        </p>
+                        <p className="text-xs mt-0.5">
+                          {h.temRecibo ? (
+                            <span className="text-emerald-600">✓ Recibo {h.reciboNumero}</span>
+                          ) : (
+                            <span className="text-amber-600">⚠ sem recibo</span>
+                          )}
+                          <span className="text-slate-400 dark:text-slate-500"> · por {h.registadoPor}</span>
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })
+              </div>
+            ))
           )}
         </div>
       </div>
@@ -7323,6 +7421,64 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 // a reconciliação automática (baseada em recibos) não consegue proteger,
 // porque não há recibo nenhum para comparar.
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// VENCIMENTOS DA SEMANA — quem vence nos próximos 7 dias, e quem já
+// venceu, tudo junto e organizado por data (mais antigo primeiro, para
+// veres logo quem está vencido há mais tempo). Complementa a lista de
+// notificações (que é sobre avisar as pessoas) com uma vista mais
+// simples focada só em "quem, e quando".
+// ---------------------------------------------------------------------
+function VencimentosDaSemana({ membros }) {
+  const hojeStr = dataLocalISO(agoraCorrigido());
+  const em7Dias = dataLocalISO(new Date(agoraCorrigido().getTime() + 7 * 24 * 60 * 60 * 1000));
+
+  const relevantes = useMemo(() => {
+    return membros.filter((m) => {
+      if (!m.vencimento || (m.estado !== "ativo" && m.estado !== "vencido")) return false;
+      return m.vencimento <= em7Dias; // já venceu (qualquer data passada) OU vence dentro de 7 dias
+    });
+  }, [membros, em7Dias]);
+
+  const grupos = agruparPorData(relevantes, (m) => m.vencimento, { crescente: true });
+
+  return (
+    <Card title={`${relevantes.length} vencimento(s) — vencidos e dos próximos 7 dias`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Tudo o que já venceu, mais quem vence até {em7Dias}, organizado por data — do mais antigo vencido até ao
+        próximo a vencer.
+      </p>
+      {grupos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém vencido nem a vencer nos próximos 7 dias. 🎉</p>
+      ) : (
+        <div className="space-y-4">
+          {grupos.map(([data, lista]) => {
+            const jaVenceu = data < hojeStr;
+            const eHoje = data === hojeStr;
+            return (
+              <div key={data}>
+                <p className={`text-xs font-bold uppercase tracking-wide mb-1.5 ${jaVenceu ? "text-red-500" : eHoje ? "text-amber-600" : "text-slate-400 dark:text-slate-500"}`}>
+                  {data} {eHoje ? "· HOJE" : jaVenceu ? "· VENCIDO" : ""} · {lista.length} pessoa{lista.length > 1 ? "s" : ""}
+                </p>
+                <div className="divide-y divide-slate-50 dark:divide-slate-700">
+                  {lista.map((m) => (
+                    <div key={m.id} className="flex items-center justify-between py-2">
+                      <div>
+                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">{m.numero} · {m.plano}</p>
+                      </div>
+                      <Pill estado={m.estado} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function SubscricoesDivergentes({ membros, historicoSubscricoes, auditLog, onRepor }) {
   const [repostos, setRepostos] = useState({});
 
@@ -12346,6 +12502,7 @@ const MENU_ADMIN = [
     grupo: "FINANCEIRO",
     itens: [
       { id: "subscricoes", label: "Subscrições", icon: ClipboardList },
+      { id: "vencimentos-semana", label: "Vencimentos da Semana", icon: Clock },
       { id: "pagamentos", label: "Pagamentos", icon: CreditCard },
       { id: "aprovacao", label: "Aprovação de Pagamentos", icon: ShieldCheck },
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
@@ -15487,6 +15644,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "subscricoes" && (
             <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} faturas={faturas} />
           )}
+          {telaAtual === "vencimentos-semana" && perfil === "administrador" && <VencimentosDaSemana membros={membros} />}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
           )}
