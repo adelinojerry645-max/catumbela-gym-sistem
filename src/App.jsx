@@ -9145,14 +9145,28 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
 }
 
 function Auditoria({ registos, onNavegar }) {
+  // Quando há um conflito de sincronização nesta coleção (algo frequente
+  // aqui, já que cada ação do sistema inteiro gera uma entrada), a fusão
+  // entre dispositivos reconstrói o array sem garantir a ordem
+  // cronológica original — o resultado ainda tem TODAS as entradas, mas
+  // podem ficar fora de ordem, com as de hoje escondidas a meio da
+  // lista em vez de aparecerem no topo. Ordenar aqui, sempre, por
+  // data/hora reais (não pela posição em que o array chegou) garante
+  // que as mais recentes aparecem sempre primeiro, e que nada parece
+  // "ter desaparecido" só por estar fora de vista.
+  const registosOrdenados = useMemo(
+    () => [...(registos || [])].sort((a, b) => (chaveTemporalPT(b) > chaveTemporalPT(a) ? 1 : -1)),
+    [registos]
+  );
+
   return (
     <Card title="Registo de auditoria">
-      {registos.length === 0 ? (
+      {registosOrdenados.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há ações registadas nesta sessão.</p>
       ) : (
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {registos.map((r, i) => (
-            <div key={i} className="py-3">
+          {registosOrdenados.map((r, i) => (
+            <div key={r.id || i} className="py-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.utilizador}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{r.data ? `${r.data} · ${r.hora}` : r.hora}</p>
@@ -14010,7 +14024,14 @@ export default function CatumbelaGymApp() {
   const registarPagamento = (recibo) => {
     setPagamentosFeitos((atual) => [
       ...atual,
-      { metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
+      // "id" — sem isto, esta coleção nunca teve proteção nenhuma contra
+      // fusões entre dispositivos: se a receção e o admin registassem
+      // pagamentos quase ao mesmo tempo, um conflito podia apagar por
+      // completo os pagamentos de um dos dois lados, mesmo que o recibo
+      // em si (que já tinha "id") tivesse sobrevivido — explicando
+      // recibos visíveis mas sem o pagamento correspondente a aparecer
+      // nos relatórios.
+      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
     ]);
     registarAuditoria(
       `Registou pagamento de ${kz(recibo.valor)}`,
@@ -14025,8 +14046,19 @@ export default function CatumbelaGymApp() {
   const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
-    const contadorAtual = faturas.filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`)).length;
-    const numero = `${prefixo}-${ano}-` + String(contadorAtual + 1).padStart(6, "0");
+    // O número tem de vir do MAIOR já usado, nunca de contar quantos
+    // documentos existem — contar por quantidade parte do princípio de
+    // que nunca nenhum foi eliminado nem está em falta por sincronizar,
+    // o que não é seguro assumir. Se um documento do meio da sequência
+    // fosse eliminado (ex.: ao desfazer uma ação), a contagem baixava, e
+    // o próximo número gerado colidia com um que já existia.
+    const maiorNumero = faturas
+      .filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`))
+      .reduce((max, f) => {
+        const n = parseInt(f.numero.split("-").pop(), 10);
+        return n > max ? n : max;
+      }, 0);
+    const numero = `${prefixo}-${ano}-` + String(maiorNumero + 1).padStart(6, "0");
     const documento = {
       // "id" separado do "numero" — a fusão entre dispositivos precisa de
       // um identificador que nunca muda, e o "numero" sozinho não bastava
@@ -14065,7 +14097,7 @@ export default function CatumbelaGymApp() {
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
+        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -14677,7 +14709,7 @@ export default function CatumbelaGymApp() {
     const hojeStr = new Date().toISOString().slice(0, 10);
     const novasEntradas = (dados.exercicios || [])
       .filter((ex) => ex.carga && Number(ex.carga) > 0)
-      .map((ex) => ({ id: `${membroId}-${ex.nome}-${hojeStr}-${Date.now()}`, membroId, exercicio: ex.nome, carga: Number(ex.carga), data: hojeStr }));
+      .map((ex) => ({ id: gerarIdUnico(), membroId, exercicio: ex.nome, carga: Number(ex.carga), data: hojeStr }));
     if (novasEntradas.length > 0) {
       setHistoricoCargas((atual) => [...atual, ...novasEntradas]);
     }
