@@ -95,23 +95,39 @@ const paraOrdenacaoISO = (dataStr) => {
   return dataStr; // já está em AAAA-MM-DD (ou é outra coisa — fica como está)
 };
 
-// Agrupa uma lista de itens pela data (no formato em que já vier, "DD/MM/AAAA"
-// ou "AAAA-MM-DD" — mantém o mesmo formato ao mostrar), com os grupos
-// ordenados por data real — mais recente primeiro por defeito. Usada em
-// vários ecrãs (custos, histórico de subscrição, movimentos) para mostrar
-// sempre "15/09/2026", "14/09/2026", etc. como cabeçalhos, em vez de uma
-// lista corrida sem organização nenhuma.
+// Converte qualquer data (nos dois formatos usados no sistema) para
+// "DD/MM/AAAA", só para MOSTRAR — usada a par de paraOrdenacaoISO (que é
+// para ORDENAR).
+const paraExibicaoPT = (dataStr) => {
+  if (!dataStr) return dataStr;
+  const partesISO = dataStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (partesISO) return `${partesISO[3]}/${partesISO[2]}/${partesISO[1]}`;
+  return dataStr; // já está em DD/MM/AAAA (ou é outra coisa — fica como está)
+};
+
+// Agrupa uma lista de itens pela data, sempre mostrada como "DD/MM/AAAA"
+// nos cabeçalhos, com os grupos ordenados por data real — mais recente
+// primeiro por defeito. Usada em vários ecrãs (custos, histórico de
+// subscrição, movimentos). Agrupa pela data CANÓNICA (não pela string
+// bruta) — importante porque registos antigos podiam ter a data gravada
+// em "AAAA-MM-DD" e os mais recentes em "DD/MM/AAAA" (ou vice-versa);
+// sem isto, custos do MESMO dia (ex.: todos os da mesma manhã) podiam
+// acabar espalhados por dois cabeçalhos diferentes, parecendo que
+// tinham desaparecido de um deles.
 const agruparPorData = (lista, obterData, { crescente = false } = {}) => {
   const mapa = {};
   (lista || []).forEach((item) => {
-    const data = obterData(item) || "Sem data";
-    if (!mapa[data]) mapa[data] = [];
-    mapa[data].push(item);
+    const dataOriginal = obterData(item);
+    const chave = dataOriginal ? paraOrdenacaoISO(dataOriginal) : "Sem data";
+    if (!mapa[chave]) mapa[chave] = { rotulo: dataOriginal ? paraExibicaoPT(dataOriginal) : "Sem data", itens: [] };
+    mapa[chave].itens.push(item);
   });
-  return Object.entries(mapa).sort(([a], [b]) => {
-    const cmp = paraOrdenacaoISO(a) < paraOrdenacaoISO(b) ? -1 : paraOrdenacaoISO(a) > paraOrdenacaoISO(b) ? 1 : 0;
-    return crescente ? cmp : -cmp;
-  });
+  return Object.entries(mapa)
+    .sort(([a], [b]) => {
+      const cmp = a < b ? -1 : a > b ? 1 : 0;
+      return crescente ? cmp : -cmp;
+    })
+    .map(([, { rotulo, itens }]) => [rotulo, itens]);
 };
 
 // Hora "corrigida" pela internet — em vez de confiar cegamente no relógio
@@ -172,6 +188,18 @@ const gerarIdUnico = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 };
 
+// Hash simples e determinístico — dado o MESMO texto, produz sempre o
+// MESMO resultado, em qualquer dispositivo, sem precisar de coordenação
+// nenhuma entre eles. Usado só para dar um "id" estável a itens antigos.
+const hashEstavel = (texto) => {
+  let hash = 0;
+  for (let i = 0; i < texto.length; i++) {
+    hash = (hash << 5) - hash + texto.charCodeAt(i);
+    hash |= 0; // mantém em 32 bits
+  }
+  return "legado-" + Math.abs(hash).toString(36);
+};
+
 // Garante que todo o item de uma lista tem "id" — mesmo dados antigos,
 // criados numa versão do sistema anterior a isto existir. Isto é
 // importante: a fusão entre dispositivos só consegue proteger item a
@@ -180,17 +208,85 @@ const gerarIdUnico = () => {
 // essa proteção para a coleção INTEIRA, deixando até os itens mais
 // recentes vulneráveis a serem apagados numa fusão entre dois
 // dispositivos. Corre sempre que os dados são carregados, silenciosamente.
-const normalizarIds = (valor) => {
+// CRÍTICO: o "id" atribuído a um item antigo tem de ser SEMPRE o MESMO,
+// calculado a partir do próprio conteúdo do item (não aleatório) — senão
+// cada dispositivo dava um "id" diferente ao MESMO item antigo, e ao
+// sincronizarem, o sistema via dois "id" diferentes e ACHAVA que eram
+// dois itens diferentes, duplicando-o para sempre. Foi isso que fez o
+// histórico de faturação mostrar números a mais.
+const normalizarIds = (valor, chave) => {
   if (!Array.isArray(valor)) return valor;
-  let mudou = false;
-  const normalizado = valor.map((item) => {
-    if (item && typeof item === "object" && !("id" in item)) {
-      mudou = true;
-      return { ...item, id: gerarIdUnico() };
-    }
-    return item;
+  const semId = [];
+  valor.forEach((item, indiceOriginal) => {
+    if (item && typeof item === "object" && !("id" in item)) semId.push({ item, indiceOriginal });
   });
+  if (semId.length === 0) {
+    if (chave === "faturas") {
+      const deduplicado = deduplicarFaturasPorNumero(valor);
+      if (deduplicado !== valor) return deduplicado;
+    }
+    return valor;
+  }
+  // Se dois itens antigos tiverem exatamente o mesmo conteúdo (ex.: dois
+  // custos lançados na mesma manhã, sem nada que os distinga), os dois
+  // calculavam o MESMO hash — e ao juntar dados de dois dispositivos,
+  // ficavam com o MESMO "id", o que fazia um dos dois desaparecer (só
+  // sobrevive um por "id"). Para nunca perder nenhum: ordena todos os
+  // itens sem "id" pelo próprio conteúdo (sempre dá a mesma ordem em
+  // qualquer dispositivo, já que não depende da posição em que vieram
+  // no array local) e, quando o mesmo conteúdo se repete, numera-os
+  // 1.º, 2.º, 3.º — assim cada um fica com um "id" ÚNICO e sempre igual
+  // em qualquer aparelho que faça esta mesma conta.
+  const textoDe = ({ item }) => JSON.stringify(item);
+  const ordenados = [...semId].sort((a, b) => {
+    const ta = textoDe(a), tb = textoDe(b);
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  });
+  const contagemPorHash = {};
+  const idPorIndiceOriginal = {};
+  ordenados.forEach(({ item, indiceOriginal }) => {
+    const base = hashEstavel(JSON.stringify(item));
+    const n = contagemPorHash[base] || 0;
+    contagemPorHash[base] = n + 1;
+    idPorIndiceOriginal[indiceOriginal] = n === 0 ? base : `${base}-${n}`;
+  });
+  let normalizado = valor.map((item, indice) =>
+    indice in idPorIndiceOriginal ? { ...item, id: idPorIndiceOriginal[indice] } : item
+  );
+  let mudou = true;
+  if (chave === "faturas") {
+    const deduplicado = deduplicarFaturasPorNumero(normalizado);
+    if (deduplicado !== normalizado) { normalizado = deduplicado; mudou = true; }
+  }
   return mudou ? normalizado : valor;
+};
+
+
+
+// Remove documentos duplicados de "faturas" — cada NÚMERO (REC-2026-...,
+// FAT-2026-...) só pode existir uma vez, nunca é suposto repetir-se. Se
+// houver mais do que um com o mesmo número (ex.: por causa de uma
+// duplicação de dados que já tenha acontecido antes desta proteção
+// existir), fica só um — escolhido sempre da MESMA forma em qualquer
+// dispositivo (o de "id" mais pequeno, ordenado como texto), para que
+// todos os dispositivos cheguem ao mesmo resultado sem precisarem de se
+// combinar entre si.
+const deduplicarFaturasPorNumero = (lista) => {
+  if (!Array.isArray(lista)) return lista;
+  const porNumero = {};
+  let houveDuplicado = false;
+  lista.forEach((f) => {
+    if (!f || !f.numero) return;
+    if (!porNumero[f.numero]) {
+      porNumero[f.numero] = f;
+    } else {
+      houveDuplicado = true;
+      // Mantém sempre o mesmo, de forma previsível em qualquer aparelho.
+      if (String(f.id) < String(porNumero[f.numero].id)) porNumero[f.numero] = f;
+    }
+  });
+  if (!houveDuplicado) return lista;
+  return Object.values(porNumero).sort((a, b) => (a.numero < b.numero ? 1 : -1));
 };
 
 // Desde que os "id" passaram a ser identificadores únicos e imprevisíveis
@@ -627,7 +723,7 @@ function useLocalOnly(chave, valorInicial) {
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
-    return normalizarIds(chave in guardado ? guardado[chave] : valorInicial);
+    return normalizarIds(chave in guardado ? guardado[chave] : valorInicial, chave);
   });
   // Normalmente, o primeiro carregamento da página não reenvia nada para o
   // Supabase (só busca) — mas logo a seguir a restaurares uma cópia de
@@ -767,7 +863,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     const tentarLer = () => {
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
         .then((dadosBrutos) => {
-          const dados = dadosBrutos !== null ? normalizarIds(dadosBrutos) : dadosBrutos;
+          const dados = dadosBrutos !== null ? normalizarIds(dadosBrutos, chave) : dadosBrutos;
           if (!cancelado && dados !== null) {
             // A base para comparações futuras segue SEMPRE o valor bruto
             // que veio do Supabase — nunca um resultado já fundido. Uma
@@ -930,7 +1026,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
         .then((remotoBruto) => {
-          const remoto = remotoBruto !== null ? normalizarIds(remotoBruto) : remotoBruto;
+          const remoto = remotoBruto !== null ? normalizarIds(remotoBruto, chave) : remotoBruto;
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
           const houveConflito =
             remotoTexto !== null &&
@@ -7452,8 +7548,9 @@ function VencimentosDaSemana({ membros }) {
       ) : (
         <div className="space-y-4">
           {grupos.map(([data, lista]) => {
-            const jaVenceu = data < hojeStr;
-            const eHoje = data === hojeStr;
+            const dataISO = paraOrdenacaoISO(data);
+            const jaVenceu = dataISO < hojeStr;
+            const eHoje = dataISO === hojeStr;
             return (
               <div key={data}>
                 <p className={`text-xs font-bold uppercase tracking-wide mb-1.5 ${jaVenceu ? "text-red-500" : eHoje ? "text-amber-600" : "text-slate-400 dark:text-slate-500"}`}>
