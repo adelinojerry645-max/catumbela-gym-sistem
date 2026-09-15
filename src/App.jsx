@@ -263,30 +263,62 @@ const normalizarIds = (valor, chave) => {
 
 
 
-// Remove documentos duplicados de "faturas" — cada NÚMERO (REC-2026-...,
-// FAT-2026-...) só pode existir uma vez, nunca é suposto repetir-se. Se
-// houver mais do que um com o mesmo número (ex.: por causa de uma
-// duplicação de dados que já tenha acontecido antes desta proteção
-// existir), fica só um — escolhido sempre da MESMA forma em qualquer
-// dispositivo (o de "id" mais pequeno, ordenado como texto), para que
-// todos os dispositivos cheguem ao mesmo resultado sem precisarem de se
-// combinar entre si.
+// Corrige documentos duplicados de "faturas" — cada NÚMERO (REC-2026-...,
+// FAT-2026-...) só devia existir uma vez, mas dois cenários diferentes
+// podem fazer o mesmo número aparecer duas vezes:
+//  1) O MESMO documento duplicado por engano (ex.: dados antigos sem
+//     "id", normalizados de forma diferente antes desta proteção
+//     existir) — aqui o conteúdo é IDÊNTICO, e é seguro manter só um.
+//  2) DOIS documentos DIFERENTES E VERDADEIROS (clientes diferentes,
+//     valores diferentes) que colidiram no mesmo número só porque dois
+//     dispositivos os criaram quase ao mesmo tempo, sem saberem um do
+//     outro — aqui NUNCA se pode apagar nenhum dos dois, isso seria
+//     apagar dinheiro real de um cliente real. Em vez disso, dá-se um
+//     número NOVO a um deles (o de "id" maior, de forma previsível em
+//     qualquer aparelho), preservando os dois.
 const deduplicarFaturasPorNumero = (lista) => {
   if (!Array.isArray(lista)) return lista;
   const porNumero = {};
-  let houveDuplicado = false;
   lista.forEach((f) => {
     if (!f || !f.numero) return;
-    if (!porNumero[f.numero]) {
-      porNumero[f.numero] = f;
-    } else {
-      houveDuplicado = true;
-      // Mantém sempre o mesmo, de forma previsível em qualquer aparelho.
-      if (String(f.id) < String(porNumero[f.numero].id)) porNumero[f.numero] = f;
-    }
+    if (!porNumero[f.numero]) porNumero[f.numero] = [];
+    porNumero[f.numero].push(f);
   });
-  if (!houveDuplicado) return lista;
-  return Object.values(porNumero).sort((a, b) => (a.numero < b.numero ? 1 : -1));
+  const numerosComColisao = Object.entries(porNumero).filter(([, grupo]) => grupo.length > 1);
+  if (numerosComColisao.length === 0) return lista;
+
+  const semNumeroOuUnicos = lista.filter((f) => !f || !f.numero || porNumero[f.numero].length === 1);
+  const resultado = [...semNumeroOuUnicos];
+
+  // Maior número já usado por prefixo (REC/FAT/PRO), para saber a partir
+  // de onde continuar a numerar os que forem renumerados.
+  const maiorPorPrefixo = {};
+  lista.forEach((f) => {
+    if (!f || !f.numero) return;
+    const m = f.numero.match(/^([A-Z]+)-(\d{4})-(\d+)$/);
+    if (!m) return;
+    const chave = `${m[1]}-${m[2]}`;
+    const n = parseInt(m[3], 10);
+    if (!maiorPorPrefixo[chave] || n > maiorPorPrefixo[chave]) maiorPorPrefixo[chave] = n;
+  });
+
+  numerosComColisao.forEach(([numero, grupo]) => {
+    const ordenado = [...grupo].sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1));
+    const [mantemNumero, ...resto] = ordenado;
+    resultado.push(mantemNumero);
+    resto.forEach((f) => {
+      const conteudoIgual = JSON.stringify({ ...f, id: null }) === JSON.stringify({ ...mantemNumero, id: null });
+      if (conteudoIgual) return; // é mesmo o mesmo documento duplicado — não duplica outra vez
+      // Documento diferente a sério — dá-lhe um número novo, nunca o apaga.
+      const m = numero.match(/^([A-Z]+)-(\d{4})-\d+$/);
+      const chave = m ? `${m[1]}-${m[2]}` : null;
+      const novoN = chave ? (maiorPorPrefixo[chave] || 0) + 1 : null;
+      if (chave) maiorPorPrefixo[chave] = novoN;
+      resultado.push(novoN ? { ...f, numero: `${chave}-${String(novoN).padStart(6, "0")}` } : f);
+    });
+  });
+
+  return resultado.sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1));
 };
 
 // Desde que os "id" passaram a ser identificadores únicos e imprevisíveis
@@ -744,6 +776,18 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   const baseParaFusao = useRef(carregarBaseSincronizada()[chave] ?? null);
   const timeoutRef = useRef(null);
   const jaBloqueouVazioAntes = useRef(false); // evita prender a pessoa num ciclo sem conseguir esvaziar de vez
+  // Sempre que "valor" muda outra vez ANTES da gravação anterior ter
+  // terminado (ex.: duas alterações seguidas em menos de 800ms — como
+  // gerar dois recibos na mesma ação), cancelar o temporizador não
+  // chega: se a chamada ao Supabase já tinha arrancado, ela continua a
+  // decorrer sozinha, e ao terminar (mesmo com erro) gravava por cima o
+  // valor MAIS ANTIGO que tinha guardado no seu próprio fecho, apagando
+  // silenciosamente a alteração mais recente. Esta contagem identifica
+  // sempre qual foi o ÚLTIMO pedido de gravação — qualquer resposta que
+  // já não seja a mais recente é simplesmente ignorada, porque uma
+  // gravação mais nova (com o valor mais atualizado) já está a caminho
+  // ou já terminou.
+  const geracaoGravacao = useRef(0);
 
   // Combina o que está no Supabase (mudado por outro dispositivo) com o que
   // mudou aqui neste, item a item — em vez de um dos dois lados apagar
@@ -1003,6 +1047,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     gravacaoPendente.current = true;
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    geracaoGravacao.current += 1;
+    const minhaGeracao = geracaoGravacao.current;
     timeoutRef.current = setTimeout(() => {
       const valorTexto = JSON.stringify(valor);
       // Proteção extra, mesmo sem conflito detetado: se este dispositivo
@@ -1037,6 +1083,14 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
           let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
+          // Duas faturas com o MESMO número, mas criadas em dispositivos
+          // diferentes quase ao mesmo tempo (antes de saberem um do
+          // outro), acabam com "id" interno diferente — por isso a fusão
+          // por "id" não as reconhece como sendo a mesma, e as duas
+          // sobrevivem. Isto limpa isso sempre que se está prestes a
+          // gravar, não só quando a página abre, para nunca deixar um
+          // número duplicado a residir durante muito tempo.
+          if (chave === "faturas") paraGravar = deduplicarFaturasPorNumero(paraGravar);
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
             if (jaBloqueouVazioAntes.current) {
               // Já bloqueámos esta mesma situação uma vez antes, e a
@@ -1057,6 +1111,16 @@ function usePersistente(chave, valorInicial, setStatusSync) {
         })
         .catch(() => ({ paraGravar: valor, houveConflito: false }))
         .then(({ paraGravar, houveConflito }) => {
+          // Se, entretanto (enquanto este pedido estava a decorrer),
+          // "valor" já mudou de novo e um pedido de gravação MAIS
+          // RECENTE já foi disparado, este aqui já está desatualizado —
+          // gravar o que ele tem ia apagar essa alteração mais recente
+          // por cima. Abandona-se, silenciosamente: o pedido mais
+          // recente é que vai (ou já foi) gravar o valor certo.
+          if (geracaoGravacao.current !== minhaGeracao) {
+            gravacaoPendente.current = false;
+            return;
+          }
           const textoParaGravar = JSON.stringify(paraGravar);
           gravarColecao(PREFIXO_COLECAO_TESTE + chave, paraGravar)
             .then(() => {
@@ -3670,6 +3734,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   const [contaBancariaEscolhida, setContaBancariaEscolhida] = useState("");
   const [dataInicioEscolhida, setDataInicioEscolhida] = useState("");
   const [semPagamentoAgoraBalcao, setSemPagamentoAgoraBalcao] = useState(false);
+  const [cobrarTaxaPendenteBalcao, setCobrarTaxaPendenteBalcao] = useState(false);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
   const [ultimaAcao, setUltimaAcao] = useState(null); // { texto, desfazer }
   const [aEditarHoras, setAEditarHoras] = useState(false);
@@ -3723,6 +3788,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
     setPlanoEscolhido(m.plano || planos[0]?.nome || "");
     setDataInicioEscolhida(hojeStr);
     setSemPagamentoAgoraBalcao(false);
+    setCobrarTaxaPendenteBalcao(false);
     setMetodoEscolhido("dinheiro");
     setContaBancariaEscolhida("");
   };
@@ -3752,18 +3818,22 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
 
   const confirmarSubscricao = () => {
     if (!planoEscolhido) return;
+    const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
     const documento = onAtualizarSubscricao(
       membroSelecionado.id, planoEscolhido, dataInicioEscolhida || hojeStr,
       semPagamentoAgoraBalcao ? null : metodoEscolhido,
-      semPagamentoAgoraBalcao ? null : contaBancariaEscolhida
+      semPagamentoAgoraBalcao ? null : contaBancariaEscolhida,
+      cobrarTaxaPendenteBalcao && !semPagamentoAgoraBalcao ? taxasPendentes.faturas : []
     );
     const plano = planos.find((p) => p.nome === planoEscolhido);
     const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
     setMembroSelecionado(membroAtualizado);
     setASubscrever(false);
+    setCobrarTaxaPendenteBalcao(false);
+    const extraTaxa = cobrarTaxaPendenteBalcao && !semPagamentoAgoraBalcao && taxasPendentes.total > 0 ? ` + ${kz(taxasPendentes.total)} de taxa de sessão longa` : "";
     if (documento) {
       setUltimaAcao({
-        texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)})`,
+        texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)}${extraTaxa})`,
         desfazer: () => { onEliminarFatura(documento.numero); setUltimaAcao(null); voltarAoInicio(); },
       });
     } else {
@@ -4115,11 +4185,14 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
                 const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
                 if (taxasPendentes.total <= 0) return null;
                 return (
-                  <p className="text-xs font-semibold text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                    ⚠ {membroSelecionado.nome} tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
-                    ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
-                    aproveita para cobrar junto com esta renovação.
-                  </p>
+                  <label className="flex items-start gap-2 text-xs font-medium text-amber-800 bg-amber-50 rounded-lg px-3 py-2 cursor-pointer">
+                    <input type="checkbox" className="mt-0.5" checked={cobrarTaxaPendenteBalcao} onChange={(e) => setCobrarTaxaPendenteBalcao(e.target.checked)} />
+                    <span>
+                      ⚠ {membroSelecionado.nome} tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
+                      ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
+                      marca aqui para cobrar já, junto com esta renovação (soma-se ao total a pagar).
+                    </span>
+                  </label>
                 );
               })()}
               <div>
@@ -6246,6 +6319,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   const [metodoPagamento, setMetodoPagamento] = useState("dinheiro");
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [semPagamentoAgora, setSemPagamentoAgora] = useState(false);
+  const [cobrarTaxaPendente, setCobrarTaxaPendente] = useState(false);
   const [ultimoRecibo, setUltimoRecibo] = useState(null);
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
   const [pesquisa, setPesquisa] = useState("");
@@ -6291,14 +6365,22 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     setMetodoPagamento("dinheiro");
     setContaBancariaId("");
     setSemPagamentoAgora(false);
+    setCobrarTaxaPendente(false);
     setUltimoRecibo(null);
   };
 
   const confirmarMudanca = (membro) => {
-    const documento = onAtualizarSubscricao(membro.id, novoPlano, dataInicio, semPagamentoAgora ? null : metodoPagamento, semPagamentoAgora ? null : contaBancariaId);
+    const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membro, faturas);
+    const documento = onAtualizarSubscricao(
+      membro.id, novoPlano, dataInicio,
+      semPagamentoAgora ? null : metodoPagamento,
+      semPagamentoAgora ? null : contaBancariaId,
+      cobrarTaxaPendente && !semPagamentoAgora ? taxasPendentes.faturas : []
+    );
     setUltimoRecibo(documento);
     setUltimoPlanoConfirmado(novoPlano);
     setEditandoId(null);
+    setCobrarTaxaPendente(false);
   };
 
   const diasRestantes = (vencimento) => {
@@ -6426,11 +6508,14 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                             const taxasPendentes = taxasSessaoLongaPendentesDoMembro(m, faturas);
                             if (taxasPendentes.total <= 0) return null;
                             return (
-                              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 mb-2">
-                                ⚠ Este atleta tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
-                                ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
-                                aproveita para cobrar junto com esta renovação.
-                              </p>
+                              <label className="flex items-start gap-2 text-xs font-semibold text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 mb-2 cursor-pointer">
+                                <input type="checkbox" className="mt-0.5" checked={cobrarTaxaPendente} onChange={(e) => setCobrarTaxaPendente(e.target.checked)} />
+                                <span>
+                                  ⚠ Este atleta tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
+                                  ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}) —
+                                  marca aqui para cobrar já, junto com esta renovação.
+                                </span>
+                              </label>
                             );
                           })()}
                           <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
@@ -6547,12 +6632,19 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   // administrador vê o histórico completo.
   const faturasVisiveis = perfil === "administrador" ? faturas : faturas.filter((f) => f.registadoPor === nomeAtual);
 
-  const filtrados = faturasVisiveis.filter((f) => {
-    const bateTipo = filtroTipo === "TODOS" || f.tipo === filtroTipo;
-    const q = pesquisa.trim().toLowerCase();
-    const bateTexto = !q || f.membro.nome.toLowerCase().includes(q) || f.numero.toLowerCase().includes(q);
-    return bateTipo && bateTexto;
-  });
+  const filtrados = faturasVisiveis
+    .filter((f) => {
+      const bateTipo = filtroTipo === "TODOS" || f.tipo === filtroTipo;
+      const q = pesquisa.trim().toLowerCase();
+      const bateTexto = !q || f.membro.nome.toLowerCase().includes(q) || f.numero.toLowerCase().includes(q);
+      return bateTipo && bateTexto;
+    })
+    // Sem isto, a lista mostrava os documentos na ordem em que o array
+    // por trás calhava estar — que, depois de uma fusão entre
+    // dispositivos, podia já não ser a ordem cronológica real. Ordena
+    // sempre pela data/hora reais de cada documento, mais recente
+    // primeiro — nunca pela posição em que o array chegou.
+    .sort((a, b) => (chaveTemporalPT(b) > chaveTemporalPT(a) ? 1 : -1));
 
   return (
     <Card title={`Histórico de documentos (${faturasVisiveis.length})`}>
@@ -13525,6 +13617,20 @@ export default function CatumbelaGymApp() {
   const [pagamentosPendentes, setPagamentosPendentes, adicionarPagamentoPendenteSeguro] = usePersistente("pagamentosPendentes", [], setStatusSync);
   const [custos, setCustos] = usePersistente("custos", [], setStatusSync);
   const [faturas, setFaturas] = usePersistente("faturas", [], setStatusSync);
+  // Guarda os documentos criados NESTA sessão, mesmo antes de o React
+  // atualizar "faturas" — sem isto, gerar dois documentos seguidos (ex.:
+  // o recibo da mensalidade E o da taxa de sessão longa, numa única
+  // renovação) calculava o "maior número atual" duas vezes a partir do
+  // mesmo "faturas" desatualizado, e os dois acabavam com o MESMO
+  // próximo número — fazendo o segundo desaparecer ao colidir com o
+  // primeiro.
+  const faturasCriadasNestaSessao = useRef([]);
+  // Assim que o React atualiza "faturas" de verdade, os documentos que
+  // estavam só na referência já lá estão refletidos — limpa, para nunca
+  // ir crescendo para sempre.
+  useEffect(() => {
+    faturasCriadasNestaSessao.current = [];
+  }, [faturas]);
 
   // BACKFILL: recibos de mensalidade criados ANTES de o sistema passar a
   // guardar "vencimentoSubscricao" diretamente no documento não têm essa
@@ -14402,8 +14508,12 @@ export default function CatumbelaGymApp() {
     // que nunca nenhum foi eliminado nem está em falta por sincronizar,
     // o que não é seguro assumir. Se um documento do meio da sequência
     // fosse eliminado (ex.: ao desfazer uma ação), a contagem baixava, e
-    // o próximo número gerado colidia com um que já existia.
-    const maiorNumero = faturas
+    // o próximo número gerado colidia com um que já existia. Combina o
+    // estado React (pode estar desatualizado, se dois documentos forem
+    // gerados em sequência rápida dentro da MESMA ação) com os
+    // documentos já criados nesta sessão mas ainda não refletidos nele.
+    const todasConhecidas = [...faturas, ...faturasCriadasNestaSessao.current];
+    const maiorNumero = todasConhecidas
       .filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`))
       .reduce((max, f) => {
         const n = parseInt(f.numero.split("-").pop(), 10);
@@ -14437,6 +14547,12 @@ export default function CatumbelaGymApp() {
       // acidentalmente revertido por sincronização) sem deixar rasto.
       planoSubscricao: tipoReceita === "mensalidade" ? planoNome || null : null,
       vencimentoSubscricao: tipoReceita === "mensalidade" ? vencimentoSubscricao || null : null,
+      tipoReceita: tipoReceita || null,
+      // Guarda qual fatura pendente este recibo quitou (se alguma) — sem
+      // isto, a informação existia só enquanto a função corria, e
+      // desaparecia logo a seguir, sem deixar rasto no próprio recibo
+      // gerado para se poder ver depois "isto pagou aquilo ali".
+      faturaOrigemNumero: tipo === "RECIBO" && faturaOrigemNumero ? faturaOrigemNumero : null,
     };
     setFaturas((atual) => {
       let novo = [documento, ...atual];
@@ -14475,6 +14591,7 @@ export default function CatumbelaGymApp() {
       }
     }
     registarAuditoria(`Gerou ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"} ${numero}`, `${membro.nome} — ${kz(valor)}`);
+    faturasCriadasNestaSessao.current.push(documento);
     return documento;
   };
 
@@ -14658,7 +14775,7 @@ export default function CatumbelaGymApp() {
   // subscrição fica sempre ligada à parte financeira (numeração, histórico
   // de documentos, e a receita conta nos relatórios/lucro), nunca só a
   // atualizar os dados do membro sem deixar rasto do pagamento.
-  const atualizarSubscricao = (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId) => {
+  const atualizarSubscricao = (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId, taxasParaQuitar) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return null;
     const plano = planos.find((p) => p.nome === novoPlanoNome);
@@ -14689,6 +14806,22 @@ export default function CatumbelaGymApp() {
         tipoReceita: "mensalidade",
         planoNome: novoPlanoNome,
         vencimentoSubscricao: novoVencimento,
+      });
+      // Se foram escolhidas taxas de sessão longa pendentes para cobrar
+      // junto com esta renovação, gera um recibo próprio para cada uma —
+      // quitando-a (fica marcada como paga), sem misturar o valor com o
+      // da mensalidade, para o extrato de cada uma continuar claro.
+      (taxasParaQuitar || []).forEach((faturaPendente) => {
+        gerarDocumentoFaturacao({
+          tipo: "RECIBO",
+          membro,
+          itens: faturaPendente.itens,
+          valor: faturaPendente.valor,
+          metodo,
+          contaBancariaId,
+          tipoReceita: "taxa-sessao-longa",
+          faturaOrigemNumero: faturaPendente.numero,
+        });
       });
     }
     setMembros((atual) =>
