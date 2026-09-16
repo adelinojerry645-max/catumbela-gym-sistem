@@ -50,6 +50,45 @@ const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 // aumentar ao recalcular. Usa sempre esta função depois de .setDate().
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// Converte "DD/MM/AAAA" ou "AAAA-MM-DD" para "AAAA-MM-DD" — só para
+// ORDENAR corretamente (strings "DD/MM/AAAA" não ordenam bem
+// alfabeticamente; "AAAA-MM-DD" sim).
+const paraOrdenacaoISO = (dataStr) => {
+  if (!dataStr) return "";
+  const partesPT = dataStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (partesPT) return `${partesPT[3]}-${partesPT[2]}-${partesPT[1]}`;
+  return dataStr;
+};
+
+// Agrupa uma lista de itens pela data, com cabeçalhos claros: "Hoje",
+// "Ontem", ou a data normal para o resto — sempre com os grupos mais
+// recentes primeiro. Usada em qualquer ecrã com uma lista longa de
+// documentos/movimentos (Faturação, Custos, etc.), para nunca ficar
+// tudo misturado numa única lista corrida sem organização nenhuma.
+const agruparPorData = (lista, obterData) => {
+  const hojeISO = dataLocalISO(new Date());
+  const ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  const ontemISO = dataLocalISO(ontem);
+
+  const mapa = {};
+  (lista || []).forEach((item) => {
+    const dataOriginal = obterData(item);
+    const chave = dataOriginal ? paraOrdenacaoISO(dataOriginal) : "Sem data";
+    if (!mapa[chave]) mapa[chave] = { rotulo: dataOriginal || "Sem data", itens: [] };
+    mapa[chave].itens.push(item);
+  });
+
+  return Object.entries(mapa)
+    .sort(([a], [b]) => (a < b ? 1 : -1)) // mais recente primeiro
+    .map(([chave, { rotulo, itens }]) => {
+      let rotuloFinal = rotulo;
+      if (chave === hojeISO) rotuloFinal = `Hoje — ${rotulo}`;
+      else if (chave === ontemISO) rotuloFinal = `Ontem — ${rotulo}`;
+      return [rotuloFinal, itens];
+    });
+};
+
 // Gera um id com entropia suficiente para nunca colidir, mesmo quando
 // vários dispositivos criam registos ao mesmo tempo (ex.: hora de ponta
 // no Controlo de Acessos, com várias entradas no mesmo segundo). A
@@ -5865,41 +5904,39 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
         {custosFiltrados.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                  <th className="pb-2 font-medium">Data</th>
-                  <th className="pb-2 font-medium">Categoria</th>
-                  <th className="pb-2 font-medium">Tipo</th>
-                  <th className="pb-2 font-medium">Descrição</th>
-                  <th className="pb-2 font-medium">Valor</th>
-                  <th className="pb-2 font-medium"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                {custosFiltrados.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                    <td className="py-2 text-slate-500 dark:text-slate-400">{c.data}</td>
-                    <td className="py-2">
-                      <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
-                    </td>
-                    <td className="py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
-                        {c.tipo === "variavel" ? "Variável" : "Fixo"}
-                      </span>
-                    </td>
-                    <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
-                    <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
-                    <td className="py-2 text-right">
-                      <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
-                        <Trash2 size={14} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-5">
+            {agruparPorData(custosFiltrados, (c) => c.data).map(([rotuloData, lista]) => (
+              <div key={rotuloData}>
+                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                  {rotuloData} · {lista.length} custo{lista.length > 1 ? "s" : ""} · {kz(lista.reduce((s, c) => s + c.valor, 0))}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                      {lista.map((c) => (
+                        <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                          <td className="py-2">
+                            <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
+                          </td>
+                          <td className="py-2">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
+                            {c.tipo === "variavel" ? "Variável" : "Fixo"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
+                          <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
+                          <td className="py-2 text-right">
+                            <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Card>
@@ -6382,56 +6419,63 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
           {faturasVisiveis.length === 0 ? "Ainda não emitiste nenhum documento." : "Nenhum documento corresponde à pesquisa."}
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                <th className="pb-2 font-medium">Número</th>
-                <th className="pb-2 font-medium">Tipo</th>
-                <th className="pb-2 font-medium">Cliente</th>
-                <th className="pb-2 font-medium">Data</th>
-                <th className="pb-2 font-medium">Valor</th>
-                <th className="pb-2 font-medium">Estado</th>
-                <th className="pb-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-              {filtrados.map((f) => (
-                <tr key={f.numero} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.numero}</td>
-                  <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                    {f.tipo === "FATURA" ? "Fatura" : f.tipo === "PROFORMA" ? "Proforma" : "Recibo"}
-                  </td>
-                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.membro.nome}</td>
-                  <td className="py-2.5 text-slate-500 dark:text-slate-400">{f.data}</td>
-                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{kz(f.valor)}</td>
-                  <td className="py-2.5">
-                    {f.tipo === "FATURA" ? (
-                      f.estado === "paga" ? (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">PAGA</span>
-                      ) : (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">POR PAGAR</span>
-                      )
-                    ) : (
-                      <span className="text-slate-300 dark:text-slate-600">—</span>
-                    )}
-                  </td>
-                  <td className="py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button onClick={() => onVer(f)} title="Ver / reimprimir (2ª via)" className="text-slate-400 hover:text-[#3F8F87]">
-                        <FileText size={15} />
-                      </button>
-                      {perfil === "administrador" && (
-                        <button onClick={() => setAEliminar(f)} title="Eliminar documento" className="text-slate-400 hover:text-red-500">
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-5">
+          {agruparPorData(filtrados, (f) => f.data).map(([rotuloData, lista]) => (
+            <div key={rotuloData}>
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
+                {rotuloData} · {lista.length} documento{lista.length > 1 ? "s" : ""} · {kz(lista.reduce((s, f) => s + f.valor, 0))}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                      <th className="pb-2 font-medium">Número</th>
+                      <th className="pb-2 font-medium">Tipo</th>
+                      <th className="pb-2 font-medium">Cliente</th>
+                      <th className="pb-2 font-medium">Valor</th>
+                      <th className="pb-2 font-medium">Estado</th>
+                      <th className="pb-2 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                    {lista.map((f) => (
+                      <tr key={f.numero} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                        <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.numero}</td>
+                        <td className="py-2.5 text-slate-600 dark:text-slate-300">
+                          {f.tipo === "FATURA" ? "Fatura" : f.tipo === "PROFORMA" ? "Proforma" : "Recibo"}
+                        </td>
+                        <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.membro.nome}</td>
+                        <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{kz(f.valor)}</td>
+                        <td className="py-2.5">
+                          {f.tipo === "FATURA" ? (
+                            f.estado === "paga" ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">PAGA</span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">POR PAGAR</span>
+                            )
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-600">—</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            <button onClick={() => onVer(f)} title="Ver / reimprimir (2ª via)" className="text-slate-400 hover:text-[#3F8F87]">
+                              <FileText size={15} />
+                            </button>
+                            {perfil === "administrador" && (
+                              <button onClick={() => setAEliminar(f)} title="Eliminar documento" className="text-slate-400 hover:text-red-500">
+                                <Trash2 size={15} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -7541,6 +7585,90 @@ function TaxasSessaoLongaPendentes({ membros, faturas, dadosGinasio }) {
               </div>
             );
           })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// POSSÍVEIS RECIBOS DUPLICADOS — agrupa documentos que parecem ser a
+// MESMA transação (mesmo atleta, mesmo valor, mesmo dia, mesmo tipo)
+// mas ficaram como registos separados. Nunca elimina nada sozinho —
+// mostra os grupos para confirmares com os teus próprios olhos qual
+// deve ficar, e dá a opção de limpar um grupo de cada vez, ou todos de
+// uma vez (mantendo sempre o de número mais antigo/baixo em cada
+// grupo, que é o que foi criado primeiro).
+// ---------------------------------------------------------------------
+function PossiveisRecibosDuplicados({ faturas, onEliminar }) {
+  const grupos = useMemo(() => {
+    const mapa = {};
+    faturas.forEach((f) => {
+      const nomeCliente = (f.membro?.nome || "").trim().toLowerCase();
+      if (!nomeCliente || nomeCliente === "cliente sem cadastro") return;
+      const chave = `${nomeCliente}|${f.valor}|${f.data}|${f.tipo}`;
+      if (!mapa[chave]) mapa[chave] = [];
+      mapa[chave].push(f);
+    });
+    const numSeq = (numero) => parseInt(numero.split("-").pop(), 10);
+    return Object.values(mapa)
+      .filter((g) => g.length > 1)
+      .map((g) => [...g].sort((a, b) => numSeq(a.numero) - numSeq(b.numero)))
+      .sort((a, b) => (b[0].data > a[0].data ? 1 : -1));
+  }, [faturas]);
+
+  const totalAEliminar = grupos.reduce((s, g) => s + (g.length - 1), 0);
+
+  const eliminarGrupo = (grupo) => {
+    grupo.slice(1).forEach((f) => onEliminar(f.numero));
+  };
+
+  const eliminarTodos = () => {
+    if (!confirm(`Vais eliminar ${totalAEliminar} documentos duplicados, mantendo sempre o mais antigo de cada grupo. Esta ação não pode ser desfeita. Confirmas?`)) return;
+    grupos.forEach((g) => eliminarGrupo(g));
+  };
+
+  return (
+    <Card title={`${grupos.length} grupo(s) possivelmente duplicado(s) — ${totalAEliminar} documento(s) a mais`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Mesmo atleta, mesmo valor, mesmo dia, mesmo tipo de documento — provavelmente a mesma cobrança registada mais
+        do que uma vez. Fica sempre o de número mais antigo (o primeiro criado); os outros são as cópias.
+      </p>
+      {grupos.length > 0 && (
+        <button onClick={eliminarTodos} className="mb-3 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg">
+          Eliminar todos os {totalAEliminar} duplicados de uma vez
+        </button>
+      )}
+      {grupos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum grupo suspeito encontrado. 🎉</p>
+      ) : (
+        <div className="space-y-4 max-h-[600px] overflow-y-auto">
+          {grupos.map((grupo, i) => (
+            <div key={i} className="ring-1 ring-amber-200 dark:ring-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {grupo[0].membro?.nome} · {kz(grupo[0].valor)} · {grupo[0].data}
+                </p>
+                <button onClick={() => eliminarGrupo(grupo)} className="text-xs font-medium text-red-500 hover:text-red-700">
+                  Eliminar {grupo.length - 1} cópia{grupo.length - 1 > 1 ? "s" : ""}
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {grupo.map((f, idx) => (
+                  <div key={f.numero} className="flex items-center justify-between text-xs bg-white dark:bg-slate-800 rounded-lg px-3 py-2">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {f.numero} {idx === 0 && <span className="text-emerald-600 font-semibold">· mantém-se (mais antigo)</span>}
+                    </span>
+                    {idx > 0 && (
+                      <button onClick={() => onEliminar(f.numero)} className="text-red-500 hover:text-red-700 font-medium">
+                        Eliminar
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Card>
@@ -9117,7 +9245,7 @@ const FREQUENCIAS_BACKUP = {
 function CopiaSeguranca({ dadosGinasio, onSalvarFrequencia }) {
   const [mensagem, setMensagem] = useState(null); // { tipo: "sucesso"|"erro", texto }
   const inputRef = useRef(null);
-  const frequencia = dadosGinasio.frequenciaBackup || "15dias";
+  const frequencia = dadosGinasio.frequenciaBackup || "automatico";
 
   const descarregar = () => descarregarCopiaSeguranca();
 
@@ -10206,6 +10334,19 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
     const receita = pagamentosMes.reduce((s, p) => s + p.valor, 0);
     const custoTotal = custosMes.reduce((s, c) => s + c.valor, 0);
 
+    // Separa custos e receita entre GINÁSIO (renda, salários, mensalidades,
+    // avulsos, inscrições...) e LOJA (produtos) — para nunca misturares o
+    // que cada parte do negócio realmente rende, tal como já acontece no
+    // Centro de Custos.
+    const custosLojaMes = custosMes.filter((c) => CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
+    const custosGinasioMes = custosMes.filter((c) => !CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
+    const custoLoja = custosLojaMes.reduce((s, c) => s + c.valor, 0);
+    const custoGinasio = custosGinasioMes.reduce((s, c) => s + c.valor, 0);
+    const receitaLoja = porTipo.venda || 0;
+    const receitaGinasio = receita - receitaLoja;
+    const lucroLoja = receitaLoja - custoLoja;
+    const lucroGinasio = receitaGinasio - custoGinasio;
+
     // Mensalidades separadas por plano — não só o total "mensalidade" em
     // bloco, mas quanto veio de cada plano especificamente.
     const porPlano = {};
@@ -10246,6 +10387,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
 
     return {
       receita, custoTotal, lucro: receita - custoTotal, porTipo, porPlano, porProduto, avulsosDetalhados,
+      custoGinasio, custoLoja, receitaGinasio, receitaLoja, lucroGinasio, lucroLoja,
       membrosNovos: membrosNovosMes.length, membrosNovosMes, numPagamentos: pagamentosMes.length, pagamentosMes, custosMes,
       membrosAteInicioMes, totalAteFimMes, ativosNoMes, vencidosNoMes, taxaCrescimento,
     };
@@ -10488,6 +10630,27 @@ const exportarMembros = () => {
           </div>
         </div>
         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3 text-center">Comparado com {mesAnteriorStr}</p>
+      </Card>
+
+      <Card title="Ginásio vs. Loja — este mês">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/10 p-3">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2">Ginásio (mensalidades, avulsos, inscrições)</p>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Receita</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.receitaGinasio)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Custos</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.custoGinasio)}</span></div>
+              <div className="flex justify-between border-t border-amber-200 dark:border-amber-800 pt-1 mt-1"><span className="text-slate-600 dark:text-slate-300 font-medium">Lucro</span><span className={`font-bold ${resumoMensal.lucroGinasio >= 0 ? "text-emerald-600" : "text-red-500"}`}>{kz(resumoMensal.lucroGinasio)}</span></div>
+            </div>
+          </div>
+          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/10 p-3">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-2">Loja (produtos)</p>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Receita</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.receitaLoja)}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Custos</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.custoLoja)}</span></div>
+              <div className="flex justify-between border-t border-blue-200 dark:border-blue-800 pt-1 mt-1"><span className="text-slate-600 dark:text-slate-300 font-medium">Lucro</span><span className={`font-bold ${resumoMensal.lucroLoja >= 0 ? "text-emerald-600" : "text-red-500"}`}>{kz(resumoMensal.lucroLoja)}</span></div>
+            </div>
+          </div>
+        </div>
       </Card>
 
       <Card
@@ -12116,6 +12279,7 @@ const MENU_ADMIN = [
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
       { id: "taxas-sessao-longa", label: "Taxas de Sessão Longa", icon: Clock },
+      { id: "recibos-duplicados", label: "Possíveis Recibos Duplicados", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
@@ -12709,6 +12873,8 @@ export default function CatumbelaGymApp() {
   const [avisoArmazenamentoCheio, setAvisoArmazenamentoCheio] = useState(false);
   const [avisoConflito, setAvisoConflito] = useState(null); // nome da coleção em conflito, ou null
   const [avisoBackup, setAvisoBackup] = useState(false);
+  const [backupAutoFeitoAgora, setBackupAutoFeitoAgora] = useState(false);
+  const [avisoNotificacoesDismissed, setAvisoNotificacoesDismissed] = useState(false);
   const [atualizadoAgora, setAtualizadoAgora] = useState(false); // pisca brevemente quando chega uma atualização em tempo real de outro dispositivo
   const backupAutoDisparado = useRef(false);
 
@@ -12874,14 +13040,23 @@ export default function CatumbelaGymApp() {
     if (perfil !== "administrador") return;
     try {
       const ultimo = window.localStorage.getItem(CHAVE_ULTIMO_BACKUP);
-      const frequencia = dadosGinasio.frequenciaBackup || "15dias";
-      const diasLimite = FREQUENCIAS_BACKUP[frequencia]?.dias ?? 15;
+      const frequencia = dadosGinasio.frequenciaBackup || "automatico";
+      const diasLimite = FREQUENCIAS_BACKUP[frequencia]?.dias ?? 7;
       const diasPassados = ultimo ? (Date.now() - new Date(ultimo).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
       const emAtraso = diasPassados > diasLimite;
-      setAvisoBackup(emAtraso);
       if (emAtraso && frequencia === "automatico" && !backupAutoDisparado.current) {
         backupAutoDisparado.current = true;
         descarregarCopiaSeguranca();
+        // Aqui foi o próprio sistema que tratou disso — mostra uma
+        // confirmação, não o aviso "está atrasado" (que seria enganador,
+        // já que acabou de deixar de estar).
+        setAvisoBackup(false);
+        setBackupAutoFeitoAgora(true);
+        setTimeout(() => setBackupAutoFeitoAgora(false), 15000);
+      } else {
+        // Só mostra o aviso "está atrasado" para quem NÃO tem o
+        // automático ligado — quem tem, o sistema trata disso sozinho.
+        setAvisoBackup(emAtraso && frequencia !== "automatico");
       }
     } catch {
       // sem acesso ao localStorage — não bloqueia o resto da app
@@ -15052,6 +15227,41 @@ export default function CatumbelaGymApp() {
             </button>
           </div>
         )}
+        {backupAutoFeitoAgora && perfil === "administrador" && (
+          <div className="bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 px-4 py-3 flex items-center gap-3">
+            <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
+            <p className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
+              Cópia de segurança semanal feita automaticamente agora — verifica a pasta de transferências do
+              computador. Se não aparecer nada, o browser pode ter bloqueado; nesse caso, faz uma manualmente em{" "}
+              <button onClick={() => setTela("configuracoes")} className="underline font-semibold">Configurações → Dados do ginásio</button>.
+            </p>
+            <button onClick={() => setBackupAutoFeitoAgora(false)} className="text-emerald-400 hover:text-emerald-600 shrink-0">
+              <X size={16} />
+            </button>
+          </div>
+        )}
+        {!avisoNotificacoesDismissed && perfil === "administrador" && (() => {
+          const chaveDeAviso = (n) => `${n.membro.id}-${n.tipo}-${n.membro.vencimento}`;
+          const enviadosChaves = new Set((avisosEnviados || []).map((a) => a.chave));
+          const notifPorEnviar = calcularNotificacoes(membros, planos).filter((n) => !enviadosChaves.has(chaveDeAviso(n)));
+          if (notifPorEnviar.length === 0) return null;
+          return (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-3 flex items-center gap-3">
+              <MessageCircle size={18} className="text-blue-500 shrink-0" />
+              <p className="text-sm text-blue-700 dark:text-blue-400 flex-1">
+                <strong>{notifPorEnviar.length} atleta{notifPorEnviar.length > 1 ? "s" : ""}</strong> por avisar sobre
+                a subscrição (a vencer em breve, hoje, ou já vencida) — links de WhatsApp já prontos, um clique por
+                pessoa.
+              </p>
+              <button onClick={() => setTela("notificacoes")} className="text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg shrink-0">
+                Ver e avisar
+              </button>
+              <button onClick={() => setAvisoNotificacoesDismissed(true)} className="text-blue-400 hover:text-blue-600 shrink-0">
+                <X size={16} />
+              </button>
+            </div>
+          );
+        })()}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6">
           {telaAtual === "meus-alunos" && perfil === "personal_trainer" && (
             <MeusAlunos
@@ -15170,6 +15380,9 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "taxas-sessao-longa" && perfil === "administrador" && (
             <TaxasSessaoLongaPendentes membros={membros} faturas={faturas} dadosGinasio={dadosGinasio} />
+          )}
+          {telaAtual === "recibos-duplicados" && perfil === "administrador" && (
+            <PossiveisRecibosDuplicados faturas={faturas} onEliminar={eliminarFatura} />
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
