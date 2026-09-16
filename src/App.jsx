@@ -144,37 +144,39 @@ let desvioRelogioConfirmado = false;
 const agoraCorrigido = () => new Date(Date.now() + desvioRelogioMs);
 
 async function sincronizarRelogioComInternet() {
-  // Duas fontes, para não ficar dependente de um único serviço — tenta a
-  // primeira, e só usa a segunda se a primeira falhar ou não responder.
-  const fontes = [
-    async () => {
-      const r = await fetch("https://worldtimeapi.org/api/timezone/Africa/Luanda", { cache: "no-store" });
-      const j = await r.json();
-      return new Date(j.utc_datetime).getTime();
-    },
-    async () => {
-      const r = await fetch("https://timeapi.io/api/Time/current/zone?timeZone=Africa/Luanda", { cache: "no-store" });
-      const j = await r.json();
-      return new Date(Date.UTC(j.year, j.month - 1, j.day, j.hour, j.minute, j.seconds)).getTime();
-    },
-  ];
-  for (const buscar of fontes) {
-    try {
-      const antesMs = Date.now();
-      const horaRealMs = await buscar();
-      const depoisMs = Date.now();
-      // Desconta o tempo que o próprio pedido demorou a viajar (ida e
-      // volta), para a correção ficar mais precisa.
-      const atrasoRede = (depoisMs - antesMs) / 2;
-      desvioRelogioMs = horaRealMs + atrasoRede - depoisMs;
-      desvioRelogioConfirmado = true;
-      return true;
-    } catch {
-      // tenta a fonte seguinte
-    }
+  // Serviços de hora de terceiros (worldtimeapi.org, timeapi.io) muitas
+  // vezes recusam ser chamados diretamente do browser (bloqueiam por
+  // CORS) — o que faz esta correção falhar silenciosamente sempre,
+  // mesmo com internet perfeitamente normal, sem nenhum sinal de que
+  // algo está errado. A forma fiável é perguntar a hora ao PRÓPRIO
+  // servidor que serve esta aplicação (aqui, o Vercel) — nunca há
+  // bloqueio nesse pedido, porque é o mesmo site, e os servidores dele
+  // têm sempre o relógio certo. O cabeçalho "Date" de qualquer resposta
+  // HTTP diz a hora exata do servidor no momento em que respondeu.
+  try {
+    const antesMs = Date.now();
+    const r = await fetch(window.location.origin + window.location.pathname + "?_t=" + antesMs, {
+      method: "HEAD",
+      cache: "no-store",
+    });
+    const depoisMs = Date.now();
+    const dataCabecalho = r.headers.get("date");
+    if (!dataCabecalho) return false;
+    const horaServidorMs = new Date(dataCabecalho).getTime();
+    if (!Number.isFinite(horaServidorMs)) return false;
+    // Desconta o tempo que o próprio pedido demorou a viajar (ida e
+    // volta), para a correção ficar mais precisa.
+    const atrasoRede = (depoisMs - antesMs) / 2;
+    desvioRelogioMs = horaServidorMs + atrasoRede - depoisMs;
+    desvioRelogioConfirmado = true;
+    return true;
+  } catch {
+    // Sem rede, ou o próprio site em baixo — fica sem corrigir nada,
+    // como sempre fez antes desta funcionalidade existir.
+    return false;
   }
-  return false;
 }
+
 
 // Gera um id com entropia suficiente para nunca colidir, mesmo quando
 // vários dispositivos criam registos ao mesmo tempo (ex.: hora de ponta
@@ -1937,7 +1939,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
               const hoje = dataLocalISO(agoraCorrigido());
-              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+              const em3Dias = dataLocalISO(new Date(agoraCorrigido().getTime() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).map((m) => (
               <div key={m.id} className="flex items-center justify-between py-2.5">
@@ -1958,7 +1960,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
               const hoje = dataLocalISO(agoraCorrigido());
-              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+              const em3Dias = dataLocalISO(new Date(agoraCorrigido().getTime() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).length === 0 && (
               <p className="text-sm text-slate-400 dark:text-slate-500 py-3">Ninguém a vencer nos próximos 3 dias.</p>
@@ -9510,6 +9512,70 @@ function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAces
   );
 }
 
+// ---------------------------------------------------------------------
+// POSSÍVEIS RECIBOS DUPLICADOS — agrupa documentos que parecem ser a
+// MESMA transação (mesmo atleta, mesmo valor, mesmo dia) mas ficaram
+// como registos separados — o que acontece quando a mesma ação chega a
+// ser processada mais do que uma vez (ex.: por uma falha de rede a meio,
+// ou por causa de um erro de sincronização já corrigido). Nunca elimina
+// nada sozinho — mostra os grupos para confirmares com os teus próprios
+// olhos (ou com o comprovativo que já tens) qual deve ficar.
+// ---------------------------------------------------------------------
+function PossiveisRecibosDuplicados({ faturas, onEliminar }) {
+  const grupos = useMemo(() => {
+    const mapa = {};
+    faturas.forEach((f) => {
+      if (!f.membro?.numero) return;
+      const chave = `${f.membro.numero}-${f.valor}-${f.data}-${f.tipo}`;
+      if (!mapa[chave]) mapa[chave] = [];
+      mapa[chave].push(f);
+    });
+    return Object.values(mapa)
+      .filter((g) => g.length > 1)
+      .sort((a, b) => (chaveTemporalPT(b[0]) > chaveTemporalPT(a[0]) ? 1 : -1));
+  }, [faturas]);
+
+  const totalDocumentosSuspeitos = grupos.reduce((s, g) => s + g.length, 0);
+
+  return (
+    <Card title={`${grupos.length} grupo(s) possivelmente duplicado(s) — ${totalDocumentosSuspeitos} documentos ao todo`}>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+        Mesmo atleta, mesmo valor, mesmo dia, mesmo tipo de documento — provavelmente a mesma cobrança registada mais
+        do que uma vez. Confirma com o comprovativo real (ex.: o que já mandaste por WhatsApp) qual destes deve
+        ficar, e elimina os outros. Nunca elimino nada automaticamente.
+      </p>
+      {grupos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum grupo suspeito encontrado. 🎉</p>
+      ) : (
+        <div className="space-y-4">
+          {grupos.map((grupo, i) => (
+            <div key={i} className="ring-1 ring-amber-200 dark:ring-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3">
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                {grupo[0].membro.nome} · {kz(grupo[0].valor)} · {grupo[0].data}
+              </p>
+              <div className="space-y-1.5">
+                {grupo.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between text-xs bg-white dark:bg-slate-800 rounded-lg px-3 py-2">
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {f.numero} · {f.hora} · registado por {f.registadoPor || "—"}
+                    </span>
+                    <button
+                      onClick={() => { if (confirm(`Eliminar o documento ${f.numero}? Esta ação não pode ser desfeita.`)) onEliminar(f.numero); }}
+                      className="text-red-500 hover:text-red-700 font-medium"
+                    >
+                      Eliminar este
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
   const [recriados, setRecriados] = useState({}); // chave -> true, depois de recriar
   const candidatos = useMemo(() => {
@@ -10878,7 +10944,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   // estimativa (nem todos renovam), não uma garantia.
   const previsaoReceita30Dias = useMemo(() => {
     const hojeStr = dataLocalISO(agoraCorrigido());
-    const em30DiasStr = dataLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    const em30DiasStr = dataLocalISO(new Date(agoraCorrigido().getTime() + 30 * 24 * 60 * 60 * 1000));
     const membrosAVencer = membros.filter((m) => m.estado === "ativo" && m.vencimento >= hojeStr && m.vencimento <= em30DiasStr);
     const total = membrosAVencer.reduce((s, m) => {
       const plano = planos.find((p) => p.nome === m.plano);
@@ -12734,6 +12800,7 @@ const MENU_ADMIN = [
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
       { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
+      { id: "recibos-duplicados", label: "Possíveis Recibos Duplicados", icon: AlertTriangle },
     ],
   },
   {
@@ -13594,7 +13661,7 @@ export default function CatumbelaGymApp() {
       const ultimo = window.localStorage.getItem(CHAVE_ULTIMO_BACKUP);
       const frequencia = dadosGinasio.frequenciaBackup || "15dias";
       const diasLimite = FREQUENCIAS_BACKUP[frequencia]?.dias ?? 15;
-      const diasPassados = ultimo ? (Date.now() - new Date(ultimo).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
+      const diasPassados = ultimo ? (agoraCorrigido().getTime() - new Date(ultimo).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
       const emAtraso = diasPassados > diasLimite;
       setAvisoBackup(emAtraso);
       if (emAtraso && frequencia === "automatico" && !backupAutoDisparado.current) {
@@ -15957,6 +16024,9 @@ export default function CatumbelaGymApp() {
               <RecuperarDadosAuditoria auditLog={auditLog} membros={membros} planos={planos} onRecriar={recriarMembroComSubscricao} />
               <RecuperarAcessosAuditoria auditLog={auditLog} acessos={acessos} membros={membros} onAdicionarAcessoManual={adicionarAcessoManual} />
             </div>
+          )}
+          {telaAtual === "recibos-duplicados" && perfil === "administrador" && (
+            <PossiveisRecibosDuplicados faturas={faturas} onEliminar={eliminarFatura} />
           )}
           {telaAtual === "mensagens" && perfil === "administrador" && (
             <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
