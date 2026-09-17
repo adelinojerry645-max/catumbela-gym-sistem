@@ -50,6 +50,24 @@ const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 // aumentar ao recalcular. Usa sempre esta função depois de .setDate().
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+// Os "id" são identificadores únicos e imprevisíveis (para nunca
+// colidirem entre dispositivos), o que significa que NÃO servem para
+// saber qual de dois registos é mais recente — comparar ids dá um
+// resultado essencialmente aleatório. Esta função constrói uma chave a
+// partir da data/hora REAL gravada em cada registo (formato português
+// "DD/MM/AAAA"), para ordenar corretamente por tempo em qualquer lista
+// (Auditoria, Mensagens, etc.) — sem isto, a fusão entre dispositivos
+// podia deixar o array numa ordem que não é cronológica, escondendo
+// ações recentes no meio de uma lista comprida.
+const chaveTemporalPT = (item) => {
+  const [dia, mes, ano] = (item?.data || "").split("/");
+  return `${ano}-${mes}-${dia}T${item?.hora || "00:00"}`;
+};
+
+// Igual, mas para registos com data já em formato ISO (AAAA-MM-DD) —
+// como historicoSubscricoes.
+const chaveTemporalISO = (item) => `${item?.data || ""}T${item?.hora || "00:00"}`;
+
 // Converte "DD/MM/AAAA" ou "AAAA-MM-DD" para "AAAA-MM-DD" — só para
 // ORDENAR corretamente (strings "DD/MM/AAAA" não ordenam bem
 // alfabeticamente; "AAAA-MM-DD" sim).
@@ -6135,7 +6153,7 @@ const ROTULO_ACAO_HISTORICO = {
 };
 
 function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
-  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (a.id < b.id ? 1 : -1));
+  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1));
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col">
@@ -7500,7 +7518,7 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
       .map((m) => {
         const ultimo = (historicoSubscricoes || [])
           .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
-          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
         return { membro: m, ultimo };
       })
       .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
@@ -7624,7 +7642,7 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
       .map((r) => {
         const ultimoRegisto = (historicoSubscricoes || [])
           .filter((h) => h.membroId === r.membro.id)
-          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
         return { ...r, ultimoRegisto };
       });
   }, [membros, faturas, planos, historicoSubscricoes]);
@@ -8538,7 +8556,7 @@ function MensagensParticipante({ mensagens, participanteId, participanteTipo, pa
   const [texto, setTexto] = useState("");
   const minhasMensagens = mensagens
     .filter((m) => m.participanteId === participanteId && m.participanteTipo === participanteTipo)
-    .sort((a, b) => (a.id > b.id ? 1 : -1));
+    .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1));
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -8592,10 +8610,10 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
     mensagens.forEach((m) => {
       const chave = `${m.participanteTipo}-${m.participanteId}`;
       if (!mapa[chave]) mapa[chave] = { participanteId: m.participanteId, participanteTipo: m.participanteTipo, participanteNome: m.participanteNome, ultima: m, naoLidas: 0 };
-      if (m.id > mapa[chave].ultima.id) mapa[chave].ultima = m;
+      if (chaveTemporalPT(m) > chaveTemporalPT(mapa[chave].ultima)) mapa[chave].ultima = m;
       if (!m.deAdmin && !m.lida) mapa[chave].naoLidas += 1;
     });
-    return Object.values(mapa).sort((a, b) => b.ultima.id - a.ultima.id);
+    return Object.values(mapa).sort((a, b) => (chaveTemporalPT(b.ultima) > chaveTemporalPT(a.ultima) ? 1 : -1));
   }, [mensagens]);
 
   const [aberta, setAberta] = useState(null);
@@ -8609,7 +8627,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   const mensagensDaConversa = aberta
     ? mensagens
         .filter((m) => m.participanteId === aberta.participanteId && m.participanteTipo === aberta.participanteTipo)
-        .sort((a, b) => (a.id > b.id ? 1 : -1))
+        .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1))
     : [];
 
   useEffect(() => {
@@ -9241,14 +9259,23 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
 }
 
 function Auditoria({ registos, onNavegar }) {
+  // Sem isto, a fusão entre dispositivos (esta coleção é das que mais
+  // escreve, por isso das mais sujeitas a conflitos) podia reconstruir o
+  // array sem garantir a ordem cronológica original — as entradas
+  // continuam TODAS lá, só que escondidas a meio de uma lista comprida
+  // em vez de aparecerem no topo, dando a impressão de que "faltavam".
+  const registosOrdenados = useMemo(
+    () => [...(registos || [])].sort((a, b) => (chaveTemporalPT(b) > chaveTemporalPT(a) ? 1 : -1)),
+    [registos]
+  );
   return (
     <Card title="Registo de auditoria">
-      {registos.length === 0 ? (
+      {registosOrdenados.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há ações registadas nesta sessão.</p>
       ) : (
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {registos.map((r, i) => (
-            <div key={i} className="py-3">
+          {registosOrdenados.map((r, i) => (
+            <div key={r.id || i} className="py-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.utilizador}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{r.data ? `${r.data} · ${r.hora}` : r.hora}</p>
