@@ -101,6 +101,85 @@ const gerarIdUnico = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 };
 
+// Hash simples e determinístico — dado o MESMO texto, produz sempre o
+// MESMO resultado, em qualquer dispositivo, sem precisar de coordenação
+// nenhuma entre eles. Usado só para dar um "id" estável a itens antigos.
+const hashEstavel = (texto) => {
+  let hash = 0;
+  for (let i = 0; i < texto.length; i++) {
+    hash = (hash << 5) - hash + texto.charCodeAt(i);
+    hash |= 0;
+  }
+  return "legado-" + Math.abs(hash).toString(36);
+};
+
+// Remove documentos duplicados de "faturas" — cada NÚMERO (REC-2026-...,
+// FAT-2026-...) só pode existir uma vez. Se houver mais do que um com o
+// mesmo número, fica só um — escolhido sempre da MESMA forma em
+// qualquer dispositivo (o de "id" mais pequeno, ordenado como texto),
+// para que todos os dispositivos cheguem ao mesmo resultado.
+const deduplicarFaturasPorNumero = (lista) => {
+  if (!Array.isArray(lista)) return lista;
+  const porNumero = {};
+  let houveDuplicado = false;
+  lista.forEach((f) => {
+    if (!f || !f.numero) return;
+    if (!porNumero[f.numero]) {
+      porNumero[f.numero] = f;
+    } else {
+      houveDuplicado = true;
+      if (String(f.id) < String(porNumero[f.numero].id)) porNumero[f.numero] = f;
+    }
+  });
+  if (!houveDuplicado) return lista;
+  return Object.values(porNumero).sort((a, b) => (a.numero < b.numero ? 1 : -1));
+};
+
+// Garante que todo o item de uma lista tem "id" — mesmo dados antigos,
+// criados antes desta proteção existir. Sem isto, bastava UM único item
+// antigo sem "id" para desligar a proteção de fusão entre dispositivos
+// para a coleção INTEIRA, deixando até os itens mais recentes
+// vulneráveis a serem apagados numa sincronização.
+const normalizarIds = (valor, chave) => {
+  if (!Array.isArray(valor)) return valor;
+  const semId = [];
+  valor.forEach((item, indiceOriginal) => {
+    if (item && typeof item === "object" && !("id" in item)) semId.push({ item, indiceOriginal });
+  });
+  if (semId.length === 0) {
+    if (chave === "faturas") {
+      const deduplicado = deduplicarFaturasPorNumero(valor);
+      if (deduplicado !== valor) return deduplicado;
+    }
+    return valor;
+  }
+  // Se dois itens antigos tiverem exatamente o mesmo conteúdo, ordena-os
+  // pelo próprio conteúdo (sempre dá a mesma ordem em qualquer
+  // dispositivo) e numera-os 1.º, 2.º, 3.º — assim cada um fica com um
+  // "id" único e sempre igual em qualquer aparelho que faça esta conta.
+  const textoDe = ({ item }) => JSON.stringify(item);
+  const ordenados = [...semId].sort((a, b) => {
+    const ta = textoDe(a), tb = textoDe(b);
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  });
+  const contagemPorHash = {};
+  const idPorIndiceOriginal = {};
+  ordenados.forEach(({ item, indiceOriginal }) => {
+    const base = hashEstavel(JSON.stringify(item));
+    const n = contagemPorHash[base] || 0;
+    contagemPorHash[base] = n + 1;
+    idPorIndiceOriginal[indiceOriginal] = n === 0 ? base : `${base}-${n}`;
+  });
+  let normalizado = valor.map((item, indice) =>
+    indice in idPorIndiceOriginal ? { ...item, id: idPorIndiceOriginal[indice] } : item
+  );
+  if (chave === "faturas") {
+    const deduplicado = deduplicarFaturasPorNumero(normalizado);
+    if (deduplicado !== normalizado) normalizado = deduplicado;
+  }
+  return normalizado;
+};
+
 // Devolve a lista de contas bancárias/Express do ginásio a mostrar aos membros
 // e nos recibos — usa as contas novas (várias) se existirem, senão cai para
 // os campos antigos (uma só conta), para quem já tinha configurado antes.
@@ -519,7 +598,7 @@ function useLocalOnly(chave, valorInicial) {
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
-    return chave in guardado ? guardado[chave] : valorInicial;
+    return normalizarIds(chave in guardado ? guardado[chave] : valorInicial, chave);
   });
   // Normalmente, o primeiro carregamento da página não reenvia nada para o
   // Supabase (só busca) — mas logo a seguir a restaurares uma cópia de
@@ -658,7 +737,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
     const tentarLer = () => {
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((dados) => {
+        .then((dadosBrutos) => {
+          const dados = dadosBrutos !== null ? normalizarIds(dadosBrutos, chave) : dadosBrutos;
           if (!cancelado && dados !== null) {
             // A base para comparações futuras segue SEMPRE o valor bruto
             // que veio do Supabase — nunca um resultado já fundido. Uma
@@ -820,7 +900,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // mudanças de cada lado, e só usa a versão remota nos raros casos em
       // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((remoto) => {
+        .then((remotoBruto) => {
+          const remoto = remotoBruto !== null ? normalizarIds(remotoBruto, chave) : remotoBruto;
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
           const houveConflito =
             remotoTexto !== null &&
@@ -831,6 +912,12 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
           let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
+          // Duas faturas com o MESMO número, mas criadas em dispositivos
+          // diferentes quase ao mesmo tempo, acabam com "id" interno
+          // diferente — por isso a fusão por "id" não as reconhece como
+          // sendo a mesma, e as duas sobrevivem. Limpa isso sempre que se
+          // está prestes a gravar, não só quando a página abre.
+          if (chave === "faturas") paraGravar = deduplicarFaturasPorNumero(paraGravar);
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
             if (jaBloqueouVazioAntes.current) {
               // Já bloqueámos esta mesma situação uma vez antes, e a
@@ -3170,7 +3257,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   );
 }
 
-function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada, dadosGinasio }) {
+function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada, dadosGinasio, perfil, onReiniciarVendas }) {
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [novo, setNovo] = useState({ codigo: "", nome: "", categoria: "", stock: 0, minimo: 5, precoCusto: 0, preco: 0 });
@@ -3435,9 +3522,18 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
           </div>
         </div>
       )}
+      {perfil === "administrador" && (
+        <ReiniciarColecaoParcial
+          titulo="Reiniciar histórico de Vendas"
+          descricao="Apaga todo o histórico de vendas (POS). Não mexe no stock atual dos produtos, nem em mais nada do sistema. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
+          frase="REINICIAR VENDAS"
+          onReiniciar={onReiniciarVendas}
+        />
+      )}
     </div>
   );
 }
+
 
 // ---------------------------------------------------------------------
 // BALCÃO — um único ecrã para atender uma pessoa do princípio ao fim:
@@ -4020,7 +4116,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   );
 }
 
-function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
+function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil, onReiniciar }) {
   const [query, setQuery] = useState("");
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [encontrado, setEncontrado] = useState(null);
@@ -4334,6 +4430,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           )}
         </div>
       </Card>
+      {perfil === "administrador" && (
+        <ReiniciarColecaoParcial
+          titulo="Reiniciar Controlo de Acessos"
+          descricao="Apaga todo o histórico de entradas e saídas. Não mexe em mais nada — membros, subscrições, faturação e o resto do sistema ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
+          frase="REINICIAR ACESSOS"
+          onReiniciar={onReiniciar}
+        />
+      )}
     </div>
   );
 }
@@ -5809,7 +5913,7 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
 // do GINÁSIO em si (renda, salários, manutenção, etc.).
 const CATEGORIAS_CUSTO_PRODUTOS = ["Compra de mercadoria"];
 
-function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
+function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio, onReiniciar, perfil }) {
   const [showForm, setShowForm] = useState(false);
   const [filtroGrupo, setFiltroGrupo] = useState("TODOS");
   const contasBancarias = obterContasBancarias(dadosGinasio);
@@ -6002,6 +6106,14 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
             </form>
           </div>
         </div>
+      )}
+      {perfil === "administrador" && (
+        <ReiniciarColecaoParcial
+          titulo="Reiniciar Centro de Custos"
+          descricao="Apaga todos os custos registados. Não mexe em mais nada — membros, faturação, pagamentos e o resto do sistema ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
+          frase="REINICIAR CUSTOS"
+          onReiniciar={onReiniciar}
+        />
       )}
     </div>
   );
@@ -6509,7 +6621,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   );
 }
 
-function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
+function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual, onReiniciarFaturacao }) {
   const [aba, setAba] = useState("emitir"); // "emitir" | "historico"
   const [tipo, setTipo] = useState("FATURA"); // FATURA | PROFORMA | RECIBO
   const [membroId, setMembroId] = useState("");
@@ -6594,16 +6706,28 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       </div>
 
       {aba === "historico" && (
-        <HistoricoFaturas
-          faturas={faturas}
-          perfil={perfil}
-          nomeAtual={nomeAtual}
-          onEliminar={onEliminarFatura}
-          onVer={(f) => {
-            setGerada(f);
-            setAba("emitir");
-          }}
-        />
+        <>
+          <HistoricoFaturas
+            faturas={faturas}
+            perfil={perfil}
+            nomeAtual={nomeAtual}
+            onEliminar={onEliminarFatura}
+            onVer={(f) => {
+              setGerada(f);
+              setAba("emitir");
+            }}
+          />
+          {perfil === "administrador" && (
+            <div className="mt-5">
+              <ReiniciarColecaoParcial
+                titulo="Reiniciar Faturação"
+                descricao='Apaga TODOS os recibos e faturas do histórico, e faz a numeração recomeçar de "REC-2026-000001". Não mexe em mais nada — membros, subscrições, pagamentos registados nos relatórios, e movimentos de caixa/banco ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual.'
+                frase="REINICIAR FATURAÇÃO"
+                onReiniciar={onReiniciarFaturacao}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {aba === "emitir" && (
@@ -7218,7 +7342,7 @@ function EnviarEmMassaModal({ pessoas, gerarMensagem, gerarChave, onMarcarEnviad
   );
 }
 
-function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
+function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado, onReiniciar }) {
   const notificacoes = calcularNotificacoes(membros, planos);
   const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
   // A "chave" de cada notificação identifica o membro + tipo de aviso +
@@ -7332,6 +7456,12 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
           onFechar={() => setAEnviarEmMassa(false)}
         />
       )}
+      <ReiniciarColecaoParcial
+        titulo="Reiniciar histórico de avisos enviados"
+        descricao='Apaga o registo de quem já foi contactado — todos os atletas com notificações ativas voltam a aparecer como "por contactar". Não mexe em mais nada. Não há forma de desfazer isto.'
+        frase="REINICIAR AVISOS"
+        onReiniciar={onReiniciar}
+      />
     </div>
   );
 }
@@ -7987,7 +8117,7 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
     if (editandoId) {
       formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
     } else {
-      const id = Math.max(0, ...contas.map((c) => (typeof c.id === "number" ? c.id : 0))) + 1;
+      const id = gerarIdUnico();
       formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id }] };
     }
     setForm(formAtualizado);
@@ -8456,7 +8586,7 @@ const RESPOSTAS_RAPIDAS = [
   "Podes passar pela receção para resolver isso.",
 ];
 
-function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros, funcionarios }) {
+function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros, funcionarios, onReiniciar }) {
   const conversas = useMemo(() => {
     const mapa = {};
     mensagens.forEach((m) => {
@@ -8653,6 +8783,12 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
           </div>
         </div>
       )}
+      <ReiniciarColecaoParcial
+        titulo="Reiniciar Mensagens"
+        descricao="Apaga todas as conversas (com atletas e com a equipa). Não mexe em mais nada do sistema. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar as conversas atuais."
+        frase="REINICIAR MENSAGENS"
+        onReiniciar={onReiniciar}
+      />
     </div>
   );
 }
@@ -9396,6 +9532,65 @@ function ModoTesteConfig() {
         <button onClick={() => alternarModoTeste(true)} className="text-sm font-semibold ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2.5 rounded-lg">
           🧪 Entrar em modo de teste
         </button>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// REINICIAR UMA ÁREA ESPECÍFICA — ao contrário de "Reiniciar o site"
+// (que apaga tudo), isto limpa só UMA coisa (ex.: só a Faturação),
+// deixando o resto do sistema intacto. Reutilizável para qualquer
+// coleção — basta indicar o nome, a descrição do que fica limpo, e a
+// função que aplica a limpeza.
+// ---------------------------------------------------------------------
+function ReiniciarColecaoParcial({ titulo, descricao, frase, onReiniciar }) {
+  const [confirmacao, setConfirmacao] = useState("");
+  const [showConfirmar, setShowConfirmar] = useState(false);
+  const [aReiniciar, setAReiniciar] = useState(false);
+
+  const reiniciar = () => {
+    setAReiniciar(true);
+    onReiniciar();
+    setShowConfirmar(false);
+    setConfirmacao("");
+    setAReiniciar(false);
+  };
+
+  return (
+    <Card title={<span className="flex items-center gap-2 text-red-600 dark:text-red-400"><AlertTriangle size={16} /> {titulo}</span>}>
+      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{descricao}</p>
+      {!showConfirmar ? (
+        <button
+          onClick={() => setShowConfirmar(true)}
+          className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
+        >
+          <AlertTriangle size={15} /> {titulo}
+        </button>
+      ) : (
+        <div className="space-y-3 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 rounded-xl p-4">
+          <p className="text-sm text-red-700 dark:text-red-400 font-medium">
+            Escreve <strong>{frase}</strong> para confirmares:
+          </p>
+          <input
+            value={confirmacao}
+            onChange={(e) => setConfirmacao(e.target.value)}
+            placeholder={frase}
+            className="w-full px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+          />
+          <div className="flex gap-2">
+            <button onClick={() => { setShowConfirmar(false); setConfirmacao(""); }} className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 font-semibold py-2.5 rounded-lg text-sm">
+              Cancelar
+            </button>
+            <button
+              onClick={reiniciar}
+              disabled={confirmacao !== frase || aReiniciar}
+              className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-red-200 dark:disabled:bg-red-900/40 disabled:text-red-400 text-white font-semibold py-2.5 rounded-lg text-sm"
+            >
+              {aReiniciar ? "A reiniciar..." : "Confirmar e reiniciar"}
+            </button>
+          </div>
+        </div>
       )}
     </Card>
   );
@@ -13180,7 +13375,7 @@ export default function CatumbelaGymApp() {
   const registarHistoricoSubscricao = (membro, dados) => {
     setHistoricoSubscricoes((atual) => [
       {
-        id: `${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        id: gerarIdUnico(),
         membroId: membro.id,
         membroNome: membro.nome,
         membroNumero: membro.numero,
@@ -13321,7 +13516,7 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoIdMembro = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoIdMembro = gerarIdUnico();
     const hojeStr = new Date().toISOString().slice(0, 10);
     // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
     // de inscrição definida em Configurações — fica pendente e é cobrada
@@ -13344,7 +13539,7 @@ export default function CatumbelaGymApp() {
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
-    const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    const novaConta = { id: gerarIdUnico(), nome, email, senha, perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
     registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
@@ -13392,7 +13587,7 @@ export default function CatumbelaGymApp() {
     const vencimentoFinal = novo.vencimento || null;
     const estadoFinal = vencimentoFinal ? "ativo" : "sem-subscricao";
     const dataInscricaoFinal = novo.dataInscricao || new Date().toISOString().slice(0, 10);
-    const novoId = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
       numero,
@@ -13414,7 +13609,7 @@ export default function CatumbelaGymApp() {
       setContas((atual) => [
         ...atual,
         {
-          id: Math.max(0, ...atual.map((c) => c.id)) + 1,
+          id: gerarIdUnico(),
           nome: novo.nome,
           email: novo.email,
           senha: novo.senha,
@@ -13458,7 +13653,7 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoId = Math.max(0, ...membros.map((m) => m.id)) + 1;
+    const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
       numero,
@@ -13545,7 +13740,7 @@ export default function CatumbelaGymApp() {
         if (!dados.senha) return atual; // precisa de senha para criar acesso novo
         return [
           ...atual,
-          { id: Math.max(0, ...atual.map((c) => c.id)) + 1, nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
+          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
         ];
       });
     } else if (contaExistente) {
@@ -13573,7 +13768,7 @@ export default function CatumbelaGymApp() {
     const membroId = contaAtual?.membroId;
     setAvaliacoesTrainer((atual) => [
       ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
+      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
     ]);
   };
 
@@ -13669,7 +13864,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria(
@@ -13704,7 +13899,7 @@ export default function CatumbelaGymApp() {
       if (dados.id) {
         return atual.map((p) => (p.id === dados.id ? { ...p, ...dados } : p));
       }
-      return [...atual, { ...dados, id: Math.max(0, ...atual.map((p) => p.id)) + 1 }];
+      return [...atual, { ...dados, id: gerarIdUnico() }];
     });
     // Se o NOME do plano mudou, atualiza também todos os membros que já
     // estavam nesse plano — a ligação é feita pelo nome, por isso, sem isto,
@@ -13744,7 +13939,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarTrainer = (novo) => {
-    setTrainers([...trainers, { ...novo, id: Math.max(0, ...trainers.map((t) => t.id)) + 1 }]);
+    setTrainers([...trainers, { ...novo, id: gerarIdUnico() }]);
   };
 
   // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
@@ -13764,7 +13959,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarProduto = (novo) => {
-    setProdutos([...produtos, { ...novo, id: Math.max(0, ...produtos.map((p) => p.id)) + 1 }]);
+    setProdutos([...produtos, { ...novo, id: gerarIdUnico() }]);
     registarAuditoria("Criou novo produto", novo.nome);
   };
 
@@ -13811,7 +14006,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas([...contas, { ...nova, id: Math.max(0, ...contas.map((c) => c.id)) + 1 }]);
+    setContas([...contas, { ...nova, id: gerarIdUnico() }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
@@ -13860,7 +14055,7 @@ export default function CatumbelaGymApp() {
     setVendasProdutos((atual) => [
       ...atual,
       ...itens.map((i, idx) => ({
-        id: `${Date.now()}-${idx}-${Math.floor(Math.random() * 10000)}`,
+        id: gerarIdUnico(),
         produtoId: i.produtoId, quantidade: i.quantidade, subtotal: i.subtotal, metodo,
         data: new Date().toLocaleDateString("pt-PT"),
         custoUnitario: i.produto.precoCusto || 0,
@@ -13885,7 +14080,7 @@ export default function CatumbelaGymApp() {
     // 4. se a compra foi feita por um membro, guarda no histórico da conta dele
     if (membro) {
       setComprasMembros((atual) => [
-        { id: Math.max(0, ...atual.map((c) => c.id || 0)) + 1, membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
+        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
         ...atual,
       ]);
     }
@@ -13899,7 +14094,7 @@ export default function CatumbelaGymApp() {
   const registarPagamento = (recibo) => {
     setPagamentosFeitos((atual) => [
       ...atual,
-      { metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
+      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
     ]);
     registarAuditoria(
       `Registou pagamento de ${kz(recibo.valor)}`,
@@ -13971,7 +14166,7 @@ export default function CatumbelaGymApp() {
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
+        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -13979,7 +14174,7 @@ export default function CatumbelaGymApp() {
       // indicada a conta/Express específica, fica ligado a ela.
       const contaEscolhida = contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId)) : null;
       const registoLedger = {
-        id: Date.now(),
+        id: gerarIdUnico(),
         direcao: "entrada",
         subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
         valor,
@@ -14038,6 +14233,60 @@ export default function CatumbelaGymApp() {
     } else {
       registarAuditoria("Eliminou documento e desfez os seus efeitos financeiros", `${numero} — ${doc?.membro?.nome || "—"}`);
     }
+  };
+
+  // Reinicia SÓ o histórico de faturação — apaga todos os recibos/faturas
+  // e faz a numeração recomeçar do zero, sem tocar em mais nada (membros,
+  // subscrições, pagamentos dos relatórios, movimentos de caixa/banco).
+  const reiniciarFaturacao = () => {
+    const totalAntes = faturas.length;
+    setFaturas([]);
+    registarAuditoria("Reiniciou a Faturação", `Apagou todo o histórico de recibos/faturas (${totalAntes} documento${totalAntes !== 1 ? "s" : ""}) — a numeração recomeça do zero.`);
+  };
+
+  // As funções abaixo seguem todas o mesmo princípio: apagam só a
+  // coleção indicada, sem tocar em mais nada do sistema — cada uma
+  // isolada na sua própria área.
+  const reiniciarCustos = () => {
+    const totalAntes = custos.length;
+    setCustos([]);
+    registarAuditoria("Reiniciou o Centro de Custos", `Apagou todos os custos registados (${totalAntes}).`);
+  };
+
+  const reiniciarAcessos = () => {
+    const totalAntes = acessos.length;
+    setAcessos([]);
+    registarAuditoria("Reiniciou o Controlo de Acessos", `Apagou todo o histórico de entradas/saídas (${totalAntes}).`);
+  };
+
+  const reiniciarVendas = () => {
+    const totalAntes = vendasProdutos.length;
+    setVendasProdutos([]);
+    registarAuditoria("Reiniciou o histórico de Vendas", `Apagou todo o histórico de vendas (${totalAntes}) — o stock atual dos produtos não é afetado.`);
+  };
+
+  const reiniciarMensagens = () => {
+    const totalAntes = mensagens.length;
+    setMensagens([]);
+    registarAuditoria("Reiniciou as Mensagens", `Apagou todas as conversas (${totalAntes} mensagens).`);
+  };
+
+  const reiniciarAvisosEnviados = () => {
+    const totalAntes = avisosEnviados.length;
+    setAvisosEnviados([]);
+    registarAuditoria("Reiniciou o histórico de avisos enviados", `Apagou o registo de quem já foi avisado (${totalAntes}) — todos voltam a aparecer como "por contactar".`);
+  };
+
+  const reiniciarAuditoria = () => {
+    const totalAntes = auditLog.length;
+    setAuditLog([]);
+    registarAuditoria("Reiniciou a Auditoria", `Apagou o registo de ações anteriores (${totalAntes}) — esta própria ação fica como a primeira do novo histórico.`);
+  };
+
+  const reiniciarPonto = () => {
+    const totalAntes = registosPonto.length;
+    setRegistosPonto([]);
+    registarAuditoria("Reiniciou o Ponto (histórico)", `Apagou todos os registos de ponto dos funcionários (${totalAntes}).`);
   };
 
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
@@ -14417,7 +14666,7 @@ export default function CatumbelaGymApp() {
     // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
     // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
     // a nenhum custo real.
-    const novoId = Math.max(0, ...custos.map((c) => c.id || 0)) + 1;
+    const novoId = gerarIdUnico();
     setCustos((atual) => [
       { ...custo, id: novoId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
       ...atual,
@@ -14449,7 +14698,7 @@ export default function CatumbelaGymApp() {
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
-      { ...item, id: Math.max(0, ...atual.map((i) => i.id || 0)) + 1, estado: "planeado", data: new Date().toISOString().slice(0, 10) },
+      { ...item, id: gerarIdUnico(), estado: "planeado", data: new Date().toISOString().slice(0, 10) },
       ...atual,
     ]);
     registarAuditoria("Adicionou item ao orçamento", `${item.nome} — ${kz(item.valorEstimado)}`);
@@ -14503,7 +14752,7 @@ export default function CatumbelaGymApp() {
 
   // PLANO DE ATIVIDADES
   const adicionarAtividade = (dados) => {
-    setAtividades((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1 }]);
+    setAtividades((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Criou atividade no horário", `${dados.nome} — ${dados.diaSemana} ${dados.horaInicio}`);
   };
 
@@ -14571,7 +14820,7 @@ export default function CatumbelaGymApp() {
   const adicionarAvaliacaoFisica = (membroId, dados) => {
     const membro = membros.find((m) => m.id === membroId);
     setAvaliacoesFisicas((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...dados, id: gerarIdUnico(), membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria("Registou avaliação física", `${membro?.nome || membroId} — ${dados.peso ? dados.peso + "kg" : ""}`);
@@ -14611,7 +14860,7 @@ export default function CatumbelaGymApp() {
   // com o que o sistema esperava, para detetar diferenças cedo.
   const registarFechoTurno = (dados) => {
     setFechosTurno((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((f) => f.id || 0)) + 1, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
     // Se a contagem física não bateu certo com o sistema, ajusta logo o saldo
@@ -14620,7 +14869,7 @@ export default function CatumbelaGymApp() {
     if (dados.diferenca !== 0) {
       setMovimentosCaixa((atual) => [
         {
-          id: Date.now(),
+          id: gerarIdUnico(),
           direcao: dados.diferenca > 0 ? "entrada" : "saida",
           subtipo: "Ajuste de caixa (fecho de turno)",
           valor: Math.abs(dados.diferenca),
@@ -14639,13 +14888,13 @@ export default function CatumbelaGymApp() {
   };
 
   const registarPonto = (dados) => {
-    setRegistosPonto((atual) => [{ ...dados, id: Math.max(0, ...atual.map((r) => r.id || 0)) + 1 }, ...atual]);
+    setRegistosPonto((atual) => [{ ...dados, id: gerarIdUnico() }, ...atual]);
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
   };
 
   // MANUTENÇÃO DE EQUIPAMENTOS
   const adicionarEquipamento = (dados) => {
-    setEquipamentos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((e) => e.id || 0)) + 1 }]);
+    setEquipamentos((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Adicionou equipamento", dados.nome);
   };
   const atualizarEquipamento = (id, dados) => {
@@ -14660,7 +14909,7 @@ export default function CatumbelaGymApp() {
 
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
-    setAvisos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, data: new Date().toISOString().slice(0, 10) }]);
+    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10) }]);
     registarAuditoria("Publicou aviso", dados.titulo);
   };
   const removerAviso = (id) => {
@@ -14712,9 +14961,8 @@ export default function CatumbelaGymApp() {
       data: agora.toLocaleDateString("pt-PT"),
       hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
     };
-    let proximoId = Math.max(0, ...mensagens.map((m) => m.id || 0)) + 1;
     const novasMensagens = membros.map((m) => ({
-      id: proximoId++,
+      id: gerarIdUnico(),
       participanteId: m.id,
       participanteNome: m.nome,
       participanteTipo: "membro",
@@ -14730,7 +14978,7 @@ export default function CatumbelaGymApp() {
   const adicionarMovimento = (ledger, movimento) => {
     const registo = {
       ...movimento,
-      id: Date.now(),
+      id: gerarIdUnico(),
       data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       registadoPor: contaAtual?.nome || "—",
     };
@@ -15334,7 +15582,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
-            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
+            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} onReiniciar={reiniciarCustos} perfil={perfil} />
           )}
           {telaAtual === "orcamento" && perfil === "administrador" && (
             <Orcamento itens={orcamento} onAdicionar={adicionarItemOrcamento} onRemover={removerItemOrcamento} onMarcarComprado={marcarItemComprado} onRegistarPagamento={registarPagamentoOrcamento} dadosGinasio={dadosGinasio} />
@@ -15343,13 +15591,13 @@ export default function CatumbelaGymApp() {
             <PlanoAtividades atividades={atividades} trainers={trainers} reservasAtividades={reservasAtividades} onAdicionar={adicionarAtividade} onAtualizar={atualizarAtividade} onRemover={removerAtividade} />
           )}
           {telaAtual === "faturacao" && (perfil === "administrador" || perfil === "recepcionista") && (
-            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} />
+            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} onReiniciarFaturacao={reiniciarFaturacao} />
           )}
           {telaAtual === "pos" && (
             <VendasPOS produtos={produtos} membros={membros} dadosGinasio={dadosGinasio} onFinalizar={finalizarVenda} />
           )}
           {telaAtual === "stock" && (
-            <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} />
+            <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} perfil={perfil} onReiniciarVendas={reiniciarVendas} />
           )}
           {telaAtual === "balcao" && (
             <Balcao
@@ -15367,10 +15615,10 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "acessos" && (
-            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
+            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} onReiniciar={reiniciarAcessos} />
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
-          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
+          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} onReiniciar={reiniciarAvisosEnviados} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "sem-recibo" && perfil === "administrador" && (
             <div className="space-y-4">
@@ -15399,7 +15647,7 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "mensagens" && perfil === "administrador" && (
-            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
+            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} onReiniciar={reiniciarMensagens} />
           )}
           {telaAtual === "mensagens" && (perfil === "recepcionista" || perfil === "personal_trainer") && (
             <MensagensParticipante
