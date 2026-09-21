@@ -3,11 +3,11 @@ import {
   LayoutDashboard, Users, ClipboardList, CreditCard, Wallet, Package,
   ShoppingCart, DoorOpen, UserCog, BarChart3, Settings, Search, Bell,
   Plus, QrCode, CheckCircle2, XCircle, TrendingUp, AlertTriangle, X,
-  Pencil, LogOut, ChevronLeft, Receipt, User as UserIcon, History,
+  Pencil, LogOut, User as UserIcon, History,
   Sun, Moon, MessageCircle, Phone, Trash2, Camera, FileText, Dumbbell,
   ShieldCheck, KeyRound, Menu, Save, LogIn, DoorClosed, Wallet as WalletIcon,
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
-  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
+  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Star, Target, Download,
 } from "lucide-react";
 import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
@@ -1577,7 +1577,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 
   const membrosRecentes = useMemo(() => {
     return [...membros]
-      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || b.id - a.id)
+      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || String(b.id).localeCompare(String(a.id)))
       .slice(0, 5);
   }, [membros]);
 
@@ -2771,6 +2771,8 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
   const [comprovativo, setComprovativo] = useState(null);
   const [recibo, setRecibo] = useState(null);
   const [aGerarPDF, setAGerarPDF] = useState(false);
+  const aConfirmarRef = useRef(false);
+  const [aConfirmarAvulso, setAConfirmarAvulso] = useState(false);
   const docRef = useRef(null);
 
   const metodos = [
@@ -2789,9 +2791,12 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       .catch(() => alert("Não foi possível processar esta imagem. Tenta outra."));
   };
 
-  const confirmar = () => {
+  const confirmar = async () => {
     if (!nome || !valor || Number(valor) <= 0) return;
-    const documento = onRegistarAvulso({
+    if (aConfirmarRef.current) return;
+    aConfirmarRef.current = true;
+    setAConfirmarAvulso(true);
+    const documento = await onRegistarAvulso({
       nome,
       telefone,
       descricao: descricao || "Entrada avulsa",
@@ -2801,6 +2806,8 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       comprovativo,
     });
     setRecibo(documento);
+    aConfirmarRef.current = false;
+    setAConfirmarAvulso(false);
   };
 
   const reiniciar = () => {
@@ -2901,10 +2908,10 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
 
             <button
               onClick={confirmar}
-              disabled={!nome || !valor}
+              disabled={!nome || !valor || aConfirmarAvulso}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500 text-white font-semibold py-2.5 rounded-lg"
             >
-              <CheckCircle2 size={16} /> Confirmar pagamento
+              <CheckCircle2 size={16} /> {aConfirmarAvulso ? "A confirmar..." : "Confirmar pagamento"}
             </button>
           </div>
         ) : (
@@ -2975,6 +2982,12 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   const [metodo, setMetodo] = useState("dinheiro");
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [concluida, setConcluida] = useState(null);
+  // Protege contra duplo clique a finalizar duas vendas de uma só ação —
+  // uma "ref" (síncrona) em vez de um "state" (só reflete no próximo
+  // render), e só é reposta quando o formulário volta a ficar vazio
+  // (depois da venda), não logo a seguir a esta função terminar.
+  const aFinalizarRef = useRef(false);
+  const [aFinalizar, setAFinalizar] = useState(false);
   const [leitorAberto, setLeitorAberto] = useState(false);
   const [erroLeitor, setErroLeitor] = useState("");
   const [naoEncontrado, setNaoEncontrado] = useState("");
@@ -3066,14 +3079,19 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   });
   const total = itensCarrinho.reduce((s, i) => s + i.subtotal, 0);
 
-  const finalizar = () => {
+  const finalizar = async () => {
     if (itensCarrinho.length === 0) return;
+    if (aFinalizarRef.current) return;
+    aFinalizarRef.current = true;
+    setAFinalizar(true);
     const membro = membros.find((m) => m.id === Number(membroId)) || null;
-    const documento = onFinalizar({ itens: itensCarrinho, total, metodo, membro, contaBancariaId });
+    const documento = await onFinalizar({ itens: itensCarrinho, total, metodo, membro, contaBancariaId });
     setConcluida(documento);
     setCarrinho([]);
     setMembroId("");
     setContaBancariaId("");
+    aFinalizarRef.current = false;
+    setAFinalizar(false);
   };
 
   return (
@@ -3197,8 +3215,12 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
               <span className="text-xl font-extrabold text-[#3F8F87]">{kz(total)}</span>
             </div>
 
-            <button onClick={finalizar} className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg text-sm">
-              Concluir venda
+            <button
+              onClick={finalizar}
+              disabled={aFinalizar || itensCarrinho.length === 0}
+              className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm"
+            >
+              {aFinalizar ? "A finalizar..." : "Finalizar venda"}
             </button>
           </div>
         )}
@@ -3564,6 +3586,10 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
 function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
   const [query, setQuery] = useState("");
   const [membroSelecionado, setMembroSelecionado] = useState(null);
+  // Protege contra duplo clique a disparar duas vezes a mesma ação — uma
+  // "ref" (síncrona) para cada botão que gera algo financeiro no Balcão.
+  const aProcessarRef = useRef(false);
+  const [aProcessar, setAProcessar] = useState(false);
   const [aCriarNovo, setACriarNovo] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const [novoTelefone, setNovoTelefone] = useState("");
@@ -3646,26 +3672,36 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
     setTaxaInscricaoContaId("");
   };
 
-  const criarMembroRapido = () => {
+  const criarMembroRapido = async () => {
     if (!novoNome.trim()) return;
-    const resultado = onCriarMembro({
+    if (aProcessarRef.current) return;
+    aProcessarRef.current = true;
+    setAProcessar(true);
+    const resultado = await onCriarMembro({
       nome: novoNome.trim(), telefone: novoTelefone.trim(),
       taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
     });
     setNovoNome("");
     setNovoTelefone("");
+    aProcessarRef.current = false;
+    setAProcessar(false);
     if (resultado?.membro) selecionar(resultado.membro);
   };
 
-  const confirmarSubscricao = () => {
+  const confirmarSubscricao = async () => {
     if (!planoEscolhido) return;
+    if (aProcessarRef.current) return;
+    aProcessarRef.current = true;
+    setAProcessar(true);
     const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
-    const documento = onAtualizarSubscricao(
+    const documento = await onAtualizarSubscricao(
       membroSelecionado.id, planoEscolhido, dataInicioEscolhida || hojeStr,
       semPagamentoAgoraBalcao ? null : metodoEscolhido,
       semPagamentoAgoraBalcao ? null : contaBancariaEscolhida,
       cobrarTaxaPendenteBalcao && !semPagamentoAgoraBalcao ? taxasPendentes.faturas : []
     );
+    aProcessarRef.current = false;
+    setAProcessar(false);
     const plano = planos.find((p) => p.nome === planoEscolhido);
     const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
     setMembroSelecionado(membroAtualizado);
@@ -3691,8 +3727,13 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
     setTimeout(voltarAoInicio, 1400);
   };
 
-  const fazerSaida = () => {
-    const resultado = onRegistarSaida(membroSelecionado);
+  const fazerSaida = async () => {
+    if (aProcessarRef.current) return;
+    aProcessarRef.current = true;
+    setAProcessar(true);
+    const resultado = await onRegistarSaida(membroSelecionado);
+    aProcessarRef.current = false;
+    setAProcessar(false);
     setUltimaAcao({
       texto: `Saída registada — ${membroSelecionado.nome}`,
       desfazer: () => { onDesfazerSaida(resultado.acessoId, resultado.taxaFaturaNumero); setUltimaAcao(null); voltarAoInicio(); },
@@ -3940,9 +3981,9 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
               <button onClick={voltarAoInicio} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
                 Cancelar
               </button>
-              <button onClick={criarMembroRapido} disabled={!novoNome.trim()}
+              <button onClick={criarMembroRapido} disabled={!novoNome.trim() || aProcessar}
                 className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
-                Inscrever e continuar
+                {aProcessar ? "A inscrever..." : "Inscrever e continuar"}
               </button>
             </div>
           </div>
@@ -4088,9 +4129,9 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
                 <button onClick={() => setASubscrever(false)} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
                   Cancelar
                 </button>
-                <button onClick={confirmarSubscricao} disabled={!planoEscolhido}
+                <button onClick={confirmarSubscricao} disabled={!planoEscolhido || aProcessar}
                   className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
-                  {semPagamentoAgoraBalcao ? "Confirmar (sem recibo)" : "Confirmar pagamento"}
+                  {aProcessar ? "A processar..." : semPagamentoAgoraBalcao ? "Confirmar (sem recibo)" : "Confirmar pagamento"}
                 </button>
               </div>
             </div>
@@ -4119,8 +4160,8 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
                   ⚠ Este atleta ficou com uma entrada por fechar desde <strong>{acessoAbertoDoMembro.data}</strong>, às {acessoAbertoDoMembro.entrada} — provavelmente esqueceram-se de registar a saída nessa altura.
                 </p>
               )}
-              <button onClick={fazerSaida} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-lg">
-                Registar saída
+              <button onClick={fazerSaida} disabled={aProcessar} className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-lg py-4 rounded-lg">
+                {aProcessar ? "A registar..." : "Registar saída"}
               </button>
             </div>
           ) : (
@@ -4139,6 +4180,18 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [encontrado, setEncontrado] = useState(null);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
+  // Protege contra duplo clique em "registar saída" — pode gerar uma taxa
+  // de sessão longa, por isso um clique a mais não pode gerar duas.
+  const aRegistarSaidaRef = useRef(false);
+  const [aRegistarSaida, setARegistarSaida] = useState(false);
+  const registarSaidaProtegido = async (membro) => {
+    if (aRegistarSaidaRef.current) return;
+    aRegistarSaidaRef.current = true;
+    setARegistarSaida(true);
+    await onRegistarSaida(membro);
+    aRegistarSaidaRef.current = false;
+    setARegistarSaida(false);
+  };
   const [camaraAtiva, setCamaraAtiva] = useState(false);
   const [erroCamara, setErroCamara] = useState("");
   const videoRef = React.useRef(null);
@@ -4386,13 +4439,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
 
               {entradaAberta ? (
                 <button
+                  disabled={aRegistarSaida}
                   onClick={() => {
-                    onRegistarSaida(encontrado);
+                    registarSaidaProtegido(encontrado);
                     setEncontrado(null);
                     setQuery("");
                     setPermitirExcecao(false);
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 transition-all text-white font-semibold py-2.5 rounded-lg mt-2"
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 transition-all text-white font-semibold py-2.5 rounded-lg mt-2 disabled:opacity-50"
                 >
                   <DoorClosed size={16} /> Registar saída
                 </button>
@@ -4430,12 +4484,13 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                   <p className="text-xs text-slate-400 dark:text-slate-500">Saída {a.saida}</p>
                 ) : (
                   <button
+                    disabled={aRegistarSaida}
                     onClick={() => {
                       const membroDoAcesso = membros.find((m) => m.numero === a.numero);
-                      if (membroDoAcesso) onRegistarSaida(membroDoAcesso);
+                      if (membroDoAcesso) registarSaidaProtegido(membroDoAcesso);
                     }}
                     title="Clica para registar a saída agora"
-                    className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300"
+                    className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300 disabled:opacity-50"
                   >
                     Ainda no ginásio — registar saída
                   </button>
@@ -6254,9 +6309,12 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   };
 
   const [cobrarTaxaPendente, setCobrarTaxaPendente] = useState(false);
-  const confirmarMudanca = (membro) => {
+  const [aConfirmar, setAConfirmar] = useState(false);
+  const confirmarMudanca = async (membro) => {
+    if (aConfirmar) return;
+    setAConfirmar(true);
     const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membro, faturas);
-    const documento = onAtualizarSubscricao(
+    const documento = await onAtualizarSubscricao(
       membro.id, novoPlano, dataInicio,
       semPagamentoAgora ? null : metodoPagamento,
       semPagamentoAgora ? null : contaBancariaId,
@@ -6266,6 +6324,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     setUltimoPlanoConfirmado(novoPlano);
     setEditandoId(null);
     setCobrarTaxaPendente(false);
+    setAConfirmar(false);
   };
 
   const diasRestantes = (vencimento) => {
@@ -6350,7 +6409,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                       <td className="py-2.5 text-right">
                         {aEditar ? (
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => confirmarMudanca(m)} className="text-emerald-600 hover:text-emerald-700"><CheckCircle2 size={16} /></button>
+                            <button onClick={() => confirmarMudanca(m)} disabled={aConfirmar} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-40"><CheckCircle2 size={16} /></button>
                             <button onClick={() => setEditandoId(null)} className="text-slate-400 hover:text-red-500"><X size={16} /></button>
                           </div>
                         ) : (
@@ -6648,6 +6707,13 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [faturaOrigemNumero, setFaturaOrigemNumero] = useState(null); // se este recibo quita uma fatura pendente
   const [gerada, setGerada] = useState(null);
+  // Protege contra duplo clique (ou um toque duplo acidental num ecrã
+  // tátil) a gerar DOIS documentos de uma só ação — uma "ref" atualiza
+  // logo, de forma síncrona, ao contrário de um "state" (que só reflete
+  // no ecrã no próximo render, deixando uma janela onde um segundo
+  // clique ainda passava).
+  const aGerarRef = useRef(false);
+  const [aGerar, setAGerar] = useState(false);
   const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
   const cartaoGerarRef = useRef(null);
@@ -6679,6 +6745,12 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const gerar = () => {
     if (!membro || itensSelecionados.length === 0) return;
     if (tipo === "RECIBO" && !metodoPagamento) return;
+    // Bloqueia qualquer chamada seguinte enquanto esta ainda está a
+    // decorrer — mesmo que o clique venha no MESMO instante, antes do
+    // React ter tido tempo de desativar o botão no ecrã.
+    if (aGerarRef.current) return;
+    aGerarRef.current = true;
+    setAGerar(true);
     const documento = {
       tipo,
       membro,
@@ -6704,6 +6776,8 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
     setGerada(null);
     setItensSelecionados([]);
     setMembroId("");
+    aGerarRef.current = false;
+    setAGerar(false);
   };
 
   return (
@@ -6878,10 +6952,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 
                 <button
                   onClick={gerar}
-                  disabled={itensSelecionados.length === 0}
+                  disabled={itensSelecionados.length === 0 || aGerar}
                   className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold py-2.5 rounded-lg text-sm"
                 >
-                  Confirmar e gerar {tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"}
+                  {aGerar ? "A gerar..." : `Confirmar e gerar ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"}`}
                 </button>
               </>
             )}
@@ -7116,6 +7190,13 @@ const ESTILO_NOTIFICACAO = {
 // ---------------------------------------------------------------------
 function AprovacaoPagamentos({ pendentes, onAprovar, onRejeitar }) {
   const [verComprovativo, setVerComprovativo] = useState(null);
+  const [aAprovarId, setAAprovarId] = useState(null);
+  const aprovar = async (p) => {
+    if (aAprovarId) return;
+    setAAprovarId(p.id);
+    await onAprovar(p);
+    setAAprovarId(null);
+  };
   // Só pagamentos submetidos pelos próprios membros (self-service) precisam de
   // aprovação aqui — um pagamento registado presencialmente por um funcionário
   // já foi verificado por essa pessoa na hora, não fica pendente.
@@ -7166,14 +7247,16 @@ function AprovacaoPagamentos({ pendentes, onAprovar, onRejeitar }) {
                   )}
                   <div className="flex gap-2 mt-4">
                     <button
-                      onClick={() => onAprovar(p)}
-                      className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2 rounded-lg"
+                      onClick={() => aprovar(p)}
+                      disabled={!!aAprovarId}
+                      className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:opacity-50 text-white text-sm font-semibold py-2 rounded-lg"
                     >
-                      Aprovar
+                      {aAprovarId === p.id ? "A aprovar..." : "Aprovar"}
                     </button>
                     <button
                       onClick={() => onRejeitar(p)}
-                      className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700"
+                      disabled={!!aAprovarId}
+                      className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
                     >
                       Rejeitar
                     </button>
@@ -12011,6 +12094,16 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
   const [aba, setAba] = useState("inicio");
   const [planoEscolhido, setPlanoEscolhido] = useState(null);
   const cartaoRef = useRef(null);
+  const aCheckoutRef = useRef(false);
+  const [aCheckout, setACheckout] = useState(false);
+  const checkoutProtegido = async () => {
+    if (aCheckoutRef.current) return;
+    aCheckoutRef.current = true;
+    setACheckout(true);
+    await onRegistarSaida(membro);
+    aCheckoutRef.current = false;
+    setACheckout(false);
+  };
   const plano = planos.find((p) => p.nome === membro.plano);
   const temTaxaInscricaoPendente = !membro.taxaInscricaoPaga && Number(membro.taxaInscricaoPendente) > 0;
   const minhasCompras = compras.filter((c) => c.membroId === membro.id);
@@ -12076,8 +12169,9 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                   )}
                   {entradaAbertaHoje ? (
                     <button
-                      onClick={() => onRegistarSaida(membro)}
-                      className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-sm"
+                      disabled={aCheckout}
+                      onClick={checkoutProtegido}
+                      className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50"
                     >
                       <DoorClosed size={16} /> Fazer check-out
                     </button>
@@ -13600,7 +13694,7 @@ export default function CatumbelaGymApp() {
     );
   }
 
-  const adicionarMembro = (novo) => {
+  const adicionarMembro = async (novo) => {
     // Numeração sequencial: pega o maior número de membro já existente e soma 1 (começa em CG-000001)
     const maiorNumero = membros.reduce((max, m) => {
       const n = parseInt(m.numero.replace("CG-", ""), 10);
@@ -13650,7 +13744,7 @@ export default function CatumbelaGymApp() {
     // valor de inscrição e um método, gera logo o recibo correspondente.
     let reciboInscricao = null;
     if (novo.taxaInscricao && Number(novo.taxaInscricao) > 0 && novo.metodoTaxaInscricao) {
-      reciboInscricao = gerarDocumentoFaturacao({
+      reciboInscricao = await gerarDocumentoFaturacao({
         tipo: "RECIBO",
         membro: membroNovo,
         itens: [{ referencia: "TAXA-INSCRICAO", descricao: "Taxa de inscrição", qtd: 1, precoUnit: Number(novo.taxaInscricao), total: Number(novo.taxaInscricao) }],
@@ -14067,7 +14161,7 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Eliminou conta de acesso e os movimentos financeiros ligados a ela", conta?.nome);
   };
 
-  const finalizarVenda = ({ itens, total, metodo, membro, contaBancariaId }) => {
+  const finalizarVenda = async ({ itens, total, metodo, membro, contaBancariaId }) => {
     // 1. reduz o stock de cada produto vendido
     setProdutos((atual) =>
       atual.map((p) => {
@@ -14093,7 +14187,7 @@ export default function CatumbelaGymApp() {
     // guarda no histórico partilhado (para veres tudo junto e a numeração
     // nunca se repetir entre POS e Faturação).
     const clienteRecibo = membro || { nome: "Cliente sem cadastro", numero: "AVULSO", telefone: "" };
-    const documento = gerarDocumentoFaturacao({
+    const documento = await gerarDocumentoFaturacao({
       tipo: "RECIBO",
       membro: clienteRecibo,
       itens: itens.map((i) => ({
@@ -14142,26 +14236,13 @@ export default function CatumbelaGymApp() {
   // si própria a cada chamada (em vez de depender de um useEffect
   // separado) — descarta o que já está refletido em "faturas", para
   // nunca crescer sem controlo.
-  const gerarDocumentoFaturacao = ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
+  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
     faturasCriadasNestaSessao.current = faturasCriadasNestaSessao.current.filter(
       (f) => !faturas.some((fReal) => fReal.numero === f.numero)
     );
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
-    // O número tem de vir do MAIOR já usado, nunca de contar quantos
-    // documentos existem — contar por quantidade parte do princípio de
-    // que nunca nenhum foi eliminado nem está em falta por sincronizar,
-    // o que não é seguro assumir.
-    const todasConhecidas = [...faturas, ...faturasCriadasNestaSessao.current];
-    const maiorNumero = todasConhecidas
-      .filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`))
-      .reduce((max, f) => {
-        const n = parseInt(f.numero.split("-").pop(), 10);
-        return n > max ? n : max;
-      }, 0);
-    const numero = `${prefixo}-${ano}-` + String(maiorNumero + 1).padStart(6, "0");
-    const documento = {
-      numero,
+    const documentoBase = {
       tipo,
       membro,
       itens,
@@ -14182,14 +14263,47 @@ export default function CatumbelaGymApp() {
       // Guarda qual fatura pendente este recibo quitou (se alguma).
       faturaOrigemNumero: tipo === "RECIBO" && faturaOrigemNumero ? faturaOrigemNumero : null,
     };
+
+    let documento;
+    try {
+      // Via principal: o PRÓPRIO SERVIDOR atribui o número, dentro de
+      // uma operação indivisível — elimina por completo a possibilidade
+      // de dois dispositivos (ou um duplo clique) calcularem o mesmo
+      // número, porque o cálculo deixa de acontecer aqui, no browser.
+      const chaveColecao = PREFIXO_COLECAO_TESTE + "faturas";
+      const gerado = await gerarDocumentoAtomico(chaveColecao, prefixo, ano, documentoBase);
+      documento = gerado;
+    } catch {
+      // Sem rede neste preciso momento (ou o servidor não respondeu a
+      // tempo) — cai para o cálculo local antigo, para nunca travar o
+      // atendimento por falta de internet. Fica com um risco residual
+      // de colisão SÓ neste cenário raro (offline), que a limpeza
+      // automática de duplicados (mais abaixo) resolve assim que a
+      // rede voltar.
+      const todasConhecidas = [...faturas, ...faturasCriadasNestaSessao.current];
+      const maiorNumero = todasConhecidas
+        .filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`))
+        .reduce((max, f) => {
+          const n = parseInt(f.numero.split("-").pop(), 10);
+          return n > max ? n : max;
+        }, 0);
+      const numero = `${prefixo}-${ano}-` + String(maiorNumero + 1).padStart(6, "0");
+      documento = { ...documentoBase, numero };
+    }
+
     faturasCriadasNestaSessao.current.push(documento);
     setFaturas((atual) => {
+      // Se a via atómica já inseriu o documento diretamente no
+      // servidor, uma sincronização em tempo real pode entretanto já
+      // tê-lo trazido para aqui — evita duplicar no ecrã.
+      if (atual.some((f) => f.numero === documento.numero)) return atual;
       let novo = [documento, ...atual];
       if (tipo === "RECIBO" && faturaOrigemNumero) {
         novo = novo.map((f) => (f.numero === faturaOrigemNumero ? { ...f, estado: "paga" } : f));
       }
       return novo;
     });
+    const { numero } = documento;
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
@@ -14210,6 +14324,7 @@ export default function CatumbelaGymApp() {
         registadoPor: contaAtual?.nome || "—",
         origem: "recibo",
         origemNumero: numero,
+
         contaBancariaNome: contaEscolhida?.banco || null,
         tipoReceita: tipoReceita || "mensalidade",
       };
@@ -14319,9 +14434,9 @@ export default function CatumbelaGymApp() {
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
   // Regista-se logo (staff já viu o comprovativo presencialmente, se houver),
   // sem passar pela fila de aprovação, que é só para self-service de membros.
-  const registarPagamentoAvulso = ({ nome, telefone, descricao, valor, metodo, contaBancariaId, comprovativo }) => {
+  const registarPagamentoAvulso = async ({ nome, telefone, descricao, valor, metodo, contaBancariaId, comprovativo }) => {
     const clienteAvulso = { nome, numero: "AVULSO", telefone: telefone || "" };
-    const documento = gerarDocumentoFaturacao({
+    const documento = await gerarDocumentoFaturacao({
       tipo: "RECIBO",
       membro: clienteAvulso,
       itens: [{ referencia: "AVULSO", descricao, qtd: 1, precoUnit: valor, total: valor }],
@@ -14367,7 +14482,7 @@ export default function CatumbelaGymApp() {
     );
   };
 
-  const aprovarPagamento = (pendente) => {
+  const aprovarPagamento = async (pendente) => {
     setPagamentosPendentes((atual) => atual.filter((p) => p.id !== pendente.id));
     const plano = planos.find((p) => p.nome === (pendente.planoNome || pendente.membro.plano));
     // Estende a partir do vencimento atual (se ainda não passou) ou de hoje —
@@ -14385,7 +14500,7 @@ export default function CatumbelaGymApp() {
     // Gera o recibo pela mesma via central de todo o sistema — numeração
     // partilhada, entra no histórico, e conta no Caixa/Banco certo consoante
     // o método (aqui é sempre transferência, por isso vai para o Banco).
-    const documento = gerarDocumentoFaturacao({
+    const documento = await gerarDocumentoFaturacao({
       tipo: "RECIBO",
       membro: pendente.membro,
       itens: [{
@@ -14401,7 +14516,7 @@ export default function CatumbelaGymApp() {
     });
     let documentoTaxa = null;
     if (valorTaxa > 0) {
-      documentoTaxa = gerarDocumentoFaturacao({
+      documentoTaxa = await gerarDocumentoFaturacao({
         tipo: "RECIBO",
         membro: pendente.membro,
         itens: [{ referencia: "TAXA-INSCRICAO", descricao: "Taxa de inscrição (transferência aprovada)", qtd: 1, precoUnit: valorTaxa, total: valorTaxa }],
@@ -14457,7 +14572,7 @@ export default function CatumbelaGymApp() {
   // subscrição fica sempre ligada à parte financeira (numeração, histórico
   // de documentos, e a receita conta nos relatórios/lucro), nunca só a
   // atualizar os dados do membro sem deixar rasto do pagamento.
-  const atualizarSubscricao = (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId, taxasParaQuitar) => {
+  const atualizarSubscricao = async (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId, taxasParaQuitar) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return null;
     const plano = planos.find((p) => p.nome === novoPlanoNome);
@@ -14474,7 +14589,7 @@ export default function CatumbelaGymApp() {
     const hojeStr = new Date().toISOString().slice(0, 10);
     let documento = null;
     if (metodo) {
-      documento = gerarDocumentoFaturacao({
+      documento = await gerarDocumentoFaturacao({
         tipo: "RECIBO",
         membro,
         itens: [{
@@ -14493,9 +14608,10 @@ export default function CatumbelaGymApp() {
       // escolheu cobrá-las junto com esta renovação, gera um recibo
       // próprio para cada uma — a mesma conta bancária/método da
       // renovação, e cada uma fica ligada à fatura pendente que quita
-      // (marcando-a automaticamente como paga).
-      (taxasParaQuitar || []).forEach((faturaPendente) => {
-        gerarDocumentoFaturacao({
+      // (marcando-a automaticamente como paga). Uma de cada vez, para
+      // cada uma já "ver" a anterior ao calcular o seu próprio número.
+      for (const faturaPendente of taxasParaQuitar || []) {
+        await gerarDocumentoFaturacao({
           tipo: "RECIBO",
           membro,
           itens: faturaPendente.itens,
@@ -14505,7 +14621,7 @@ export default function CatumbelaGymApp() {
           tipoReceita: "taxa-sessao-longa",
           faturaOrigemNumero: faturaPendente.numero,
         });
-      });
+      }
     }
     setMembros((atual) =>
       atual.map((m) => {
@@ -15129,7 +15245,7 @@ export default function CatumbelaGymApp() {
     return novoAcesso;
   };
 
-  const registarSaida = (membro) => {
+  const registarSaida = async (membro) => {
     const agora = new Date();
     const hojeStr = agora.toISOString().slice(0, 10);
     const horaSaida = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
@@ -15166,7 +15282,7 @@ export default function CatumbelaGymApp() {
     }
 
     if (valorTaxa > 0 && horasSessao > limiteHoras) {
-      const documento = gerarDocumentoFaturacao({
+      const documento = await gerarDocumentoFaturacao({
         tipo: "FATURA",
         membro,
         itens: [{
