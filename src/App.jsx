@@ -4486,8 +4486,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                   <button
                     disabled={aRegistarSaida}
                     onClick={() => {
-                      const membroDoAcesso = membros.find((m) => m.numero === a.numero);
-                      if (membroDoAcesso) registarSaidaProtegido(membroDoAcesso);
+                      // Se o membro já não existe na lista atual (foi editado,
+                      // renumerado ou eliminado), usa os dados do próprio
+                      // registo de acesso — sem isto, o clique não fazia
+                      // NADA (find() devolvia undefined, o "if" bloqueava
+                      // tudo em silêncio) e a pessoa ficava presa "dentro do
+                      // ginásio" para sempre, sem forma de a tirar daqui.
+                      const membroDoAcesso = membros.find((m) => m.numero === a.numero) || { numero: a.numero, nome: a.membro };
+                      registarSaidaProtegido(membroDoAcesso);
                     }}
                     title="Clica para registar a saída agora"
                     className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300 disabled:opacity-50"
@@ -6759,6 +6765,12 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       metodo: tipo === "RECIBO" ? metodoPagamento : undefined,
       contaBancariaId: tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express" || metodoPagamento === "tpa") ? contaBancariaId : undefined,
       faturaOrigemNumero: tipo === "RECIBO" ? faturaOrigemNumero : undefined,
+      // Antes isto não ia — gerarDocumentoFaturacao assumia sempre
+      // "mensalidade" quando não vinha nada, por isso um recibo emitido
+      // aqui (Faturação) por qualquer coisa que não fosse o plano do
+      // membro entrava sempre como Subscrição no Relatório Diário e no
+      // Turno de Caixa, em vez de aparecer em "Outros/Recibos".
+      tipoReceita: tipo === "RECIBO" ? (itensSelecionados.some((i) => i.referencia?.startsWith("PLANO-")) ? "mensalidade" : "outros") : undefined,
     };
     const gravado = onGerarFatura(documento); // devolve o documento já com número e data reais
     // Se o recibo inclui o item do plano do membro, a subscrição tem de ser
@@ -9002,9 +9014,10 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Subscrições</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalSubscricoes)}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Recibos / Outros</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalOutros)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total do dia</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Acessos ao ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{acessosDoDia.length}</p></Card>
       </div>
@@ -9093,7 +9106,13 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
                   <th className="pb-2 font-medium text-right">Valor</th>
                 </tr>
               </thead>
-              <tbody>{outros.map(linhaTabela)}</tbody>
+              <tbody>
+                {outros.map(linhaTabela)}
+                <tr>
+                  <td colSpan={4} className="pt-2 text-right font-semibold text-slate-500 dark:text-slate-400">Total</td>
+                  <td className="pt-2 text-right font-bold text-slate-900 dark:text-slate-100">{kz(totalOutros)}</td>
+                </tr>
+              </tbody>
             </table>
           </div>
         </Card>
@@ -11235,10 +11254,24 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
     const contado = Number(valorContado);
     const diferenca = contado - totais.dinheiro;
     onFecharTurno({ nomeFuncionario: nomeAtual, totalSistema: totais.dinheiro, totalContado: contado, diferenca, observacoes });
-    setResultado({ contado, diferenca });
+    // Guarda uma "fotografia" dos totais no momento exato do fecho — sem
+    // isto, "totais"/"totaisPorTipo" continuavam a recalcular-se ao vivo
+    // a partir de pagamentosFeitos mesmo DEPOIS de fechado=true, e se
+    // alguém eliminasse uma factura de hoje entretanto (ex.: corrigindo
+    // um engano), o resumo do turno já fechado mudava sozinho no ecrã —
+    // desfazendo o valor que já tinha sido contado e conferido
+    // fisicamente, mesmo com a mensagem a continuar a dizer "bateu certo".
+    setResultado({ contado, diferenca, totaisCongelados: totais, totaisPorTipoCongelados: totaisPorTipo, totalGeralCongelado: totalGeral });
     setAContar(false);
     setFechado(true);
   };
+
+  // Uma vez fechado, o ecrã mostra sempre a fotografia do momento do
+  // fecho — nunca os totais ao vivo, que podem continuar a mudar por
+  // causa de eliminações/correções feitas depois noutras telas.
+  const totaisExibidos = fechado && resultado ? resultado.totaisCongelados : totais;
+  const totaisPorTipoExibidos = fechado && resultado ? resultado.totaisPorTipoCongelados : totaisPorTipo;
+  const totalGeralExibido = fechado && resultado ? resultado.totalGeralCongelado : totalGeral;
 
   if (!aberto) {
     return (
@@ -11257,10 +11290,10 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
         <div>
           <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Por tipo</p>
           {[
-            { label: "Inscrição", value: totaisPorTipo.inscricao },
-            { label: "Subscrição / Mensalidade", value: totaisPorTipo.mensalidade },
-            { label: "Vendas (POS)", value: totaisPorTipo.venda },
-            { label: "Outros", value: totaisPorTipo.outros },
+            { label: "Inscrição", value: totaisPorTipoExibidos.inscricao },
+            { label: "Subscrição / Mensalidade", value: totaisPorTipoExibidos.mensalidade },
+            { label: "Vendas (POS)", value: totaisPorTipoExibidos.venda },
+            { label: "Outros", value: totaisPorTipoExibidos.outros },
           ].map((r) => (
             <div key={r.label} className="flex justify-between text-sm py-1.5 border-b border-slate-50 dark:border-slate-700 last:border-0">
               <span className="text-slate-600 dark:text-slate-300">{r.label}</span>
@@ -11271,11 +11304,11 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
         <div>
           <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Por método de pagamento</p>
           {[
-            { label: "Dinheiro", value: totais.dinheiro },
-            { label: "TPA", value: totais.tpa },
-            { label: "MULTICAIXA Express", value: totais.express },
-            { label: "Referência", value: totais.referencia },
-            { label: "Transferência", value: totais.transferencia },
+            { label: "Dinheiro", value: totaisExibidos.dinheiro },
+            { label: "TPA", value: totaisExibidos.tpa },
+            { label: "MULTICAIXA Express", value: totaisExibidos.express },
+            { label: "Referência", value: totaisExibidos.referencia },
+            { label: "Transferência", value: totaisExibidos.transferencia },
           ].map((r) => (
             <div key={r.label} className="flex justify-between text-sm py-1.5 border-b border-slate-50 dark:border-slate-700 last:border-0">
               <span className="text-slate-600 dark:text-slate-300">{r.label}</span>
@@ -11286,7 +11319,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
       </div>
       <div className="flex justify-between text-sm pt-2 mb-4 font-bold border-t border-slate-100 dark:border-slate-700">
         <span>Total de hoje (só o que tu registaste)</span>
-        <span className="text-[#3F8F87]">{kz(totalGeral)}</span>
+        <span className="text-[#3F8F87]">{kz(totalGeralExibido)}</span>
       </div>
 
       {!fechado && !aContar && (
@@ -14307,7 +14340,13 @@ export default function CatumbelaGymApp() {
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
+        // Nota: antes o padrão aqui era "mensalidade" quando tipoReceita
+        // não vinha preenchido — isso fazia qualquer chamador que se
+        // esquecesse de indicar a categoria (como acontecia na tela de
+        // Faturação) entrar sempre como Subscrição nos relatórios, mesmo
+        // sendo outra coisa. "outros" é o padrão mais seguro: nunca
+        // inflaciona uma categoria específica por engano.
+        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "outros", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -14326,7 +14365,7 @@ export default function CatumbelaGymApp() {
         origemNumero: numero,
 
         contaBancariaNome: contaEscolhida?.banco || null,
-        tipoReceita: tipoReceita || "mensalidade",
+        tipoReceita: tipoReceita || "outros",
       };
       if (metodo === "dinheiro") {
         setMovimentosCaixa((atual) => [registoLedger, ...atual]);
