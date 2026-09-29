@@ -9820,6 +9820,76 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
 
   const vencedor = ranking[0];
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const [aVerCartaz, setAVerCartaz] = useState(false);
+
+  // Cartaz de anúncio do vencedor — gerado diretamente a partir dos dados
+  // já calculados no relatório (nome, mês, destaques), sem precisar de
+  // escrever nada à mão. Só mostra o que há para celebrar: nunca inclui
+  // "sessões longas"/taxadas (isso é o que impede alguém de ser 1.º, não
+  // algo para pôr num cartaz de parabéns).
+  if (aVerCartaz && vencedor) {
+    const destaques = [
+      { label: "Dias treinados", valor: `${vencedor.diasTreinados}` },
+      { label: "Horas de treino", valor: `${vencedor.horasTreino.toFixed(1)}h` },
+      ...(vencedor.progressaoCarga > 0 ? [{ label: "Progressão nas cargas", valor: `+${vencedor.progressaoCarga.toFixed(1)} kg` }] : []),
+      ...(vencedor.reducaoGordura > 0 ? [{ label: "Redução de gordura", valor: `-${vencedor.reducaoGordura.toFixed(1)}%` }] : []),
+    ];
+    const iniciais = vencedor.membro.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
+        <div className="flex items-center justify-center gap-2 py-4 print:hidden">
+          <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-4 py-2.5 shadow-lg">
+            <Printer size={15} /> Imprimir / Guardar PDF
+          </button>
+          <button onClick={() => setAVerCartaz(false)} className="flex items-center gap-1.5 text-sm font-semibold bg-white text-slate-700 rounded-lg px-4 py-2.5 shadow-lg">
+            <X size={15} /> Voltar ao relatório
+          </button>
+        </div>
+        <div className="area-imprimivel flex items-center justify-center print:block">
+          <div
+            className="relative w-[420px] max-w-[92vw] aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl mx-auto mb-6 print:shadow-none print:rounded-none print:w-full print:aspect-auto print:h-screen"
+            style={{ background: "linear-gradient(160deg, #3F8F87 0%, #245650 55%, #12302C 100%)" }}
+          >
+            {/* Decoração simples ao fundo, sem depender de nenhuma imagem externa */}
+            <div className="absolute -top-16 -right-16 w-56 h-56 rounded-full bg-white/10" />
+            <div className="absolute -bottom-24 -left-10 w-64 h-64 rounded-full bg-white/5" />
+
+            <div className="relative h-full flex flex-col items-center text-center px-8 py-10 text-white">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.2em] uppercase text-amber-300">
+                <Award size={16} /> Melhor atleta
+              </div>
+              <p className="text-xs text-white/70 mt-1 mb-6 capitalize">{nomeMes}</p>
+
+              <div className="w-28 h-28 rounded-full ring-4 ring-amber-300/80 overflow-hidden bg-white/10 flex items-center justify-center shrink-0">
+                {vencedor.membro.foto ? (
+                  <img src={vencedor.membro.foto} alt={vencedor.membro.nome} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl font-extrabold text-white/90">{iniciais}</span>
+                )}
+              </div>
+
+              <h1 className="text-2xl font-extrabold mt-5 leading-tight">{vencedor.membro.nome}</h1>
+              <p className="text-[11px] text-white/60 mt-0.5">{vencedor.membro.numero}</p>
+
+              <div className="grid grid-cols-2 gap-2.5 w-full mt-7">
+                {destaques.map((d) => (
+                  <div key={d.label} className="bg-white/10 ring-1 ring-white/15 rounded-xl py-2.5 px-2">
+                    <p className="text-lg font-extrabold leading-none">{d.valor}</p>
+                    <p className="text-[10px] text-white/70 mt-1">{d.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-auto pt-6 flex items-center gap-2 text-white/80">
+                {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-6" />}
+                <p className="text-sm font-bold">{dadosGinasio?.nome || "Catumbela Gym"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
@@ -9827,6 +9897,11 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         <div className="flex items-center justify-between mb-4 print:hidden">
           <h2 className="font-bold text-lg">Melhor atleta do mês</h2>
           <div className="flex items-center gap-2">
+            {ranking.length > 0 && (
+              <button onClick={() => setAVerCartaz(true)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-2">
+                <Award size={15} /> Cartaz do vencedor
+              </button>
+            )}
             <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
               <Printer size={15} /> Imprimir / Guardar PDF
             </button>
