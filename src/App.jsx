@@ -9761,7 +9761,12 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       .map((m) => {
         const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
         const horasTreino = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
-        const sessoesLongas = acessosDoMes.filter((a) => calcularHorasEntreHorarios(a.entrada, a.saida) > limiteHoras).length;
+        // Só conta como "taxada" quem realmente TEM a taxa cobrada e ativa
+        // (a.taxaSessaoLongaFatura aponta para essa fatura) — não só quem
+        // ficou mais tempo do que o limite. Assim, se a taxa foi cobrada
+        // por engano e a fatura é eliminada depois (ver "eliminarFatura",
+        // que limpa esse campo), o atleta deixa de ficar penalizado aqui.
+        const sessoesLongas = acessosDoMes.filter((a) => a.taxaSessaoLongaFatura).length;
         // Dias DISTINTOS, não sessões — vir treinar em vários dias do mês
         // conta para a consistência, mesmo que cada sessão seja curta;
         // duas entradas no MESMO dia não duplicam isto.
@@ -13749,6 +13754,14 @@ export default function CatumbelaGymApp() {
     setPagamentosFeitos((atual) => atual.filter((p) => p.numero !== numero));
     setMovimentosCaixa((atual) => atual.filter((m) => m.origemNumero !== numero));
     setMovimentosBancarios((atual) => atual.filter((m) => m.origemNumero !== numero));
+    // Se esta fatura era a taxa por sessão longa ("taxada") cobrada a um
+    // acesso, desliga essa ligação — sem isto, mesmo depois de eliminar a
+    // fatura (ex.: foi cobrada por engano), o atleta continuava a aparecer
+    // com essa "taxada" no Melhor Atleta do mês, e nunca podia voltar a
+    // ficar em 1.º lugar por um erro que já tinha sido corrigido.
+    setAcessos((atual) =>
+      atual.map((a) => (a.taxaSessaoLongaFatura === numero ? { ...a, taxaSessaoLongaFatura: null } : a))
+    );
     // Se este recibo foi o que estendeu a subscrição de algum membro (seja
     // por Subscrições ou diretamente por Faturação), a eliminação tem de
     // desfazer essa extensão também — senão o membro fica "Ativo" com um
