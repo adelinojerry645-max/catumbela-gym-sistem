@@ -3,13 +3,13 @@ import {
   LayoutDashboard, Users, ClipboardList, CreditCard, Wallet, Package,
   ShoppingCart, DoorOpen, UserCog, BarChart3, Settings, Search, Bell,
   Plus, QrCode, CheckCircle2, XCircle, TrendingUp, AlertTriangle, X,
-  Pencil, LogOut, User as UserIcon, History,
+  Pencil, LogOut, ChevronLeft, Receipt, User as UserIcon, History,
   Sun, Moon, MessageCircle, Phone, Trash2, Camera, FileText, Dumbbell,
   ShieldCheck, KeyRound, Menu, Save, LogIn, DoorClosed, Wallet as WalletIcon,
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
-  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Star, Target, Download,
+  PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
 } from "lucide-react";
-import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico } from "./lib/estadoApp";
+import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
 import * as XLSX from "xlsx";
@@ -50,62 +50,11 @@ const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 // aumentar ao recalcular. Usa sempre esta função depois de .setDate().
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-// Os "id" são identificadores únicos e imprevisíveis (para nunca
-// colidirem entre dispositivos), o que significa que NÃO servem para
-// saber qual de dois registos é mais recente — comparar ids dá um
-// resultado essencialmente aleatório. Esta função constrói uma chave a
-// partir da data/hora REAL gravada em cada registo (formato português
-// "DD/MM/AAAA"), para ordenar corretamente por tempo em qualquer lista
-// (Auditoria, Mensagens, etc.) — sem isto, a fusão entre dispositivos
-// podia deixar o array numa ordem que não é cronológica, escondendo
-// ações recentes no meio de uma lista comprida.
-const chaveTemporalPT = (item) => {
-  const [dia, mes, ano] = (item?.data || "").split("/");
-  return `${ano}-${mes}-${dia}T${item?.hora || "00:00"}`;
-};
-
-// Igual, mas para registos com data já em formato ISO (AAAA-MM-DD) —
-// como historicoSubscricoes.
-const chaveTemporalISO = (item) => `${item?.data || ""}T${item?.hora || "00:00"}`;
-
-// Converte "DD/MM/AAAA" ou "AAAA-MM-DD" para "AAAA-MM-DD" — só para
-// ORDENAR corretamente (strings "DD/MM/AAAA" não ordenam bem
-// alfabeticamente; "AAAA-MM-DD" sim).
-const paraOrdenacaoISO = (dataStr) => {
-  if (!dataStr) return "";
-  const partesPT = dataStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (partesPT) return `${partesPT[3]}-${partesPT[2]}-${partesPT[1]}`;
-  return dataStr;
-};
-
-// Agrupa uma lista de itens pela data, com cabeçalhos claros: "Hoje",
-// "Ontem", ou a data normal para o resto — sempre com os grupos mais
-// recentes primeiro. Usada em qualquer ecrã com uma lista longa de
-// documentos/movimentos (Faturação, Custos, etc.), para nunca ficar
-// tudo misturado numa única lista corrida sem organização nenhuma.
-const agruparPorData = (lista, obterData) => {
-  const hojeISO = dataLocalISO(new Date());
-  const ontem = new Date();
-  ontem.setDate(ontem.getDate() - 1);
-  const ontemISO = dataLocalISO(ontem);
-
-  const mapa = {};
-  (lista || []).forEach((item) => {
-    const dataOriginal = obterData(item);
-    const chave = dataOriginal ? paraOrdenacaoISO(dataOriginal) : "Sem data";
-    if (!mapa[chave]) mapa[chave] = { rotulo: dataOriginal || "Sem data", itens: [] };
-    mapa[chave].itens.push(item);
-  });
-
-  return Object.entries(mapa)
-    .sort(([a], [b]) => (a < b ? 1 : -1)) // mais recente primeiro
-    .map(([chave, { rotulo, itens }]) => {
-      let rotuloFinal = rotulo;
-      if (chave === hojeISO) rotuloFinal = `Hoje — ${rotulo}`;
-      else if (chave === ontemISO) rotuloFinal = `Ontem — ${rotulo}`;
-      return [rotuloFinal, itens];
-    });
-};
+// Mesmo raciocínio de "dataLocalISO", mas só "AAAA-MM" — para os seletores
+// de mês dos relatórios mensais, que por defeito devem começar no mês
+// LOCAL atual (perto da meia-noite, toISOString() podia mostrar o mês
+// errado a quem está num fuso horário à frente de UTC).
+const mesLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 // Gera um id com entropia suficiente para nunca colidir, mesmo quando
 // vários dispositivos criam registos ao mesmo tempo (ex.: hora de ponta
@@ -117,85 +66,6 @@ const agruparPorData = (lista, obterData) => {
 const gerarIdUnico = () => {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-};
-
-// Hash simples e determinístico — dado o MESMO texto, produz sempre o
-// MESMO resultado, em qualquer dispositivo, sem precisar de coordenação
-// nenhuma entre eles. Usado só para dar um "id" estável a itens antigos.
-const hashEstavel = (texto) => {
-  let hash = 0;
-  for (let i = 0; i < texto.length; i++) {
-    hash = (hash << 5) - hash + texto.charCodeAt(i);
-    hash |= 0;
-  }
-  return "legado-" + Math.abs(hash).toString(36);
-};
-
-// Remove documentos duplicados de "faturas" — cada NÚMERO (REC-2026-...,
-// FAT-2026-...) só pode existir uma vez. Se houver mais do que um com o
-// mesmo número, fica só um — escolhido sempre da MESMA forma em
-// qualquer dispositivo (o de "id" mais pequeno, ordenado como texto),
-// para que todos os dispositivos cheguem ao mesmo resultado.
-const deduplicarFaturasPorNumero = (lista) => {
-  if (!Array.isArray(lista)) return lista;
-  const porNumero = {};
-  let houveDuplicado = false;
-  lista.forEach((f) => {
-    if (!f || !f.numero) return;
-    if (!porNumero[f.numero]) {
-      porNumero[f.numero] = f;
-    } else {
-      houveDuplicado = true;
-      if (String(f.id) < String(porNumero[f.numero].id)) porNumero[f.numero] = f;
-    }
-  });
-  if (!houveDuplicado) return lista;
-  return Object.values(porNumero).sort((a, b) => (a.numero < b.numero ? 1 : -1));
-};
-
-// Garante que todo o item de uma lista tem "id" — mesmo dados antigos,
-// criados antes desta proteção existir. Sem isto, bastava UM único item
-// antigo sem "id" para desligar a proteção de fusão entre dispositivos
-// para a coleção INTEIRA, deixando até os itens mais recentes
-// vulneráveis a serem apagados numa sincronização.
-const normalizarIds = (valor, chave) => {
-  if (!Array.isArray(valor)) return valor;
-  const semId = [];
-  valor.forEach((item, indiceOriginal) => {
-    if (item && typeof item === "object" && !("id" in item)) semId.push({ item, indiceOriginal });
-  });
-  if (semId.length === 0) {
-    if (chave === "faturas") {
-      const deduplicado = deduplicarFaturasPorNumero(valor);
-      if (deduplicado !== valor) return deduplicado;
-    }
-    return valor;
-  }
-  // Se dois itens antigos tiverem exatamente o mesmo conteúdo, ordena-os
-  // pelo próprio conteúdo (sempre dá a mesma ordem em qualquer
-  // dispositivo) e numera-os 1.º, 2.º, 3.º — assim cada um fica com um
-  // "id" único e sempre igual em qualquer aparelho que faça esta conta.
-  const textoDe = ({ item }) => JSON.stringify(item);
-  const ordenados = [...semId].sort((a, b) => {
-    const ta = textoDe(a), tb = textoDe(b);
-    return ta < tb ? -1 : ta > tb ? 1 : 0;
-  });
-  const contagemPorHash = {};
-  const idPorIndiceOriginal = {};
-  ordenados.forEach(({ item, indiceOriginal }) => {
-    const base = hashEstavel(JSON.stringify(item));
-    const n = contagemPorHash[base] || 0;
-    contagemPorHash[base] = n + 1;
-    idPorIndiceOriginal[indiceOriginal] = n === 0 ? base : `${base}-${n}`;
-  });
-  let normalizado = valor.map((item, indice) =>
-    indice in idPorIndiceOriginal ? { ...item, id: idPorIndiceOriginal[indice] } : item
-  );
-  if (chave === "faturas") {
-    const deduplicado = deduplicarFaturasPorNumero(normalizado);
-    if (deduplicado !== normalizado) normalizado = deduplicado;
-  }
-  return normalizado;
 };
 
 // Devolve a lista de contas bancárias/Express do ginásio a mostrar aos membros
@@ -616,7 +486,7 @@ function useLocalOnly(chave, valorInicial) {
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
-    return normalizarIds(chave in guardado ? guardado[chave] : valorInicial, chave);
+    return chave in guardado ? guardado[chave] : valorInicial;
   });
   // Normalmente, o primeiro carregamento da página não reenvia nada para o
   // Supabase (só busca) — mas logo a seguir a restaurares uma cópia de
@@ -755,8 +625,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
     const tentarLer = () => {
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((dadosBrutos) => {
-          const dados = dadosBrutos !== null ? normalizarIds(dadosBrutos, chave) : dadosBrutos;
+        .then((dados) => {
           if (!cancelado && dados !== null) {
             // A base para comparações futuras segue SEMPRE o valor bruto
             // que veio do Supabase — nunca um resultado já fundido. Uma
@@ -918,8 +787,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // mudanças de cada lado, e só usa a versão remota nos raros casos em
       // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((remotoBruto) => {
-          const remoto = remotoBruto !== null ? normalizarIds(remotoBruto, chave) : remotoBruto;
+        .then((remoto) => {
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
           const houveConflito =
             remotoTexto !== null &&
@@ -930,12 +798,6 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
           let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
-          // Duas faturas com o MESMO número, mas criadas em dispositivos
-          // diferentes quase ao mesmo tempo, acabam com "id" interno
-          // diferente — por isso a fusão por "id" não as reconhece como
-          // sendo a mesma, e as duas sobrevivem. Limpa isso sempre que se
-          // está prestes a gravar, não só quando a página abre.
-          if (chave === "faturas") paraGravar = deduplicarFaturasPorNumero(paraGravar);
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
             if (jaBloqueouVazioAntes.current) {
               // Já bloqueámos esta mesma situação uma vez antes, e a
@@ -1319,7 +1181,7 @@ function SeletorDataDiaMesAno({ valor, onMudar, opcional = false, anosAtras = 4,
     return (
       <button
         type="button"
-        onClick={() => onMudar(new Date().toISOString().slice(0, 10))}
+        onClick={() => onMudar(dataLocalISO(new Date()))}
         className="w-full px-2 py-1.5 rounded-lg border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 dark:text-slate-500 text-xs text-left"
       >
         Deixa em branco (toca para definir uma data)
@@ -1401,7 +1263,11 @@ function PreviewDocumentoEscalado({ children }) {
 function SeletorMembroPesquisavel({ membros, valor, onEscolher, placeholder = "Pesquisar atleta por nome ou número..." }) {
   const [pesquisa, setPesquisa] = useState("");
   const [aberto, setAberto] = useState(false);
-  const membroEscolhido = membros.find((m) => m.id === Number(valor));
+  // Compara como texto, não como número — o id do membro pode ser um número
+  // sequencial antigo OU um identificador único (UUID) para membros novos,
+  // e "Number(valor)" nunca encontrava um UUID (dava NaN), fazendo o atleta
+  // escolhido "desaparecer" do seletor mesmo depois de o teres selecionado.
+  const membroEscolhido = membros.find((m) => String(m.id) === String(valor));
 
   const filtrados = useMemo(() => {
     const q = pesquisa.trim().toLowerCase();
@@ -1496,7 +1362,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
   const custosTotal = custos.reduce((s, c) => s + c.valor, 0);
   const lucro = receitaTotal - custosTotal;
 
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(new Date());
   const checkinsHoje = acessos.filter((a) => a.data === hojeStr);
 
   // RESUMO DO DIA — para o administrador mandar por WhatsApp ao fim do dia,
@@ -1577,7 +1443,7 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
 
   const membrosRecentes = useMemo(() => {
     return [...membros]
-      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || String(b.id).localeCompare(String(a.id)))
+      .sort((a, b) => (b.dataInscricao || "").localeCompare(a.dataInscricao || "") || b.id - a.id)
       .slice(0, 5);
   }, [membros]);
 
@@ -1769,8 +1635,8 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
           <div className="divide-y divide-slate-100 dark:divide-slate-700">
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
-              const hoje = new Date().toISOString().slice(0, 10);
-              const em3Dias = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+              const hoje = dataLocalISO(new Date());
+              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).map((m) => (
               <div key={m.id} className="flex items-center justify-between py-2.5">
@@ -1790,8 +1656,8 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
             ))}
             {membros.filter((m) => {
               if (m.estado !== "ativo" || !m.vencimento) return false;
-              const hoje = new Date().toISOString().slice(0, 10);
-              const em3Dias = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+              const hoje = dataLocalISO(new Date());
+              const em3Dias = dataLocalISO(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
               return m.vencimento >= hoje && m.vencimento <= em3Dias;
             }).length === 0 && (
               <p className="text-sm text-slate-400 dark:text-slate-500 py-3">Ninguém a vencer nos próximos 3 dias.</p>
@@ -2174,6 +2040,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   const [definindoMetaDe, setDefinindoMetaDe] = useState(null);
   const vazio = { nome: "", telefone: "", plano: planos[0]?.nome || "", foto: null, email: "", senha: "", dataInscricao: "", vencimento: "", taxaInscricao: "", metodoTaxaInscricao: "dinheiro", dataNascimento: "", assinaturaContrato: null };
   const [novo, setNovo] = useState(vazio);
+  const aSubmeterRef = useRef(false); // trava de duplo-clique ao gravar novo membro
 
   const filtrados = membros.filter(
     (m) => m.nome.toLowerCase().includes(q.toLowerCase()) || m.numero.includes(q)
@@ -2188,8 +2055,9 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   };
 
   const abrirNovo = () => {
+    aSubmeterRef.current = false;
     setEditandoId(null);
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = dataLocalISO(new Date());
     // Vencimento e plano ficam vazios por defeito — um atleta novo só
     // escolhe o plano e ativa depois de subscrever e pagar, em Subscrições.
     // Só preenches o vencimento aqui se for um membro que já existia antes
@@ -2199,6 +2067,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   };
 
   const abrirEdicao = (m) => {
+    aSubmeterRef.current = false;
     const contaLigada = contas.find((c) => c.perfil === "membro" && c.membroId === m.id);
     setEditandoId(m.id);
     setNovo({
@@ -2213,19 +2082,29 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   const [ultimoReciboInscricao, setUltimoReciboInscricao] = useState(null);
   const [aVerEvolucaoDeMembro, setAVerEvolucaoDeMembro] = useState(null);
 
-  const submeter = (e) => {
+  const submeter = async (e) => {
     e.preventDefault();
     if (!novo.nome) return;
-    if (editandoId) {
-      onUpdate(editandoId, novo);
-      setUltimoReciboInscricao(null);
-    } else {
-      const resultado = onAdd(novo);
-      setUltimoReciboInscricao(resultado?.reciboInscricao || null);
+    // Proteção contra duplo clique. NÃO repõe a trava no final (só quando
+    // o formulário é aberto de novo, em "abrirNovo"/"abrirEdicao") — ver a
+    // explicação detalhada no mesmo padrão em "Balcao.criarMembroRapido".
+    if (aSubmeterRef.current) return;
+    aSubmeterRef.current = true;
+    try {
+      if (editandoId) {
+        onUpdate(editandoId, novo);
+        setUltimoReciboInscricao(null);
+      } else {
+        const resultado = await onAdd(novo);
+        setUltimoReciboInscricao(resultado?.reciboInscricao || null);
+      }
+      setNovo(vazio);
+      setShowForm(false);
+      setEditandoId(null);
+    } catch (erro) {
+      aSubmeterRef.current = false;
+      alert("Não foi possível guardar. Tenta novamente.");
     }
-    setNovo(vazio);
-    setShowForm(false);
-    setEditandoId(null);
   };
 
   return (
@@ -2771,9 +2650,8 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
   const [comprovativo, setComprovativo] = useState(null);
   const [recibo, setRecibo] = useState(null);
   const [aGerarPDF, setAGerarPDF] = useState(false);
-  const aConfirmarRef = useRef(false);
-  const [aConfirmarAvulso, setAConfirmarAvulso] = useState(false);
   const docRef = useRef(null);
+  const aConfirmarRef = useRef(false); // trava de duplo-clique ao confirmar pagamento avulso
 
   const metodos = [
     { id: "dinheiro", label: "Dinheiro" },
@@ -2791,12 +2669,14 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       .catch(() => alert("Não foi possível processar esta imagem. Tenta outra."));
   };
 
-  const confirmar = async () => {
+  const confirmar = () => {
     if (!nome || !valor || Number(valor) <= 0) return;
+    // Proteção contra duplo clique. NÃO repõe a trava no final (só ao
+    // reiniciar o formulário) — ver a explicação detalhada no mesmo padrão
+    // em "criarMembroRapido" (Balcão).
     if (aConfirmarRef.current) return;
     aConfirmarRef.current = true;
-    setAConfirmarAvulso(true);
-    const documento = await onRegistarAvulso({
+    const documento = onRegistarAvulso({
       nome,
       telefone,
       descricao: descricao || "Entrada avulsa",
@@ -2806,11 +2686,10 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       comprovativo,
     });
     setRecibo(documento);
-    aConfirmarRef.current = false;
-    setAConfirmarAvulso(false);
   };
 
   const reiniciar = () => {
+    aConfirmarRef.current = false;
     setNome("");
     setTelefone("");
     setDescricao("Entrada avulsa");
@@ -2908,10 +2787,10 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
 
             <button
               onClick={confirmar}
-              disabled={!nome || !valor || aConfirmarAvulso}
+              disabled={!nome || !valor}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:text-slate-400 dark:disabled:text-slate-500 text-white font-semibold py-2.5 rounded-lg"
             >
-              <CheckCircle2 size={16} /> {aConfirmarAvulso ? "A confirmar..." : "Confirmar pagamento"}
+              <CheckCircle2 size={16} /> Confirmar pagamento
             </button>
           </div>
         ) : (
@@ -2982,12 +2861,6 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   const [metodo, setMetodo] = useState("dinheiro");
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [concluida, setConcluida] = useState(null);
-  // Protege contra duplo clique a finalizar duas vendas de uma só ação —
-  // uma "ref" (síncrona) em vez de um "state" (só reflete no próximo
-  // render), e só é reposta quando o formulário volta a ficar vazio
-  // (depois da venda), não logo a seguir a esta função terminar.
-  const aFinalizarRef = useRef(false);
-  const [aFinalizar, setAFinalizar] = useState(false);
   const [leitorAberto, setLeitorAberto] = useState(false);
   const [erroLeitor, setErroLeitor] = useState("");
   const [naoEncontrado, setNaoEncontrado] = useState("");
@@ -2996,6 +2869,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   const docRef = useRef(null);
   const videoRef = useRef(null);
   const controlsRef = useRef(null);
+  const aFinalizarRef = useRef(false); // trava de duplo-clique ao concluir a venda
 
   const metodos = [
     { id: "dinheiro", label: "Dinheiro" },
@@ -3006,6 +2880,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   ];
 
   const adicionar = (produto) => {
+    aFinalizarRef.current = false; // começa um carrinho novo — liberta a trava de duplo-clique da venda anterior
     setConcluida(null);
     setCarrinho((atual) => {
       const existente = atual.find((i) => i.produtoId === produto.id);
@@ -3081,17 +2956,23 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
 
   const finalizar = async () => {
     if (itensCarrinho.length === 0) return;
+    // Proteção contra duplo clique. NÃO repõe a trava no final com sucesso
+    // (só quando se começa um carrinho novo, em "adicionar") — ver a
+    // explicação detalhada no mesmo padrão em "criarMembroRapido". Em caso
+    // de ERRO, repõe-se no catch, para não bloquear uma tentativa a sério.
     if (aFinalizarRef.current) return;
     aFinalizarRef.current = true;
-    setAFinalizar(true);
-    const membro = membros.find((m) => m.id === Number(membroId)) || null;
-    const documento = await onFinalizar({ itens: itensCarrinho, total, metodo, membro, contaBancariaId });
-    setConcluida(documento);
-    setCarrinho([]);
-    setMembroId("");
-    setContaBancariaId("");
-    aFinalizarRef.current = false;
-    setAFinalizar(false);
+    try {
+      const membro = membros.find((m) => String(m.id) === String(membroId)) || null;
+      const documento = await onFinalizar({ itens: itensCarrinho, total, metodo, membro, contaBancariaId });
+      setConcluida(documento);
+      setCarrinho([]);
+      setMembroId("");
+      setContaBancariaId("");
+    } catch (erro) {
+      aFinalizarRef.current = false;
+      alert("Não foi possível concluir a venda. Tenta novamente.");
+    }
   };
 
   return (
@@ -3215,12 +3096,8 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
               <span className="text-xl font-extrabold text-[#3F8F87]">{kz(total)}</span>
             </div>
 
-            <button
-              onClick={finalizar}
-              disabled={aFinalizar || itensCarrinho.length === 0}
-              className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm"
-            >
-              {aFinalizar ? "A finalizar..." : "Finalizar venda"}
+            <button onClick={finalizar} className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg text-sm">
+              Concluir venda
             </button>
           </div>
         )}
@@ -3297,7 +3174,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
   );
 }
 
-function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada, dadosGinasio, perfil, onReiniciarVendas }) {
+function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [novo, setNovo] = useState({ codigo: "", nome: "", categoria: "", stock: 0, minimo: 5, precoCusto: 0, preco: 0 });
@@ -3562,18 +3439,9 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
           </div>
         </div>
       )}
-      {perfil === "administrador" && (
-        <ReiniciarColecaoParcial
-          titulo="Reiniciar histórico de Vendas"
-          descricao="Apaga todo o histórico de vendas (POS). Não mexe no stock atual dos produtos, nem em mais nada do sistema. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
-          frase="REINICIAR VENDAS"
-          onReiniciar={onReiniciarVendas}
-        />
-      )}
     </div>
   );
 }
-
 
 // ---------------------------------------------------------------------
 // BALCÃO — um único ecrã para atender uma pessoa do princípio ao fim:
@@ -3583,13 +3451,9 @@ function Stock({ produtos, vendasProdutos, onAdd, onUpdate, onRemove, onEntrada,
 // conta. Funciona também com leitor de código de barras (que só "escreve"
 // o número e carrega Enter, como um teclado).
 // ---------------------------------------------------------------------
-function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
+function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, contaAtual, onCriarMembro, onAtualizarSubscricao, onEliminarFatura, onRegistarEntrada, onRegistarSaida, onDesfazerEntrada, onDesfazerSaida, onEditarHoras, onAdicionarAcessoManual }) {
   const [query, setQuery] = useState("");
   const [membroSelecionado, setMembroSelecionado] = useState(null);
-  // Protege contra duplo clique a disparar duas vezes a mesma ação — uma
-  // "ref" (síncrona) para cada botão que gera algo financeiro no Balcão.
-  const aProcessarRef = useRef(false);
-  const [aProcessar, setAProcessar] = useState(false);
   const [aCriarNovo, setACriarNovo] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const [novoTelefone, setNovoTelefone] = useState("");
@@ -3602,7 +3466,6 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   const [contaBancariaEscolhida, setContaBancariaEscolhida] = useState("");
   const [dataInicioEscolhida, setDataInicioEscolhida] = useState("");
   const [semPagamentoAgoraBalcao, setSemPagamentoAgoraBalcao] = useState(false);
-  const [cobrarTaxaPendenteBalcao, setCobrarTaxaPendenteBalcao] = useState(false);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
   const [ultimaAcao, setUltimaAcao] = useState(null); // { texto, desfazer }
   const [aEditarHoras, setAEditarHoras] = useState(false);
@@ -3611,10 +3474,12 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   const [horaSaidaEditada, setHoraSaidaEditada] = useState("");
   const [categoriaAberta, setCategoriaAberta] = useState(null); // "entradas" | "dentro" | "vencemHoje" | "semSubscricao" | null
   const inputRef = React.useRef(null);
+  const aCriarRapidoRef = React.useRef(false); // trava de duplo-clique ao inscrever novo membro
+  const aConfirmarSubscricaoRef = React.useRef(false); // trava de duplo-clique ao confirmar subscrição
 
   useEffect(() => { inputRef.current?.focus(); }, [membroSelecionado, aCriarNovo]);
 
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(new Date());
 
   // Cada cartão de resumo tem a lista de quem está nessa situação, já
   // pronta para mostrar assim que se clica no cartão — evita ter de ir a
@@ -3645,6 +3510,8 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   }, [membros, query]);
 
   const selecionar = (m) => {
+    aCriarRapidoRef.current = false;
+    aConfirmarSubscricaoRef.current = false;
     setMembroSelecionado(m);
     setQuery("");
     setACriarNovo(false);
@@ -3661,6 +3528,8 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   };
 
   const voltarAoInicio = () => {
+    aCriarRapidoRef.current = false;
+    aConfirmarSubscricaoRef.current = false;
     setMembroSelecionado(null);
     setQuery("");
     setACriarNovo(false);
@@ -3674,47 +3543,59 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
 
   const criarMembroRapido = async () => {
     if (!novoNome.trim()) return;
-    if (aProcessarRef.current) return;
-    aProcessarRef.current = true;
-    setAProcessar(true);
-    const resultado = await onCriarMembro({
-      nome: novoNome.trim(), telefone: novoTelefone.trim(),
-      taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
-    });
-    setNovoNome("");
-    setNovoTelefone("");
-    aProcessarRef.current = false;
-    setAProcessar(false);
-    if (resultado?.membro) selecionar(resultado.membro);
+    // Proteção contra duplo clique. IMPORTANTE: a trava NÃO é reposta a
+    // "false" no final com sucesso (só quando o formulário é aberto de
+    // novo, em "abrirCriarNovo"/"voltarAoInicio"/"selecionar") — porque um
+    // duplo clique muito rápido (ou duplo-toque no telemóvel) dispara os
+    // dois handlers em sequência antes do ecrã voltar a desenhar-se, e
+    // repor a trava aqui dentro (mesmo só no final) dava tempo a que o
+    // segundo clique a encontrasse outra vez "false" — inscrevia o mesmo
+    // atleta duas vezes (comprovado por teste). Em caso de ERRO, a trava É
+    // reposta no catch, para não bloquear uma tentativa a sério depois.
+    if (aCriarRapidoRef.current) return;
+    aCriarRapidoRef.current = true;
+    try {
+      const resultado = await onCriarMembro({
+        nome: novoNome.trim(), telefone: novoTelefone.trim(),
+        taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
+      });
+      setNovoNome("");
+      setNovoTelefone("");
+      if (resultado?.membro) selecionar(resultado.membro);
+    } catch (erro) {
+      aCriarRapidoRef.current = false;
+      alert("Não foi possível inscrever o membro. Tenta novamente.");
+    }
   };
 
   const confirmarSubscricao = async () => {
     if (!planoEscolhido) return;
-    if (aProcessarRef.current) return;
-    aProcessarRef.current = true;
-    setAProcessar(true);
-    const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
-    const documento = await onAtualizarSubscricao(
-      membroSelecionado.id, planoEscolhido, dataInicioEscolhida || hojeStr,
-      semPagamentoAgoraBalcao ? null : metodoEscolhido,
-      semPagamentoAgoraBalcao ? null : contaBancariaEscolhida,
-      cobrarTaxaPendenteBalcao && !semPagamentoAgoraBalcao ? taxasPendentes.faturas : []
-    );
-    aProcessarRef.current = false;
-    setAProcessar(false);
-    const plano = planos.find((p) => p.nome === planoEscolhido);
-    const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
-    setMembroSelecionado(membroAtualizado);
-    setASubscrever(false);
-    setCobrarTaxaPendenteBalcao(false);
-    const extraTaxa = cobrarTaxaPendenteBalcao && !semPagamentoAgoraBalcao && taxasPendentes.total > 0 ? ` + ${kz(taxasPendentes.total)} de taxa de sessão longa` : "";
-    if (documento) {
-      setUltimaAcao({
-        texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)}${extraTaxa})`,
-        desfazer: () => { onEliminarFatura(documento.numero); setUltimaAcao(null); voltarAoInicio(); },
-      });
-    } else {
-      setUltimaAcao({ texto: `Subscrição de ${membroSelecionado.nome} registada (sem recibo agora)`, desfazer: null });
+    if (aConfirmarSubscricaoRef.current) return;
+    aConfirmarSubscricaoRef.current = true;
+    try {
+      const documento = await onAtualizarSubscricao(
+        membroSelecionado.id, planoEscolhido, dataInicioEscolhida || hojeStr,
+        semPagamentoAgoraBalcao ? null : metodoEscolhido,
+        semPagamentoAgoraBalcao ? null : contaBancariaEscolhida
+      );
+      const plano = planos.find((p) => p.nome === planoEscolhido);
+      const membroAtualizado = { ...membroSelecionado, plano: planoEscolhido, estado: "ativo" };
+      setMembroSelecionado(membroAtualizado);
+      setASubscrever(false);
+      if (documento) {
+        setUltimaAcao({
+          texto: `Subscrição de ${membroSelecionado.nome} confirmada (${planoEscolhido}, ${kz(plano?.preco || 0)})`,
+          desfazer: () => { onEliminarFatura(documento.numero); setUltimaAcao(null); voltarAoInicio(); },
+        });
+      } else {
+        setUltimaAcao({ texto: `Subscrição de ${membroSelecionado.nome} registada (sem recibo agora)`, desfazer: null });
+      }
+      // A trava só é reposta quando o ecrã de subscrição é aberto de novo (ver
+      // "setASubscrever(true)") ou ao voltar ao início — nunca aqui dentro,
+      // pelo mesmo motivo explicado em "criarMembroRapido".
+    } catch (erro) {
+      aConfirmarSubscricaoRef.current = false;
+      alert("Não foi possível confirmar a subscrição. Tenta novamente.");
     }
   };
 
@@ -3728,12 +3609,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   };
 
   const fazerSaida = async () => {
-    if (aProcessarRef.current) return;
-    aProcessarRef.current = true;
-    setAProcessar(true);
     const resultado = await onRegistarSaida(membroSelecionado);
-    aProcessarRef.current = false;
-    setAProcessar(false);
     setUltimaAcao({
       texto: `Saída registada — ${membroSelecionado.nome}`,
       desfazer: () => { onDesfazerSaida(resultado.acessoId, resultado.taxaFaturaNumero); setUltimaAcao(null); voltarAoInicio(); },
@@ -3906,7 +3782,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
             <div className="mt-3 text-center py-4">
               <p className="text-sm text-slate-400 dark:text-slate-500 mb-2">Ninguém encontrado com "{query}".</p>
               <button
-                onClick={() => { setNovoNome(query); setACriarNovo(true); }}
+                onClick={() => { aCriarRapidoRef.current = false; setNovoNome(query); setACriarNovo(true); }}
                 className="text-sm font-semibold text-[#3F8F87] hover:underline"
               >
                 + Inscrever como novo membro
@@ -3914,7 +3790,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
             </div>
           )}
           {query.trim().length < 2 && (
-            <button onClick={() => setACriarNovo(true)} className="mt-3 text-sm font-semibold text-[#3F8F87] hover:underline">
+            <button onClick={() => { aCriarRapidoRef.current = false; setACriarNovo(true); }} className="mt-3 text-sm font-semibold text-[#3F8F87] hover:underline">
               + Inscrever novo membro
             </button>
           )}
@@ -3981,9 +3857,9 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
               <button onClick={voltarAoInicio} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
                 Cancelar
               </button>
-              <button onClick={criarMembroRapido} disabled={!novoNome.trim() || aProcessar}
+              <button onClick={criarMembroRapido} disabled={!novoNome.trim()}
                 className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
-                {aProcessar ? "A inscrever..." : "Inscrever e continuar"}
+                Inscrever e continuar
               </button>
             </div>
           </div>
@@ -4063,22 +3939,6 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
 
           {aSubscrever ? (
             <div className="space-y-3">
-              {(() => {
-                const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membroSelecionado, faturas);
-                if (taxasPendentes.total <= 0) return null;
-                return (
-                  <div className="text-xs bg-amber-50 rounded-lg px-3 py-2">
-                    <p className="font-semibold text-amber-700">
-                      ⚠ {membroSelecionado.nome} tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por
-                      pagar ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}).
-                    </p>
-                    <label className="flex items-start gap-1.5 mt-1.5 text-amber-800">
-                      <input type="checkbox" className="mt-0.5" checked={cobrarTaxaPendenteBalcao} onChange={(e) => setCobrarTaxaPendenteBalcao(e.target.checked)} />
-                      Cobrar também esta taxa junto com a subscrição (gera um recibo próprio para ela).
-                    </label>
-                  </div>
-                );
-              })()}
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Plano</label>
                 <select value={planoEscolhido} onChange={(e) => setPlanoEscolhido(e.target.value)}
@@ -4129,9 +3989,9 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
                 <button onClick={() => setASubscrever(false)} className="flex-1 text-sm font-semibold text-slate-500 border border-slate-200 dark:border-slate-600 py-2.5 rounded-lg">
                   Cancelar
                 </button>
-                <button onClick={confirmarSubscricao} disabled={!planoEscolhido || aProcessar}
+                <button onClick={confirmarSubscricao} disabled={!planoEscolhido}
                   className="flex-1 bg-[#3F8F87] text-white font-semibold py-2.5 rounded-lg disabled:opacity-40">
-                  {aProcessar ? "A processar..." : semPagamentoAgoraBalcao ? "Confirmar (sem recibo)" : "Confirmar pagamento"}
+                  {semPagamentoAgoraBalcao ? "Confirmar (sem recibo)" : "Confirmar pagamento"}
                 </button>
               </div>
             </div>
@@ -4140,7 +4000,7 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {membroSelecionado.estado === "sem-subscricao" ? "Este atleta ainda não tem nenhum plano." : "A mensalidade deste atleta está vencida."}
               </p>
-              <button onClick={() => setASubscrever(true)} className="w-full bg-[#3F8F87] text-white font-semibold py-3 rounded-lg">
+              <button onClick={() => { aConfirmarSubscricaoRef.current = false; setASubscrever(true); }} className="w-full bg-[#3F8F87] text-white font-semibold py-3 rounded-lg">
                 Subscrever / renovar agora
               </button>
               <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
@@ -4160,8 +4020,8 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
                   ⚠ Este atleta ficou com uma entrada por fechar desde <strong>{acessoAbertoDoMembro.data}</strong>, às {acessoAbertoDoMembro.entrada} — provavelmente esqueceram-se de registar a saída nessa altura.
                 </p>
               )}
-              <button onClick={fazerSaida} disabled={aProcessar} className="w-full bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-lg py-4 rounded-lg">
-                {aProcessar ? "A registar..." : "Registar saída"}
+              <button onClick={fazerSaida} className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-lg">
+                Registar saída
               </button>
             </div>
           ) : (
@@ -4175,23 +4035,10 @@ function Balcao({ membros, planos, acessos, faturas, pagamentosPendentes, dadosG
   );
 }
 
-function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil, onReiniciar }) {
+function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
   const [query, setQuery] = useState("");
-  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
   const [encontrado, setEncontrado] = useState(null);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
-  // Protege contra duplo clique em "registar saída" — pode gerar uma taxa
-  // de sessão longa, por isso um clique a mais não pode gerar duas.
-  const aRegistarSaidaRef = useRef(false);
-  const [aRegistarSaida, setARegistarSaida] = useState(false);
-  const registarSaidaProtegido = async (membro) => {
-    if (aRegistarSaidaRef.current) return;
-    aRegistarSaidaRef.current = true;
-    setARegistarSaida(true);
-    await onRegistarSaida(membro);
-    aRegistarSaidaRef.current = false;
-    setARegistarSaida(false);
-  };
   const [camaraAtiva, setCamaraAtiva] = useState(false);
   const [erroCamara, setErroCamara] = useState("");
   const videoRef = React.useRef(null);
@@ -4228,24 +4075,6 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
       );
     });
     setEncontrado(m || "nao-encontrado");
-    setMostrarSugestoes(false);
-  };
-
-  // Sugestões que aparecem à medida que se escreve — mostra logo os
-  // nomes que batem certo, em vez de só validar quando se submete o
-  // formulário. Limitado a poucos, para não sobrecarregar o ecrã.
-  const sugestoes = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return membros
-      .filter((m) => m.nome.toLowerCase().includes(q) || m.numero.toLowerCase().includes(q))
-      .slice(0, 6);
-  }, [query, membros]);
-
-  const selecionarSugestao = (m) => {
-    setQuery(m.nome);
-    setEncontrado(m);
-    setMostrarSugestoes(false);
   };
 
   const pesquisar = (e) => {
@@ -4356,32 +4185,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
       <div className="space-y-5">
         <Card title="Validação de acesso">
           <form onSubmit={pesquisar} className="space-y-3">
-            <div className="relative">
+            <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Número do membro, nome ou telefone</label>
               <input
                 value={query}
-                onChange={(e) => { setQuery(e.target.value); setMostrarSugestoes(true); }}
-                onFocus={() => setMostrarSugestoes(true)}
-                onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Ex.: 1"
-                autoComplete="off"
                 className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
               />
-              {mostrarSugestoes && sugestoes.length > 0 && (
-                <div className="absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 rounded-lg shadow-lg ring-1 ring-slate-200 dark:ring-slate-600 overflow-hidden">
-                  {sugestoes.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onMouseDown={() => selecionarSugestao(m)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center justify-between"
-                    >
-                      <span className="text-slate-900 dark:text-slate-100">{m.nome}</span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500">{m.numero}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
             <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2.5 rounded-lg">
               <CheckCircle2 size={16} /> Validar
@@ -4398,7 +4209,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           </div>
         )}
         {encontrado && encontrado !== "nao-encontrado" && (() => {
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(new Date());
           // Qualquer entrada em aberto, não só a de hoje — se ficou uma
           // entrada por fechar de um dia anterior (esqueceram-se de
           // registar a saída), é essa que tem de aparecer aqui.
@@ -4439,14 +4250,13 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
 
               {entradaAberta ? (
                 <button
-                  disabled={aRegistarSaida}
                   onClick={() => {
-                    registarSaidaProtegido(encontrado);
+                    onRegistarSaida(encontrado);
                     setEncontrado(null);
                     setQuery("");
                     setPermitirExcecao(false);
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 transition-all text-white font-semibold py-2.5 rounded-lg mt-2 disabled:opacity-50"
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 transition-all text-white font-semibold py-2.5 rounded-lg mt-2"
                 >
                   <DoorClosed size={16} /> Registar saída
                 </button>
@@ -4484,19 +4294,12 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                   <p className="text-xs text-slate-400 dark:text-slate-500">Saída {a.saida}</p>
                 ) : (
                   <button
-                    disabled={aRegistarSaida}
                     onClick={() => {
-                      // Se o membro já não existe na lista atual (foi editado,
-                      // renumerado ou eliminado), usa os dados do próprio
-                      // registo de acesso — sem isto, o clique não fazia
-                      // NADA (find() devolvia undefined, o "if" bloqueava
-                      // tudo em silêncio) e a pessoa ficava presa "dentro do
-                      // ginásio" para sempre, sem forma de a tirar daqui.
-                      const membroDoAcesso = membros.find((m) => m.numero === a.numero) || { numero: a.numero, nome: a.membro };
-                      registarSaidaProtegido(membroDoAcesso);
+                      const membroDoAcesso = membros.find((m) => m.numero === a.numero);
+                      if (membroDoAcesso) onRegistarSaida(membroDoAcesso);
                     }}
                     title="Clica para registar a saída agora"
-                    className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300 disabled:opacity-50"
+                    className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300"
                   >
                     Ainda no ginásio — registar saída
                   </button>
@@ -4509,14 +4312,6 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           )}
         </div>
       </Card>
-      {perfil === "administrador" && (
-        <ReiniciarColecaoParcial
-          titulo="Reiniciar Controlo de Acessos"
-          descricao="Apaga todo o histórico de entradas e saídas. Não mexe em mais nada — membros, subscrições, faturação e o resto do sistema ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
-          frase="REINICIAR ACESSOS"
-          onReiniciar={onReiniciar}
-        />
-      )}
     </div>
   );
 }
@@ -5796,7 +5591,7 @@ function diasAteProximaManutencao(equipamento) {
 }
 
 function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
-  const vazio = { nome: "", grupo: "treino", categoria: "Musculação", quantidade: 1, quantidadeEmManutencao: 0, dataUltimaManutencao: new Date().toISOString().slice(0, 10), intervaloDias: 90, notas: "" };
+  const vazio = { nome: "", grupo: "treino", categoria: "Musculação", quantidade: 1, quantidadeEmManutencao: 0, dataUltimaManutencao: dataLocalISO(new Date()), intervaloDias: 90, notas: "" };
   const [novo, setNovo] = useState(vazio);
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -5830,7 +5625,7 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
   };
 
   const registarManutencaoFeitaHoje = (eq) => {
-    onUpdate(eq.id, { ...eq, dataUltimaManutencao: new Date().toISOString().slice(0, 10), quantidadeEmManutencao: 0 });
+    onUpdate(eq.id, { ...eq, dataUltimaManutencao: dataLocalISO(new Date()), quantidadeEmManutencao: 0 });
   };
 
   const filtrados = filtroGrupo === "todos" ? equipamentos : equipamentos.filter((eq) => (eq.grupo || "treino") === filtroGrupo);
@@ -5987,14 +5782,8 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
   );
 }
 
-// "Compra de mercadoria" é a única categoria ligada aos PRODUTOS da loja
-// (o que se gasta a repor stock para vender) — todas as outras são custos
-// do GINÁSIO em si (renda, salários, manutenção, etc.).
-const CATEGORIAS_CUSTO_PRODUTOS = ["Compra de mercadoria"];
-
-function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio, onReiniciar, perfil }) {
+function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
-  const [filtroGrupo, setFiltroGrupo] = useState("TODOS");
   const contasBancarias = obterContasBancarias(dadosGinasio);
   const [novo, setNovo] = useState({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
 
@@ -6006,20 +5795,14 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio, onReinicia
     setShowForm(false);
   };
 
-  const custosGinasio = custos.filter((c) => !CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
-  const custosLoja = custos.filter((c) => CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
-  const custosFiltrados = filtroGrupo === "GINASIO" ? custosGinasio : filtroGrupo === "LOJA" ? custosLoja : custos;
-
   const totalGeral = custos.reduce((s, c) => s + c.valor, 0);
-  const totalGinasio = custosGinasio.reduce((s, c) => s + c.valor, 0);
-  const totalLoja = custosLoja.reduce((s, c) => s + c.valor, 0);
-  const totalFixo = custosGinasio.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
-  const totalVariavel = custosGinasio.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalFixo = custos.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalVariavel = custos.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
   const porCategoria = useMemo(() => {
     const mapa = {};
-    custosGinasio.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
+    custos.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
     return Object.entries(mapa).sort((a, b) => b[1] - a[1]);
-  }, [custosGinasio]);
+  }, [custos]);
 
   return (
     <div className="space-y-4">
@@ -6033,93 +5816,70 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio, onReinicia
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={TrendingUp} label="Total de custos (ginásio + loja)" value={kz(totalGeral)} tone="red" />
-        <StatCard icon={Wallet} label="Custos do ginásio" value={kz(totalGinasio)} tone="amber" />
-        <StatCard icon={Package} label="Custos da loja (produtos)" value={kz(totalLoja)} tone="blue" />
+        <StatCard icon={TrendingUp} label="Total de custos registados" value={kz(totalGeral)} tone="red" />
+        <StatCard icon={Wallet} label="Custos fixos (renda, salários...)" value={kz(totalFixo)} tone="amber" />
+        <StatCard icon={TrendingUp} label="Custos variáveis" value={kz(totalVariavel)} tone="blue" />
       </div>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Separado em dois: o que o ginásio gasta a <strong>funcionar</strong> (renda, salários, manutenção, etc.) e o
-        que se gasta só a <strong>repor stock da loja</strong> — para nunca misturares os dois ao avaliar quanto
-        cada parte do negócio realmente custa.
+        "Fixos" são os que se repetem todos os meses, independentemente de quanto o ginásio vende (renda, salários,
+        internet). "Variáveis" mudam de mês para mês (manutenção, compras avulsas). Saber o total fixo ajuda a
+        perceber quanto precisas de faturar só para cobrir o básico, antes de teres lucro a sério.
       </p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Card title="Custos do ginásio, por categoria">
-          {porCategoria.length === 0 ? (
-            <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos do ginásio registados.</p>
-          ) : (
-            <div className="space-y-2">
-              {porCategoria.map(([cat, valor]) => (
-                <div key={cat} className="flex justify-between text-sm">
-                  <span className="text-slate-600 dark:text-slate-300">{cat}</span>
-                  <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-        <Card title="Custos fixos vs. variáveis (só ginásio)">
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-300">Fixos (renda, salários, internet...)</span>
-              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(totalFixo)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-600 dark:text-slate-300">Variáveis (manutenção, compras avulsas...)</span>
-              <span className="font-medium text-slate-900 dark:text-slate-100">{kz(totalVariavel)}</span>
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
-            "Fixos" repetem-se todos os meses, independentemente de quanto o ginásio vende. Saber esse total ajuda a
-            perceber quanto precisas de faturar só para cobrir o básico, antes de teres lucro a sério.
-          </p>
-        </Card>
-      </div>
-
-      <Card title="Todos os custos" action={
-        <select value={filtroGrupo} onChange={(e) => setFiltroGrupo(e.target.value)}
-          className="text-xs px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
-          <option value="TODOS">Ginásio + Loja</option>
-          <option value="GINASIO">Só ginásio</option>
-          <option value="LOJA">Só loja (produtos)</option>
-        </select>
-      }>
-        {custosFiltrados.length === 0 ? (
+      <Card title="Por categoria">
+        {porCategoria.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
         ) : (
-          <div className="space-y-5">
-            {agruparPorData(custosFiltrados, (c) => c.data).map(([rotuloData, lista]) => (
-              <div key={rotuloData}>
-                <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
-                  {rotuloData} · {lista.length} custo{lista.length > 1 ? "s" : ""} · {kz(lista.reduce((s, c) => s + c.valor, 0))}
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                      {lista.map((c) => (
-                        <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                          <td className="py-2">
-                            <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
-                          </td>
-                          <td className="py-2">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
-                            {c.tipo === "variavel" ? "Variável" : "Fixo"}
-                            </span>
-                          </td>
-                          <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
-                          <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
-                          <td className="py-2 text-right">
-                            <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+          <div className="space-y-2">
+            {porCategoria.map(([cat, valor]) => (
+              <div key={cat} className="flex justify-between text-sm">
+                <span className="text-slate-600 dark:text-slate-300">{cat}</span>
+                <span className="font-medium text-slate-900 dark:text-slate-100">{kz(valor)}</span>
               </div>
             ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="Todos os custos">
+        {custos.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Data</th>
+                  <th className="pb-2 font-medium">Categoria</th>
+                  <th className="pb-2 font-medium">Tipo</th>
+                  <th className="pb-2 font-medium">Descrição</th>
+                  <th className="pb-2 font-medium">Valor</th>
+                  <th className="pb-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                {custos.map((c) => (
+                  <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                    <td className="py-2 text-slate-500 dark:text-slate-400">{c.data}</td>
+                    <td className="py-2">
+                      <span className="text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 px-2 py-0.5 rounded-full font-medium">{c.categoria}</span>
+                    </td>
+                    <td className="py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.tipo === "variavel" ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400" : "bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400"}`}>
+                        {c.tipo === "variavel" ? "Variável" : "Fixo"}
+                      </span>
+                    </td>
+                    <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
+                    <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
+                    <td className="py-2 text-right">
+                      <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>
@@ -6186,14 +5946,6 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio, onReinicia
           </div>
         </div>
       )}
-      {perfil === "administrador" && (
-        <ReiniciarColecaoParcial
-          titulo="Reiniciar Centro de Custos"
-          descricao="Apaga todos os custos registados. Não mexe em mais nada — membros, faturação, pagamentos e o resto do sistema ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual."
-          frase="REINICIAR CUSTOS"
-          onReiniciar={onReiniciar}
-        />
-      )}
     </div>
   );
 }
@@ -6214,7 +5966,7 @@ const ROTULO_ACAO_HISTORICO = {
 };
 
 function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
-  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1));
+  const doMembro = historico.filter((h) => h.membroId === membro.id).sort((a, b) => (a.id < b.id ? 1 : -1));
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-lg w-full max-h-[85vh] flex flex-col">
@@ -6258,7 +6010,7 @@ function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
   );
 }
 
-function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes, faturas }) {
+function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes }) {
   const [aVerHistorico, setAVerHistorico] = useState(null); // membro selecionado
   const [editandoId, setEditandoId] = useState(null);
   const [novoPlano, setNovoPlano] = useState("");
@@ -6270,6 +6022,10 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
   const [pesquisa, setPesquisa] = useState("");
   const [agruparPor, setAgruparPor] = useState("nenhum"); // "nenhum" | "plano" | "estado"
+  // Proteção contra duplo clique/duplo toque em "Confirmar" — a trava só é
+  // reposta ao abrir a edição de novo (nunca no final com sucesso), pelo
+  // mesmo motivo explicado junto de "criarMembroRapido" em Balcão.
+  const aConfirmarMudancaRef = useRef(false);
 
   const membrosFiltrados = useMemo(() => {
     const q = pesquisa.trim().toLowerCase();
@@ -6307,30 +6063,26 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     // visualmente a primeira opção, mas por baixo ficava "vazio" até a
     // pessoa mexer manualmente, e confirmar sem mexer não gerava nada.
     setNovoPlano(membro.plano || planos[0]?.nome || "");
-    setDataInicio(new Date().toISOString().slice(0, 10));
+    setDataInicio(dataLocalISO(new Date()));
     setMetodoPagamento("dinheiro");
     setContaBancariaId("");
     setSemPagamentoAgora(false);
     setUltimoRecibo(null);
+    aConfirmarMudancaRef.current = false;
   };
 
-  const [cobrarTaxaPendente, setCobrarTaxaPendente] = useState(false);
-  const [aConfirmar, setAConfirmar] = useState(false);
   const confirmarMudanca = async (membro) => {
-    if (aConfirmar) return;
-    setAConfirmar(true);
-    const taxasPendentes = taxasSessaoLongaPendentesDoMembro(membro, faturas);
-    const documento = await onAtualizarSubscricao(
-      membro.id, novoPlano, dataInicio,
-      semPagamentoAgora ? null : metodoPagamento,
-      semPagamentoAgora ? null : contaBancariaId,
-      cobrarTaxaPendente && !semPagamentoAgora ? taxasPendentes.faturas : []
-    );
-    setUltimoRecibo(documento);
-    setUltimoPlanoConfirmado(novoPlano);
-    setEditandoId(null);
-    setCobrarTaxaPendente(false);
-    setAConfirmar(false);
+    if (aConfirmarMudancaRef.current) return;
+    aConfirmarMudancaRef.current = true;
+    try {
+      const documento = await onAtualizarSubscricao(membro.id, novoPlano, dataInicio, semPagamentoAgora ? null : metodoPagamento, semPagamentoAgora ? null : contaBancariaId);
+      setUltimoRecibo(documento);
+      setUltimoPlanoConfirmado(novoPlano);
+      setEditandoId(null);
+    } catch (erro) {
+      aConfirmarMudancaRef.current = false;
+      alert("Não foi possível confirmar a subscrição. Tenta novamente.");
+    }
   };
 
   const diasRestantes = (vencimento) => {
@@ -6415,7 +6167,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                       <td className="py-2.5 text-right">
                         {aEditar ? (
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => confirmarMudanca(m)} disabled={aConfirmar} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-40"><CheckCircle2 size={16} /></button>
+                            <button onClick={() => confirmarMudanca(m)} className="text-emerald-600 hover:text-emerald-700"><CheckCircle2 size={16} /></button>
                             <button onClick={() => setEditandoId(null)} className="text-slate-400 hover:text-red-500"><X size={16} /></button>
                           </div>
                         ) : (
@@ -6454,22 +6206,6 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                     {aEditar && (
                       <tr className="bg-[#EAF5F4] dark:bg-slate-900">
                         <td colSpan={6} className="py-3 px-2">
-                          {(() => {
-                            const taxasPendentes = taxasSessaoLongaPendentesDoMembro(m, faturas);
-                            if (taxasPendentes.total <= 0) return null;
-                            return (
-                              <div className="mb-2 text-xs bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
-                                <p className="font-semibold text-amber-700 dark:text-amber-400">
-                                  ⚠ Este atleta tem {kz(taxasPendentes.total)} de taxa por sessão longa ainda por pagar
-                                  ({taxasPendentes.faturas.length} pendente{taxasPendentes.faturas.length > 1 ? "s" : ""}).
-                                </p>
-                                <label className="flex items-start gap-1.5 mt-1.5 text-amber-800 dark:text-amber-300">
-                                  <input type="checkbox" className="mt-0.5" checked={cobrarTaxaPendente} onChange={(e) => setCobrarTaxaPendente(e.target.checked)} />
-                                  Cobrar também esta taxa junto com a renovação (gera um recibo próprio para ela).
-                                </label>
-                              </div>
-                            );
-                          })()}
                           <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
                             <label className="text-slate-500 dark:text-slate-400 font-medium">Data de início do novo período:</label>
                             <SeletorDataDiaMesAno valor={dataInicio} onMudar={setDataInicio} />
@@ -6614,63 +6350,56 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
           {faturasVisiveis.length === 0 ? "Ainda não emitiste nenhum documento." : "Nenhum documento corresponde à pesquisa."}
         </p>
       ) : (
-        <div className="space-y-5">
-          {agruparPorData(filtrados, (f) => f.data).map(([rotuloData, lista]) => (
-            <div key={rotuloData}>
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-1.5">
-                {rotuloData} · {lista.length} documento{lista.length > 1 ? "s" : ""} · {kz(lista.reduce((s, f) => s + f.valor, 0))}
-              </p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                      <th className="pb-2 font-medium">Número</th>
-                      <th className="pb-2 font-medium">Tipo</th>
-                      <th className="pb-2 font-medium">Cliente</th>
-                      <th className="pb-2 font-medium">Valor</th>
-                      <th className="pb-2 font-medium">Estado</th>
-                      <th className="pb-2 font-medium"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                    {lista.map((f) => (
-                      <tr key={f.numero} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                        <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.numero}</td>
-                        <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                          {f.tipo === "FATURA" ? "Fatura" : f.tipo === "PROFORMA" ? "Proforma" : "Recibo"}
-                        </td>
-                        <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.membro.nome}</td>
-                        <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{kz(f.valor)}</td>
-                        <td className="py-2.5">
-                          {f.tipo === "FATURA" ? (
-                            f.estado === "paga" ? (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">PAGA</span>
-                            ) : (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">POR PAGAR</span>
-                            )
-                          ) : (
-                            <span className="text-slate-300 dark:text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="py-2.5 text-right">
-                          <div className="flex items-center justify-end gap-3">
-                            <button onClick={() => onVer(f)} title="Ver / reimprimir (2ª via)" className="text-slate-400 hover:text-[#3F8F87]">
-                              <FileText size={15} />
-                            </button>
-                            {perfil === "administrador" && (
-                              <button onClick={() => setAEliminar(f)} title="Eliminar documento" className="text-slate-400 hover:text-red-500">
-                                <Trash2 size={15} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                <th className="pb-2 font-medium">Número</th>
+                <th className="pb-2 font-medium">Tipo</th>
+                <th className="pb-2 font-medium">Cliente</th>
+                <th className="pb-2 font-medium">Data</th>
+                <th className="pb-2 font-medium">Valor</th>
+                <th className="pb-2 font-medium">Estado</th>
+                <th className="pb-2 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+              {filtrados.map((f) => (
+                <tr key={f.numero} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.numero}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">
+                    {f.tipo === "FATURA" ? "Fatura" : f.tipo === "PROFORMA" ? "Proforma" : "Recibo"}
+                  </td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.membro.nome}</td>
+                  <td className="py-2.5 text-slate-500 dark:text-slate-400">{f.data}</td>
+                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{kz(f.valor)}</td>
+                  <td className="py-2.5">
+                    {f.tipo === "FATURA" ? (
+                      f.estado === "paga" ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400">PAGA</span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">POR PAGAR</span>
+                      )
+                    ) : (
+                      <span className="text-slate-300 dark:text-slate-600">—</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-3">
+                      <button onClick={() => onVer(f)} title="Ver / reimprimir (2ª via)" className="text-slate-400 hover:text-[#3F8F87]">
+                        <FileText size={15} />
+                      </button>
+                      {perfil === "administrador" && (
+                        <button onClick={() => setAEliminar(f)} title="Eliminar documento" className="text-slate-400 hover:text-red-500">
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -6704,7 +6433,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   );
 }
 
-function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual, onReiniciarFaturacao }) {
+function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
   const [aba, setAba] = useState("emitir"); // "emitir" | "historico"
   const [tipo, setTipo] = useState("FATURA"); // FATURA | PROFORMA | RECIBO
   const [membroId, setMembroId] = useState("");
@@ -6713,18 +6442,12 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [faturaOrigemNumero, setFaturaOrigemNumero] = useState(null); // se este recibo quita uma fatura pendente
   const [gerada, setGerada] = useState(null);
-  // Protege contra duplo clique (ou um toque duplo acidental num ecrã
-  // tátil) a gerar DOIS documentos de uma só ação — uma "ref" atualiza
-  // logo, de forma síncrona, ao contrário de um "state" (que só reflete
-  // no ecrã no próximo render, deixando uma janela onde um segundo
-  // clique ainda passava).
-  const aGerarRef = useRef(false);
-  const [aGerar, setAGerar] = useState(false);
   const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
   const cartaoGerarRef = useRef(null);
+  const aGerarRef = useRef(false); // trava de duplo-clique ao gerar fatura/recibo (ver comentário em "gerar")
 
-  const membro = membros.find((m) => m.id === Number(membroId));
+  const membro = membros.find((m) => String(m.id) === String(membroId));
   const plano = membro ? planos.find((p) => p.nome === membro.plano) : null;
 
   const adicionarMensalidade = () => {
@@ -6751,12 +6474,17 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const gerar = () => {
     if (!membro || itensSelecionados.length === 0) return;
     if (tipo === "RECIBO" && !metodoPagamento) return;
-    // Bloqueia qualquer chamada seguinte enquanto esta ainda está a
-    // decorrer — mesmo que o clique venha no MESMO instante, antes do
-    // React ter tido tempo de desativar o botão no ecrã.
+    // Proteção contra duplo clique: sem isto, dois cliques rápidos no mesmo
+    // botão (ou um duplo-toque no telemóvel) chamavam esta função duas
+    // vezes antes do ecrã ter tempo de re-renderizar — as duas chamadas
+    // calculavam o MESMO próximo número de documento (a partir da mesma
+    // lista "faturas" desatualizada) e criavam dois documentos diferentes
+    // com o número igual. A verificação por "ref" (não por estado) é
+    // instantânea, ao contrário de "setState", que só atualiza no próximo
+    // render — por isso é a única forma fiável de bloquear a SEGUNDA
+    // chamada ainda dentro do mesmo instante da primeira.
     if (aGerarRef.current) return;
     aGerarRef.current = true;
-    setAGerar(true);
     const documento = {
       tipo,
       membro,
@@ -6765,12 +6493,6 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       metodo: tipo === "RECIBO" ? metodoPagamento : undefined,
       contaBancariaId: tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express" || metodoPagamento === "tpa") ? contaBancariaId : undefined,
       faturaOrigemNumero: tipo === "RECIBO" ? faturaOrigemNumero : undefined,
-      // Antes isto não ia — gerarDocumentoFaturacao assumia sempre
-      // "mensalidade" quando não vinha nada, por isso um recibo emitido
-      // aqui (Faturação) por qualquer coisa que não fosse o plano do
-      // membro entrava sempre como Subscrição no Relatório Diário e no
-      // Turno de Caixa, em vez de aparecer em "Outros/Recibos".
-      tipoReceita: tipo === "RECIBO" ? (itensSelecionados.some((i) => i.referencia?.startsWith("PLANO-")) ? "mensalidade" : "outros") : undefined,
     };
     const gravado = onGerarFatura(documento); // devolve o documento já com número e data reais
     // Se o recibo inclui o item do plano do membro, a subscrição tem de ser
@@ -6785,11 +6507,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   };
 
   const novoDocumento = () => {
+    aGerarRef.current = false;
     setGerada(null);
     setItensSelecionados([]);
     setMembroId("");
-    aGerarRef.current = false;
-    setAGerar(false);
   };
 
   return (
@@ -6810,28 +6531,16 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       </div>
 
       {aba === "historico" && (
-        <>
-          <HistoricoFaturas
-            faturas={faturas}
-            perfil={perfil}
-            nomeAtual={nomeAtual}
-            onEliminar={onEliminarFatura}
-            onVer={(f) => {
-              setGerada(f);
-              setAba("emitir");
-            }}
-          />
-          {perfil === "administrador" && (
-            <div className="mt-5">
-              <ReiniciarColecaoParcial
-                titulo="Reiniciar Faturação"
-                descricao='Apaga TODOS os recibos e faturas do histórico, e faz a numeração recomeçar de "REC-2026-000001". Não mexe em mais nada — membros, subscrições, pagamentos registados nos relatórios, e movimentos de caixa/banco ficam intactos. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar o histórico atual.'
-                frase="REINICIAR FATURAÇÃO"
-                onReiniciar={onReiniciarFaturacao}
-              />
-            </div>
-          )}
-        </>
+        <HistoricoFaturas
+          faturas={faturas}
+          perfil={perfil}
+          nomeAtual={nomeAtual}
+          onEliminar={onEliminarFatura}
+          onVer={(f) => {
+            setGerada(f);
+            setAba("emitir");
+          }}
+        />
       )}
 
       {aba === "emitir" && (
@@ -6964,10 +6673,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 
                 <button
                   onClick={gerar}
-                  disabled={itensSelecionados.length === 0 || aGerar}
+                  disabled={itensSelecionados.length === 0}
                   className="w-full bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold py-2.5 rounded-lg text-sm"
                 >
-                  {aGerar ? "A gerar..." : `Confirmar e gerar ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"}`}
+                  Confirmar e gerar {tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"}
                 </button>
               </>
             )}
@@ -7202,13 +6911,6 @@ const ESTILO_NOTIFICACAO = {
 // ---------------------------------------------------------------------
 function AprovacaoPagamentos({ pendentes, onAprovar, onRejeitar }) {
   const [verComprovativo, setVerComprovativo] = useState(null);
-  const [aAprovarId, setAAprovarId] = useState(null);
-  const aprovar = async (p) => {
-    if (aAprovarId) return;
-    setAAprovarId(p.id);
-    await onAprovar(p);
-    setAAprovarId(null);
-  };
   // Só pagamentos submetidos pelos próprios membros (self-service) precisam de
   // aprovação aqui — um pagamento registado presencialmente por um funcionário
   // já foi verificado por essa pessoa na hora, não fica pendente.
@@ -7259,16 +6961,14 @@ function AprovacaoPagamentos({ pendentes, onAprovar, onRejeitar }) {
                   )}
                   <div className="flex gap-2 mt-4">
                     <button
-                      onClick={() => aprovar(p)}
-                      disabled={!!aAprovarId}
-                      className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:opacity-50 text-white text-sm font-semibold py-2 rounded-lg"
+                      onClick={() => onAprovar(p)}
+                      className="flex-1 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2 rounded-lg"
                     >
-                      {aAprovarId === p.id ? "A aprovar..." : "Aprovar"}
+                      Aprovar
                     </button>
                     <button
                       onClick={() => onRejeitar(p)}
-                      disabled={!!aAprovarId}
-                      className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
+                      className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 text-sm font-semibold py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700"
                     >
                       Rejeitar
                     </button>
@@ -7455,7 +7155,7 @@ function EnviarEmMassaModal({ pessoas, gerarMensagem, gerarChave, onMarcarEnviad
   );
 }
 
-function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado, onReiniciar }) {
+function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
   const notificacoes = calcularNotificacoes(membros, planos);
   const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
   // A "chave" de cada notificação identifica o membro + tipo de aviso +
@@ -7569,12 +7269,6 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado, onRein
           onFechar={() => setAEnviarEmMassa(false)}
         />
       )}
-      <ReiniciarColecaoParcial
-        titulo="Reiniciar histórico de avisos enviados"
-        descricao='Apaga o registo de quem já foi contactado — todos os atletas com notificações ativas voltam a aparecer como "por contactar". Não mexe em mais nada. Não há forma de desfazer isto.'
-        frase="REINICIAR AVISOS"
-        onReiniciar={onReiniciar}
-      />
     </div>
   );
 }
@@ -7613,7 +7307,7 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
       .map((m) => {
         const ultimo = (historicoSubscricoes || [])
           .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
-          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
+          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
         return { membro: m, ultimo };
       })
       .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
@@ -7663,71 +7357,6 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
   );
 }
 
-// ---------------------------------------------------------------------
-// VENCIMENTOS DA SEMANA — quem vence nos próximos 7 dias, e quem já
-// venceu, tudo junto e organizado por data (mais antigo primeiro, para
-// veres logo quem está vencido há mais tempo).
-// ---------------------------------------------------------------------
-function VencimentosDaSemana({ membros }) {
-  const hojeStr = dataLocalISO(new Date());
-  const em7Dias = dataLocalISO(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-
-  const relevantes = useMemo(() => {
-    return membros
-      .filter((m) => {
-        if (!m.vencimento || (m.estado !== "ativo" && m.estado !== "vencido")) return false;
-        return m.vencimento <= em7Dias; // já venceu (qualquer data passada) OU vence dentro de 7 dias
-      })
-      .sort((a, b) => (a.vencimento < b.vencimento ? -1 : 1));
-  }, [membros, em7Dias]);
-
-  const grupos = useMemo(() => {
-    const mapa = {};
-    relevantes.forEach((m) => {
-      if (!mapa[m.vencimento]) mapa[m.vencimento] = [];
-      mapa[m.vencimento].push(m);
-    });
-    return Object.entries(mapa).sort(([a], [b]) => (a < b ? -1 : 1));
-  }, [relevantes]);
-
-  return (
-    <Card title={`${relevantes.length} vencimento(s) — vencidos e dos próximos 7 dias`}>
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-        Tudo o que já venceu, mais quem vence até {em7Dias}, organizado por data — do mais antigo vencido até ao
-        próximo a vencer.
-      </p>
-      {grupos.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém vencido nem a vencer nos próximos 7 dias. 🎉</p>
-      ) : (
-        <div className="space-y-4">
-          {grupos.map(([data, lista]) => {
-            const jaVenceu = data < hojeStr;
-            const eHoje = data === hojeStr;
-            return (
-              <div key={data}>
-                <p className={`text-xs font-bold uppercase tracking-wide mb-1.5 ${jaVenceu ? "text-red-500" : eHoje ? "text-amber-600" : "text-slate-400 dark:text-slate-500"}`}>
-                  {data} {eHoje ? "· HOJE" : jaVenceu ? "· VENCIDO" : ""} · {lista.length} pessoa{lista.length > 1 ? "s" : ""}
-                </p>
-                <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                  {lista.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between py-2">
-                      <div>
-                        <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">{m.numero} · {m.plano}</p>
-                      </div>
-                      <Pill estado={m.estado} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }) {
   const linhas = useMemo(() => {
     return membros
@@ -7737,7 +7366,7 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
       .map((r) => {
         const ultimoRegisto = (historicoSubscricoes || [])
           .filter((h) => h.membroId === r.membro.id)
-          .sort((a, b) => (chaveTemporalISO(a) < chaveTemporalISO(b) ? 1 : -1))[0];
+          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
         return { ...r, ultimoRegisto };
       });
   }, [membros, faturas, planos, historicoSubscricoes]);
@@ -7767,149 +7396,6 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
                   Última alteração: {ROTULO_ACAO_HISTORICO[ultimoRegisto.acao]?.texto || ultimoRegisto.acao} em {ultimoRegisto.data} por {ultimoRegisto.registadoPor}
                 </p>
               )}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------
-// TAXAS DE SESSÃO LONGA PENDENTES — todos os atletas que ultrapassaram o
-// limite de horas numa visita e ainda não pagaram a taxa extra gerada
-// automaticamente nessa altura. Agrupado por atleta (pode ter mais do
-// que uma pendente, de dias diferentes), com o total e um link de
-// WhatsApp já escrito para cada um.
-// ---------------------------------------------------------------------
-function TaxasSessaoLongaPendentes({ membros, faturas, dadosGinasio }) {
-  const porMembro = useMemo(() => {
-    const mapa = {};
-    (faturas || [])
-      .filter((f) => f.tipo === "FATURA" && f.estado !== "paga" && (f.itens || []).some((i) => i.referencia === "TAXA-SESSAO-LONGA"))
-      .forEach((f) => {
-        const numero = f.membro?.numero;
-        if (!numero) return;
-        if (!mapa[numero]) mapa[numero] = { nome: f.membro.nome, numero, faturas: [], total: 0 };
-        mapa[numero].faturas.push(f);
-        mapa[numero].total += f.valor || 0;
-      });
-    return Object.values(mapa).sort((a, b) => b.total - a.total);
-  }, [faturas]);
-
-  return (
-    <Card title={`${porMembro.length} atleta(s) com taxa de sessão longa por pagar`}>
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-        Gerada automaticamente sempre que alguém fica mais do que {Number(dadosGinasio?.limiteHorasSessao) || 2}h numa
-        só visita (configurável em Dados do ginásio). Fica pendente até seres cobrada — na receção, ou junto com a
-        próxima renovação da subscrição.
-      </p>
-      {porMembro.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém com taxas por pagar. 🎉</p>
-      ) : (
-        <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {porMembro.map((m) => {
-            const membroCompleto = membros.find((x) => x.numero === m.numero);
-            const mensagem = `Olá ${m.nome.split(" ")[0]}, tens ${kz(m.total)} de taxa por sessão(ões) longa(s) pendente(s) na Catumbela Gym. Podes regularizar quando puderes 💪`;
-            return (
-              <div key={m.numero} className="py-2.5 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {m.numero} · {m.faturas.length} taxa{m.faturas.length > 1 ? "s" : ""} · {kz(m.total)}
-                  </p>
-                </div>
-                {membroCompleto?.telefone && (
-                  <a href={linkWhatsApp(membroCompleto.telefone, mensagem)} target="_blank" rel="noreferrer"
-                    className="shrink-0 flex items-center gap-1.5 text-xs font-semibold bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg">
-                    <MessageCircle size={14} /> WhatsApp
-                  </a>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------
-// POSSÍVEIS RECIBOS DUPLICADOS — agrupa documentos que parecem ser a
-// MESMA transação (mesmo atleta, mesmo valor, mesmo dia, mesmo tipo)
-// mas ficaram como registos separados. Nunca elimina nada sozinho —
-// mostra os grupos para confirmares com os teus próprios olhos qual
-// deve ficar, e dá a opção de limpar um grupo de cada vez, ou todos de
-// uma vez (mantendo sempre o de número mais antigo/baixo em cada
-// grupo, que é o que foi criado primeiro).
-// ---------------------------------------------------------------------
-function PossiveisRecibosDuplicados({ faturas, onEliminar }) {
-  const grupos = useMemo(() => {
-    const mapa = {};
-    faturas.forEach((f) => {
-      const nomeCliente = (f.membro?.nome || "").trim().toLowerCase();
-      if (!nomeCliente || nomeCliente === "cliente sem cadastro") return;
-      const chave = `${nomeCliente}|${f.valor}|${f.data}|${f.tipo}`;
-      if (!mapa[chave]) mapa[chave] = [];
-      mapa[chave].push(f);
-    });
-    const numSeq = (numero) => parseInt(numero.split("-").pop(), 10);
-    return Object.values(mapa)
-      .filter((g) => g.length > 1)
-      .map((g) => [...g].sort((a, b) => numSeq(a.numero) - numSeq(b.numero)))
-      .sort((a, b) => (b[0].data > a[0].data ? 1 : -1));
-  }, [faturas]);
-
-  const totalAEliminar = grupos.reduce((s, g) => s + (g.length - 1), 0);
-
-  const eliminarGrupo = (grupo) => {
-    grupo.slice(1).forEach((f) => onEliminar(f.numero));
-  };
-
-  const eliminarTodos = () => {
-    if (!confirm(`Vais eliminar ${totalAEliminar} documentos duplicados, mantendo sempre o mais antigo de cada grupo. Esta ação não pode ser desfeita. Confirmas?`)) return;
-    grupos.forEach((g) => eliminarGrupo(g));
-  };
-
-  return (
-    <Card title={`${grupos.length} grupo(s) possivelmente duplicado(s) — ${totalAEliminar} documento(s) a mais`}>
-      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-        Mesmo atleta, mesmo valor, mesmo dia, mesmo tipo de documento — provavelmente a mesma cobrança registada mais
-        do que uma vez. Fica sempre o de número mais antigo (o primeiro criado); os outros são as cópias.
-      </p>
-      {grupos.length > 0 && (
-        <button onClick={eliminarTodos} className="mb-3 text-xs font-semibold bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg">
-          Eliminar todos os {totalAEliminar} duplicados de uma vez
-        </button>
-      )}
-      {grupos.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum grupo suspeito encontrado. 🎉</p>
-      ) : (
-        <div className="space-y-4 max-h-[600px] overflow-y-auto">
-          {grupos.map((grupo, i) => (
-            <div key={i} className="ring-1 ring-amber-200 dark:ring-amber-800 bg-amber-50 dark:bg-amber-900/10 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  {grupo[0].membro?.nome} · {kz(grupo[0].valor)} · {grupo[0].data}
-                </p>
-                <button onClick={() => eliminarGrupo(grupo)} className="text-xs font-medium text-red-500 hover:text-red-700">
-                  Eliminar {grupo.length - 1} cópia{grupo.length - 1 > 1 ? "s" : ""}
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                {grupo.map((f, idx) => (
-                  <div key={f.numero} className="flex items-center justify-between text-xs bg-white dark:bg-slate-800 rounded-lg px-3 py-2">
-                    <span className="text-slate-600 dark:text-slate-300">
-                      {f.numero} {idx === 0 && <span className="text-emerald-600 font-semibold">· mantém-se (mais antigo)</span>}
-                    </span>
-                    {idx > 0 && (
-                      <button onClick={() => onEliminar(f.numero)} className="text-red-500 hover:text-red-700 font-medium">
-                        Eliminar
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
             </div>
           ))}
         </div>
@@ -8230,7 +7716,7 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
     if (editandoId) {
       formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
     } else {
-      const id = gerarIdUnico();
+      const id = Math.max(0, ...contas.map((c) => (typeof c.id === "number" ? c.id : 0))) + 1;
       formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id }] };
     }
     setForm(formAtualizado);
@@ -8651,7 +8137,7 @@ function MensagensParticipante({ mensagens, participanteId, participanteTipo, pa
   const [texto, setTexto] = useState("");
   const minhasMensagens = mensagens
     .filter((m) => m.participanteId === participanteId && m.participanteTipo === participanteTipo)
-    .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1));
+    .sort((a, b) => (a.id > b.id ? 1 : -1));
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -8699,16 +8185,16 @@ const RESPOSTAS_RAPIDAS = [
   "Podes passar pela receção para resolver isso.",
 ];
 
-function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros, funcionarios, onReiniciar }) {
+function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, totalMembros, funcionarios }) {
   const conversas = useMemo(() => {
     const mapa = {};
     mensagens.forEach((m) => {
       const chave = `${m.participanteTipo}-${m.participanteId}`;
       if (!mapa[chave]) mapa[chave] = { participanteId: m.participanteId, participanteTipo: m.participanteTipo, participanteNome: m.participanteNome, ultima: m, naoLidas: 0 };
-      if (chaveTemporalPT(m) > chaveTemporalPT(mapa[chave].ultima)) mapa[chave].ultima = m;
+      if (m.id > mapa[chave].ultima.id) mapa[chave].ultima = m;
       if (!m.deAdmin && !m.lida) mapa[chave].naoLidas += 1;
     });
-    return Object.values(mapa).sort((a, b) => (chaveTemporalPT(b.ultima) > chaveTemporalPT(a.ultima) ? 1 : -1));
+    return Object.values(mapa).sort((a, b) => b.ultima.id - a.ultima.id);
   }, [mensagens]);
 
   const [aberta, setAberta] = useState(null);
@@ -8722,7 +8208,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   const mensagensDaConversa = aberta
     ? mensagens
         .filter((m) => m.participanteId === aberta.participanteId && m.participanteTipo === aberta.participanteTipo)
-        .sort((a, b) => (chaveTemporalPT(a) > chaveTemporalPT(b) ? 1 : -1))
+        .sort((a, b) => (a.id > b.id ? 1 : -1))
     : [];
 
   useEffect(() => {
@@ -8896,12 +8382,6 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
           </div>
         </div>
       )}
-      <ReiniciarColecaoParcial
-        titulo="Reiniciar Mensagens"
-        descricao="Apaga todas as conversas (com atletas e com a equipa). Não mexe em mais nada do sistema. Não há forma de desfazer isto — faz uma cópia de segurança antes, se quiseres guardar as conversas atuais."
-        frase="REINICIAR MENSAGENS"
-        onReiniciar={onReiniciar}
-      />
     </div>
   );
 }
@@ -8913,7 +8393,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
 // análise financeira geral.
 // ---------------------------------------------------------------------
 function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
-  const [dia, setDia] = useState(new Date().toISOString().slice(0, 10));
+  const [dia, setDia] = useState(dataLocalISO(new Date()));
 
   const pagamentosDoDia = useMemo(
     () => pagamentosFeitos.filter((p) => p.data === dia),
@@ -9014,10 +8494,9 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Subscrições</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalSubscricoes)}</p></Card>
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Recibos / Outros</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalOutros)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total do dia</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Acessos ao ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{acessosDoDia.length}</p></Card>
       </div>
@@ -9106,13 +8585,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
                   <th className="pb-2 font-medium text-right">Valor</th>
                 </tr>
               </thead>
-              <tbody>
-                {outros.map(linhaTabela)}
-                <tr>
-                  <td colSpan={4} className="pt-2 text-right font-semibold text-slate-500 dark:text-slate-400">Total</td>
-                  <td className="pt-2 text-right font-bold text-slate-900 dark:text-slate-100">{kz(totalOutros)}</td>
-                </tr>
-              </tbody>
+              <tbody>{outros.map(linhaTabela)}</tbody>
             </table>
           </div>
         </Card>
@@ -9361,23 +8834,14 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
 }
 
 function Auditoria({ registos, onNavegar }) {
-  // Sem isto, a fusão entre dispositivos (esta coleção é das que mais
-  // escreve, por isso das mais sujeitas a conflitos) podia reconstruir o
-  // array sem garantir a ordem cronológica original — as entradas
-  // continuam TODAS lá, só que escondidas a meio de uma lista comprida
-  // em vez de aparecerem no topo, dando a impressão de que "faltavam".
-  const registosOrdenados = useMemo(
-    () => [...(registos || [])].sort((a, b) => (chaveTemporalPT(b) > chaveTemporalPT(a) ? 1 : -1)),
-    [registos]
-  );
   return (
     <Card title="Registo de auditoria">
-      {registosOrdenados.length === 0 ? (
+      {registos.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há ações registadas nesta sessão.</p>
       ) : (
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
-          {registosOrdenados.map((r, i) => (
-            <div key={r.id || i} className="py-3">
+          {registos.map((r, i) => (
+            <div key={i} className="py-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.utilizador}</p>
                 <p className="text-xs text-slate-400 dark:text-slate-500">{r.data ? `${r.data} · ${r.hora}` : r.hora}</p>
@@ -9478,7 +8942,7 @@ function exportarExcelCompleto({ membros, planos, pagamentosFeitos, custos, prod
   );
   XLSX.utils.book_append_sheet(livro, folhaPlanos, "Planos");
 
-  XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Completo-${mesEscolhido || new Date().toISOString().slice(0, 7)}.xlsx`);
+  XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Completo-${mesEscolhido || mesLocalISO(new Date())}.xlsx`);
 }
 
 // ---------------------------------------------------------------------
@@ -9495,7 +8959,7 @@ function descarregarCopiaSeguranca() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `catumbela-gym-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `catumbela-gym-backup-${dataLocalISO(new Date())}.json`;
   a.click();
   URL.revokeObjectURL(url);
   window.localStorage.setItem(CHAVE_ULTIMO_BACKUP, new Date().toISOString());
@@ -9510,7 +8974,7 @@ const FREQUENCIAS_BACKUP = {
 function CopiaSeguranca({ dadosGinasio, onSalvarFrequencia }) {
   const [mensagem, setMensagem] = useState(null); // { tipo: "sucesso"|"erro", texto }
   const inputRef = useRef(null);
-  const frequencia = dadosGinasio.frequenciaBackup || "automatico";
+  const frequencia = dadosGinasio.frequenciaBackup || "15dias";
 
   const descarregar = () => descarregarCopiaSeguranca();
 
@@ -9666,65 +9130,6 @@ function ModoTesteConfig() {
   );
 }
 
-// ---------------------------------------------------------------------
-// REINICIAR UMA ÁREA ESPECÍFICA — ao contrário de "Reiniciar o site"
-// (que apaga tudo), isto limpa só UMA coisa (ex.: só a Faturação),
-// deixando o resto do sistema intacto. Reutilizável para qualquer
-// coleção — basta indicar o nome, a descrição do que fica limpo, e a
-// função que aplica a limpeza.
-// ---------------------------------------------------------------------
-function ReiniciarColecaoParcial({ titulo, descricao, frase, onReiniciar }) {
-  const [confirmacao, setConfirmacao] = useState("");
-  const [showConfirmar, setShowConfirmar] = useState(false);
-  const [aReiniciar, setAReiniciar] = useState(false);
-
-  const reiniciar = () => {
-    setAReiniciar(true);
-    onReiniciar();
-    setShowConfirmar(false);
-    setConfirmacao("");
-    setAReiniciar(false);
-  };
-
-  return (
-    <Card title={<span className="flex items-center gap-2 text-red-600 dark:text-red-400"><AlertTriangle size={16} /> {titulo}</span>}>
-      <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{descricao}</p>
-      {!showConfirmar ? (
-        <button
-          onClick={() => setShowConfirmar(true)}
-          className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
-        >
-          <AlertTriangle size={15} /> {titulo}
-        </button>
-      ) : (
-        <div className="space-y-3 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 rounded-xl p-4">
-          <p className="text-sm text-red-700 dark:text-red-400 font-medium">
-            Escreve <strong>{frase}</strong> para confirmares:
-          </p>
-          <input
-            value={confirmacao}
-            onChange={(e) => setConfirmacao(e.target.value)}
-            placeholder={frase}
-            className="w-full px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-          />
-          <div className="flex gap-2">
-            <button onClick={() => { setShowConfirmar(false); setConfirmacao(""); }} className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 font-semibold py-2.5 rounded-lg text-sm">
-              Cancelar
-            </button>
-            <button
-              onClick={reiniciar}
-              disabled={confirmacao !== frase || aReiniciar}
-              className="flex-1 bg-red-500 hover:bg-red-600 disabled:bg-red-200 dark:disabled:bg-red-900/40 disabled:text-red-400 text-white font-semibold py-2.5 rounded-lg text-sm"
-            >
-              {aReiniciar ? "A reiniciar..." : "Confirmar e reiniciar"}
-            </button>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
 function ReiniciarSite({ contaAtual }) {
   const [confirmacao, setConfirmacao] = useState("");
   const [showConfirmar, setShowConfirmar] = useState(false);
@@ -9847,7 +9252,7 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
 
   // Relatório mensal — para se poder mandar ao atleta todos os meses um
   // resumo novo, em vez de sempre o histórico completo desde o início.
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
 
   const avaliacoesDoMembro = avaliacoesFisicas.filter((a) => a.membroId === membroId).slice().sort((a, b) => a.data.localeCompare(b.data));
@@ -10089,18 +9494,8 @@ function inferirVencimentoDeReciboAntigo(fatura, planos) {
   return null;
 }
 
-// Taxas de sessão longa ainda por pagar de um atleta específico — usada
-// tanto no ecrã normal de Subscrições como no Balcão, para nunca se
-// esquecer de cobrar isto junto com a renovação.
-function taxasSessaoLongaPendentesDoMembro(membro, faturas) {
-  const pendentes = (faturas || []).filter(
-    (f) => f.tipo === "FATURA" && f.estado !== "paga" && f.membro?.numero === membro?.numero && (f.itens || []).some((i) => i.referencia === "TAXA-SESSAO-LONGA")
-  );
-  return { total: pendentes.reduce((s, f) => s + (f.valor || 0), 0), faturas: pendentes };
-}
-
 function vencimentoEfetivoDoMembro(membro, faturas, planos) {
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(new Date());
   const recibosDoMembro = faturas
     .filter((f) => f.tipo === "RECIBO" && f.membro?.numero === membro.numero)
     .map((f) => {
@@ -10233,7 +9628,7 @@ function RelatorioHorasIndividual({ membro, sessoes, mesEscolhido, limiteHoras, 
 }
 
 function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
   const [aVerIndividual, setAVerIndividual] = useState(null); // { membro, sessoes }
   const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
 
@@ -10358,7 +9753,7 @@ function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
 }
 
 function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7));
+  const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
 
   const ranking = useMemo(() => {
     const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
@@ -10406,7 +9801,16 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         return { membro: m, horasTreino, diasTreinados, progressaoCarga, reducaoGordura, pontuacao, numTreinos: acessosDoMes.length, sessoesLongas };
       })
       .filter((r) => r.numTreinos > 0 || r.progressaoCarga !== 0 || r.reducaoGordura !== 0)
-      .sort((a, b) => b.pontuacao - a.pontuacao);
+      // Quem teve pelo menos uma "taxada" (sessão longa, acima do limite de
+      // horas) no mês fica sempre depois de quem não teve nenhuma — mesmo
+      // com pontuação mais alta, nunca pode ficar em 1.º lugar. Dentro de
+      // cada um dos dois grupos, continua ordenado por pontuação.
+      .sort((a, b) => {
+        const aTaxada = a.sessoesLongas > 0;
+        const bTaxada = b.sessoesLongas > 0;
+        if (aTaxada !== bTaxada) return aTaxada ? 1 : -1;
+        return b.pontuacao - a.pontuacao;
+      });
   }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, dadosGinasio]);
 
   const vencedor = ranking[0];
@@ -10491,7 +9895,8 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
               (horas entre entrada e saída em Controlo de Acessos), 2 por cada kg de progresso nas cargas, e 30 por
               cada 1% de gordura corporal reduzida entre a primeira e a última avaliação física do mês. "Sessões
               longas" mostra quantas vezes o atleta ultrapassou o limite de {Number(dadosGinasio?.limiteHorasSessao) || 2}h
-              numa só visita (e por isso pagou a taxa extra) — não afeta a pontuação.
+              numa só visita (e por isso pagou a taxa extra) — não afeta a pontuação, mas quem tem pelo menos uma
+              "taxada" no mês nunca pode ficar em 1.º lugar, mesmo com a pontuação mais alta.
             </p>
           </>
         )}
@@ -10580,7 +9985,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   const receitaTotal = pagamentosFeitos.reduce((s, p) => s + p.valor, 0) + saldoInicialTotal;
   const custosTotal = custos.reduce((s, c) => s + c.valor, 0);
   const lucro = receitaTotal - custosTotal;
-  const [mesEscolhido, setMesEscolhido] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
+  const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date())); // "YYYY-MM"
   const [aVerRelatorioMensal, setAVerRelatorioMensal] = useState(false);
   const [aVerEvolucaoTreino, setAVerEvolucaoTreino] = useState(false);
   const [aVerMelhorAtleta, setAVerMelhorAtleta] = useState(false);
@@ -10658,19 +10063,6 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
     const receita = pagamentosMes.reduce((s, p) => s + p.valor, 0);
     const custoTotal = custosMes.reduce((s, c) => s + c.valor, 0);
 
-    // Separa custos e receita entre GINÁSIO (renda, salários, mensalidades,
-    // avulsos, inscrições...) e LOJA (produtos) — para nunca misturares o
-    // que cada parte do negócio realmente rende, tal como já acontece no
-    // Centro de Custos.
-    const custosLojaMes = custosMes.filter((c) => CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
-    const custosGinasioMes = custosMes.filter((c) => !CATEGORIAS_CUSTO_PRODUTOS.includes(c.categoria));
-    const custoLoja = custosLojaMes.reduce((s, c) => s + c.valor, 0);
-    const custoGinasio = custosGinasioMes.reduce((s, c) => s + c.valor, 0);
-    const receitaLoja = porTipo.venda || 0;
-    const receitaGinasio = receita - receitaLoja;
-    const lucroLoja = receitaLoja - custoLoja;
-    const lucroGinasio = receitaGinasio - custoGinasio;
-
     // Mensalidades separadas por plano — não só o total "mensalidade" em
     // bloco, mas quanto veio de cada plano especificamente.
     const porPlano = {};
@@ -10711,7 +10103,6 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
 
     return {
       receita, custoTotal, lucro: receita - custoTotal, porTipo, porPlano, porProduto, avulsosDetalhados,
-      custoGinasio, custoLoja, receitaGinasio, receitaLoja, lucroGinasio, lucroLoja,
       membrosNovos: membrosNovosMes.length, membrosNovosMes, numPagamentos: pagamentosMes.length, pagamentosMes, custosMes,
       membrosAteInicioMes, totalAteFimMes, ativosNoMes, vencidosNoMes, taxaCrescimento,
     };
@@ -10731,8 +10122,8 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   // quem tem o vencimento nesse período, assumindo que renovam. É só uma
   // estimativa (nem todos renovam), não uma garantia.
   const previsaoReceita30Dias = useMemo(() => {
-    const hojeStr = new Date().toISOString().slice(0, 10);
-    const em30DiasStr = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
+    const em30DiasStr = dataLocalISO(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
     const membrosAVencer = membros.filter((m) => m.estado === "ativo" && m.vencimento >= hojeStr && m.vencimento <= em30DiasStr);
     const total = membrosAVencer.reduce((s, m) => {
       const plano = planos.find((p) => p.nome === m.plano);
@@ -10954,27 +10345,6 @@ const exportarMembros = () => {
           </div>
         </div>
         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3 text-center">Comparado com {mesAnteriorStr}</p>
-      </Card>
-
-      <Card title="Ginásio vs. Loja — este mês">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/10 p-3">
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2">Ginásio (mensalidades, avulsos, inscrições)</p>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Receita</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.receitaGinasio)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Custos</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.custoGinasio)}</span></div>
-              <div className="flex justify-between border-t border-amber-200 dark:border-amber-800 pt-1 mt-1"><span className="text-slate-600 dark:text-slate-300 font-medium">Lucro</span><span className={`font-bold ${resumoMensal.lucroGinasio >= 0 ? "text-emerald-600" : "text-red-500"}`}>{kz(resumoMensal.lucroGinasio)}</span></div>
-            </div>
-          </div>
-          <div className="rounded-xl bg-blue-50 dark:bg-blue-900/10 p-3">
-            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-2">Loja (produtos)</p>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Receita</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.receitaLoja)}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Custos</span><span className="font-semibold text-slate-900 dark:text-slate-100">{kz(resumoMensal.custoLoja)}</span></div>
-              <div className="flex justify-between border-t border-blue-200 dark:border-blue-800 pt-1 mt-1"><span className="text-slate-600 dark:text-slate-300 font-medium">Lucro</span><span className={`font-bold ${resumoMensal.lucroLoja >= 0 ? "text-emerald-600" : "text-red-500"}`}>{kz(resumoMensal.lucroLoja)}</span></div>
-            </div>
-          </div>
-        </div>
       </Card>
 
       <Card
@@ -11225,7 +10595,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   // Só os pagamentos/vendas processados por esta conta, e só de HOJE — sem
   // o filtro de data, o turno somava tudo o que a pessoa já tinha
   // registado desde sempre, não só o turno do dia atual.
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(new Date());
   const meusPagamentos = pagamentosFeitos.filter((p) => p.registadoPor === nomeAtual && p.data === hojeStr);
 
   const totais = useMemo(() => {
@@ -11254,24 +10624,23 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
     const contado = Number(valorContado);
     const diferenca = contado - totais.dinheiro;
     onFecharTurno({ nomeFuncionario: nomeAtual, totalSistema: totais.dinheiro, totalContado: contado, diferenca, observacoes });
-    // Guarda uma "fotografia" dos totais no momento exato do fecho — sem
-    // isto, "totais"/"totaisPorTipo" continuavam a recalcular-se ao vivo
-    // a partir de pagamentosFeitos mesmo DEPOIS de fechado=true, e se
-    // alguém eliminasse uma factura de hoje entretanto (ex.: corrigindo
-    // um engano), o resumo do turno já fechado mudava sozinho no ecrã —
-    // desfazendo o valor que já tinha sido contado e conferido
-    // fisicamente, mesmo com a mensagem a continuar a dizer "bateu certo".
-    setResultado({ contado, diferenca, totaisCongelados: totais, totaisPorTipoCongelados: totaisPorTipo, totalGeralCongelado: totalGeral });
+    // Congela os totais vistos NESTE momento (contagem física feita, turno
+    // fechado). Sem isto, os quadros abaixo continuavam a recalcular-se a
+    // partir de "pagamentosFeitos" em tempo real — se alguém eliminasse
+    // mais tarde uma fatura desse dia (ex.: corrigir um recibo enganado),
+    // o resumo do turno JÁ FECHADO mudava silenciosamente, deixando de
+    // corresponder ao que a receção realmente contou e fechou.
+    setResultado({ contado, diferenca, totais, totaisPorTipo, totalGeral });
     setAContar(false);
     setFechado(true);
   };
 
-  // Uma vez fechado, o ecrã mostra sempre a fotografia do momento do
-  // fecho — nunca os totais ao vivo, que podem continuar a mudar por
-  // causa de eliminações/correções feitas depois noutras telas.
-  const totaisExibidos = fechado && resultado ? resultado.totaisCongelados : totais;
-  const totaisPorTipoExibidos = fechado && resultado ? resultado.totaisPorTipoCongelados : totaisPorTipo;
-  const totalGeralExibido = fechado && resultado ? resultado.totalGeralCongelado : totalGeral;
+  // Enquanto o turno está aberto, os quadros mostram sempre os valores
+  // atuais. Depois de fechado, mostram o que ficou registado no momento do
+  // fecho (ver comentário acima) — nunca recalculado ao vivo.
+  const totaisExibidos = fechado && resultado ? resultado.totais : totais;
+  const totaisPorTipoExibidos = fechado && resultado ? resultado.totaisPorTipo : totaisPorTipo;
+  const totalGeralExibido = fechado && resultado ? resultado.totalGeral : totalGeral;
 
   if (!aberto) {
     return (
@@ -12127,20 +11496,10 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
   const [aba, setAba] = useState("inicio");
   const [planoEscolhido, setPlanoEscolhido] = useState(null);
   const cartaoRef = useRef(null);
-  const aCheckoutRef = useRef(false);
-  const [aCheckout, setACheckout] = useState(false);
-  const checkoutProtegido = async () => {
-    if (aCheckoutRef.current) return;
-    aCheckoutRef.current = true;
-    setACheckout(true);
-    await onRegistarSaida(membro);
-    aCheckoutRef.current = false;
-    setACheckout(false);
-  };
   const plano = planos.find((p) => p.nome === membro.plano);
   const temTaxaInscricaoPendente = !membro.taxaInscricaoPaga && Number(membro.taxaInscricaoPendente) > 0;
   const minhasCompras = compras.filter((c) => c.membroId === membro.id);
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = dataLocalISO(new Date());
   const entradaAbertaHoje = acessos?.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida) || null;
   const naoLidas = mensagens.filter((m) => m.participanteId === membro.id && m.participanteTipo === "membro" && m.deAdmin && !m.lida).length;
   const abas = [
@@ -12202,9 +11561,8 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                   )}
                   {entradaAbertaHoje ? (
                     <button
-                      disabled={aCheckout}
-                      onClick={checkoutProtegido}
-                      className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-sm disabled:opacity-50"
+                      onClick={() => onRegistarSaida(membro)}
+                      className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-sm"
                     >
                       <DoorClosed size={16} /> Fazer check-out
                     </button>
@@ -12591,7 +11949,6 @@ const MENU_ADMIN = [
     grupo: "FINANCEIRO",
     itens: [
       { id: "subscricoes", label: "Subscrições", icon: ClipboardList },
-      { id: "vencimentos-semana", label: "Vencimentos da Semana", icon: Clock },
       { id: "pagamentos", label: "Pagamentos", icon: CreditCard },
       { id: "aprovacao", label: "Aprovação de Pagamentos", icon: ShieldCheck },
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
@@ -12627,8 +11984,6 @@ const MENU_ADMIN = [
       { id: "notificacoes", label: "Notificações", icon: Bell },
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
-      { id: "taxas-sessao-longa", label: "Taxas de Sessão Longa", icon: Clock },
-      { id: "recibos-duplicados", label: "Possíveis Recibos Duplicados", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
@@ -13192,13 +12547,6 @@ export default function CatumbelaGymApp() {
   const [autenticado, setAutenticado] = useLocalOnly("autenticado", false);
   const [perfil, setPerfil] = useLocalOnly("perfil", null);
   const [contaAtual, setContaAtual] = useLocalOnly("contaAtual", null);
-  // Guarda os documentos de faturação criados NESTA sessão, mesmo antes
-  // de o React atualizar o estado "faturas" — sem isto, gerar dois
-  // documentos seguidos (ex.: o recibo da mensalidade E o da taxa de
-  // sessão longa, numa única renovação) calculava o "maior número
-  // atual" duas vezes a partir do mesmo "faturas" desatualizado, e os
-  // dois acabavam com o MESMO próximo número.
-  const faturasCriadasNestaSessao = useRef([]);
   // Identifica ESTE dispositivo/separador de forma única — usado para saber
   // se a sessão aqui ainda é a "oficial" da conta ou se foi substituída por
   // um login mais recente noutro aparelho (ver sessoesAtivas mais abaixo).
@@ -13222,8 +12570,6 @@ export default function CatumbelaGymApp() {
   const [avisoArmazenamentoCheio, setAvisoArmazenamentoCheio] = useState(false);
   const [avisoConflito, setAvisoConflito] = useState(null); // nome da coleção em conflito, ou null
   const [avisoBackup, setAvisoBackup] = useState(false);
-  const [backupAutoFeitoAgora, setBackupAutoFeitoAgora] = useState(false);
-  const [avisoNotificacoesDismissed, setAvisoNotificacoesDismissed] = useState(false);
   const [atualizadoAgora, setAtualizadoAgora] = useState(false); // pisca brevemente quando chega uma atualização em tempo real de outro dispositivo
   const backupAutoDisparado = useRef(false);
 
@@ -13339,7 +12685,7 @@ export default function CatumbelaGymApp() {
   // apagando os membros verdadeiros mesmo antes de eles chegarem a aparecer.
   useEffect(() => {
     const recalcular = () => {
-      const hojeStr = new Date().toISOString().slice(0, 10);
+      const hojeStr = dataLocalISO(new Date());
       setMembros((atual) => {
         let mudouAlgumaCoisa = false;
         const novo = atual.map((m) => {
@@ -13389,23 +12735,14 @@ export default function CatumbelaGymApp() {
     if (perfil !== "administrador") return;
     try {
       const ultimo = window.localStorage.getItem(CHAVE_ULTIMO_BACKUP);
-      const frequencia = dadosGinasio.frequenciaBackup || "automatico";
-      const diasLimite = FREQUENCIAS_BACKUP[frequencia]?.dias ?? 7;
+      const frequencia = dadosGinasio.frequenciaBackup || "15dias";
+      const diasLimite = FREQUENCIAS_BACKUP[frequencia]?.dias ?? 15;
       const diasPassados = ultimo ? (Date.now() - new Date(ultimo).getTime()) / (1000 * 60 * 60 * 24) : Infinity;
       const emAtraso = diasPassados > diasLimite;
+      setAvisoBackup(emAtraso);
       if (emAtraso && frequencia === "automatico" && !backupAutoDisparado.current) {
         backupAutoDisparado.current = true;
         descarregarCopiaSeguranca();
-        // Aqui foi o próprio sistema que tratou disso — mostra uma
-        // confirmação, não o aviso "está atrasado" (que seria enganador,
-        // já que acabou de deixar de estar).
-        setAvisoBackup(false);
-        setBackupAutoFeitoAgora(true);
-        setTimeout(() => setBackupAutoFeitoAgora(false), 15000);
-      } else {
-        // Só mostra o aviso "está atrasado" para quem NÃO tem o
-        // automático ligado — quem tem, o sistema trata disso sozinho.
-        setAvisoBackup(emAtraso && frequencia !== "automatico");
       }
     } catch {
       // sem acesso ao localStorage — não bloqueia o resto da app
@@ -13423,6 +12760,30 @@ export default function CatumbelaGymApp() {
   const [pagamentosPendentes, setPagamentosPendentes, adicionarPagamentoPendenteSeguro] = usePersistente("pagamentosPendentes", [], setStatusSync);
   const [custos, setCustos] = usePersistente("custos", [], setStatusSync);
   const [faturas, setFaturas] = usePersistente("faturas", [], setStatusSync);
+  // Documentos gerados nesta sessão, incluindo os que ainda não voltaram
+  // por sincronização — usado só pelo cálculo LOCAL de recurso da
+  // numeração (quando a numeração atómica no Postgres falha), para não
+  // repetir o mesmo número em dois documentos gerados em sequência rápida
+  // antes de "faturas" atualizar.
+  const faturasCriadasNestaSessao = useRef([]);
+
+  // BACKFILL: documentos (faturas/recibos/proformas) criados antes deste
+  // sistema passar a guardar um "id" em cada um não têm essa informação —
+  // e sem "id", a fusão entre dispositivos não conseguia comparar os
+  // documentos um a um (precisa de "id" em TODOS os itens da lista para
+  // isso), e desistia, usando cegamente a versão local inteira sempre que
+  // havia qualquer alteração dos dois lados — descartando por completo
+  // documentos gerados noutro dispositivo que ainda não tivessem chegado
+  // aqui. Usa o próprio "numero" como id (já é único por construção e é
+  // sempre o mesmo em qualquer dispositivo para o mesmo documento, evitando
+  // que dois dispositivos inventem ids diferentes para o mesmo documento
+  // antigo, o que duplicaria em vez de corrigir).
+  useEffect(() => {
+    const semId = faturas.some((f) => !f.id);
+    if (!semId) return;
+    setFaturas((atual) => atual.map((f) => (f.id ? f : { ...f, id: f.numero })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [faturas]);
 
   // BACKFILL: recibos de mensalidade criados ANTES de o sistema passar a
   // guardar "vencimentoSubscricao" diretamente no documento não têm essa
@@ -13529,11 +12890,11 @@ export default function CatumbelaGymApp() {
   const registarHistoricoSubscricao = (membro, dados) => {
     setHistoricoSubscricoes((atual) => [
       {
-        id: gerarIdUnico(),
+        id: `${Date.now()}-${Math.floor(Math.random() * 100000)}`,
         membroId: membro.id,
         membroNome: membro.nome,
         membroNumero: membro.numero,
-        data: new Date().toISOString().slice(0, 10),
+        data: dataLocalISO(new Date()),
         hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
         registadoPor: contaAtual?.nome || "—",
         ...dados,
@@ -13670,8 +13031,14 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    // ID único global (não sequencial) — dois dispositivos podem inscrever
+    // membros diferentes quase ao mesmo tempo (ex.: um atleta a auto-inscrever-se
+    // pelo telemóvel enquanto a receção inscreve outro pessoalmente). Com
+    // "maior id + 1" os dois podiam calcular o MESMO id sem saber um do outro;
+    // ao sincronizar, a fusão via os dois registos como "o mesmo" e um dos
+    // dois desaparecia por completo, substituído em silêncio pelo outro.
     const novoIdMembro = gerarIdUnico();
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
     // de inscrição definida em Configurações — fica pendente e é cobrada
     // junto com a primeira mensalidade, em "Pagar mensalidade".
@@ -13693,7 +13060,7 @@ export default function CatumbelaGymApp() {
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
-    const novaConta = { id: gerarIdUnico(), nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
     registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
@@ -13740,7 +13107,10 @@ export default function CatumbelaGymApp() {
     // antes deste sistema, que já tinha uma subscrição paga).
     const vencimentoFinal = novo.vencimento || null;
     const estadoFinal = vencimentoFinal ? "ativo" : "sem-subscricao";
-    const dataInscricaoFinal = novo.dataInscricao || new Date().toISOString().slice(0, 10);
+    const dataInscricaoFinal = novo.dataInscricao || dataLocalISO(new Date());
+    // ID único global — ver nota em "autoInscrever" sobre porque "maior id + 1"
+    // causava membros inscritos quase ao mesmo tempo em dispositivos diferentes
+    // a colidirem no mesmo id e um deles desaparecer silenciosamente na fusão.
     const novoId = gerarIdUnico();
     const membroNovo = {
       id: novoId,
@@ -13763,7 +13133,7 @@ export default function CatumbelaGymApp() {
       setContas((atual) => [
         ...atual,
         {
-          id: gerarIdUnico(),
+          id: Math.max(0, ...atual.map((c) => c.id)) + 1,
           nome: novo.nome,
           email: novo.email,
           senha: novo.senha,
@@ -13807,7 +13177,7 @@ export default function CatumbelaGymApp() {
       return n > max ? n : max;
     }, 0);
     const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoId = gerarIdUnico();
+    const novoId = gerarIdUnico(); // ver nota em "autoInscrever" sobre colisão de ids entre dispositivos
     const membroNovo = {
       id: novoId,
       numero,
@@ -13816,10 +13186,10 @@ export default function CatumbelaGymApp() {
       plano: planoNome || null,
       foto: null,
       email: null,
-      dataInscricao: new Date().toISOString().slice(0, 10),
+      dataInscricao: dataLocalISO(new Date()),
       dataNascimento: null,
       vencimento: vencimento || null,
-      estado: vencimento ? (vencimento < new Date().toISOString().slice(0, 10) ? "vencido" : "ativo") : "sem-subscricao",
+      estado: vencimento ? (vencimento < dataLocalISO(new Date()) ? "vencido" : "ativo") : "sem-subscricao",
       assinaturaContrato: null,
       dataAssinaturaContrato: null,
     };
@@ -13837,7 +13207,7 @@ export default function CatumbelaGymApp() {
   // para corrigir sem teres de refazer a subscrição do zero.
   const reporSubscricao = (membroId, plano, vencimento) => {
     const membro = membros.find((m) => m.id === membroId);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     setMembros((atual) =>
       atual.map((m) =>
         m.id === membroId
@@ -13856,7 +13226,7 @@ export default function CatumbelaGymApp() {
       atual.map((m) => {
         if (m.id !== id) return m;
         const vencimento = dados.vencimento || m.vencimento;
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(new Date());
         const novoEstado =
           m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado"
             ? m.estado
@@ -13894,7 +13264,7 @@ export default function CatumbelaGymApp() {
         if (!dados.senha) return atual; // precisa de senha para criar acesso novo
         return [
           ...atual,
-          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
+          { id: Math.max(0, ...atual.map((c) => c.id)) + 1, nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
         ];
       });
     } else if (contaExistente) {
@@ -13922,7 +13292,7 @@ export default function CatumbelaGymApp() {
     const membroId = contaAtual?.membroId;
     setAvaliacoesTrainer((atual) => [
       ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
-      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: new Date().toISOString().slice(0, 10) },
+      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, trainerId, membroId, nota, comentario, data: dataLocalISO(new Date()) },
     ]);
   };
 
@@ -13976,7 +13346,7 @@ export default function CatumbelaGymApp() {
     setMembros((atual) =>
       atual.map((m) => {
         if (m.id !== id) return m;
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(new Date());
         const { estadoAntesCancelar, ...resto } = m;
         const estadoRestaurado = estadoAntesCancelar || (!m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo");
         return { ...resto, estado: estadoRestaurado };
@@ -14001,7 +13371,7 @@ export default function CatumbelaGymApp() {
         if (aSuspender) {
           return { ...m, estadoAntesSuspender: m.estado, estado: "suspenso" };
         }
-        const hojeStr = new Date().toISOString().slice(0, 10);
+        const hojeStr = dataLocalISO(new Date());
         const { estadoAntesSuspender, ...resto } = m;
         const estadoRestaurado = !m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo";
         return { ...resto, estado: estadoRestaurado };
@@ -14018,7 +13388,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria(
@@ -14053,7 +13423,7 @@ export default function CatumbelaGymApp() {
       if (dados.id) {
         return atual.map((p) => (p.id === dados.id ? { ...p, ...dados } : p));
       }
-      return [...atual, { ...dados, id: gerarIdUnico() }];
+      return [...atual, { ...dados, id: Math.max(0, ...atual.map((p) => p.id)) + 1 }];
     });
     // Se o NOME do plano mudou, atualiza também todos os membros que já
     // estavam nesse plano — a ligação é feita pelo nome, por isso, sem isto,
@@ -14093,7 +13463,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarTrainer = (novo) => {
-    setTrainers([...trainers, { ...novo, id: gerarIdUnico() }]);
+    setTrainers([...trainers, { ...novo, id: Math.max(0, ...trainers.map((t) => t.id)) + 1 }]);
   };
 
   // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
@@ -14113,7 +13483,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarProduto = (novo) => {
-    setProdutos([...produtos, { ...novo, id: gerarIdUnico() }]);
+    setProdutos([...produtos, { ...novo, id: Math.max(0, ...produtos.map((p) => p.id)) + 1 }]);
     registarAuditoria("Criou novo produto", novo.nome);
   };
 
@@ -14160,7 +13530,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas([...contas, { ...nova, id: gerarIdUnico() }]);
+    setContas([...contas, { ...nova, id: Math.max(0, ...contas.map((c) => c.id)) + 1 }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
@@ -14209,7 +13579,7 @@ export default function CatumbelaGymApp() {
     setVendasProdutos((atual) => [
       ...atual,
       ...itens.map((i, idx) => ({
-        id: gerarIdUnico(),
+        id: `${Date.now()}-${idx}-${Math.floor(Math.random() * 10000)}`,
         produtoId: i.produtoId, quantidade: i.quantidade, subtotal: i.subtotal, metodo,
         data: new Date().toLocaleDateString("pt-PT"),
         custoUnitario: i.produto.precoCusto || 0,
@@ -14234,7 +13604,7 @@ export default function CatumbelaGymApp() {
     // 4. se a compra foi feita por um membro, guarda no histórico da conta dele
     if (membro) {
       setComprasMembros((atual) => [
-        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
+        { id: Math.max(0, ...atual.map((c) => c.id || 0)) + 1, membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
         ...atual,
       ]);
     }
@@ -14248,7 +13618,7 @@ export default function CatumbelaGymApp() {
   const registarPagamento = (recibo) => {
     setPagamentosFeitos((atual) => [
       ...atual,
-      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: new Date().toISOString().slice(0, 10) },
+      { metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: dataLocalISO(new Date()) },
     ]);
     registarAuditoria(
       `Registou pagamento de ${kz(recibo.valor)}`,
@@ -14260,19 +13630,7 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  // Guarda os documentos criados NESTA sessão, mesmo antes de o React
-  // atualizar "faturas" — sem isto, gerar dois documentos seguidos (ex.:
-  // o recibo da mensalidade E o da taxa de sessão longa, numa única
-  // renovação) calculava o "maior número atual" duas vezes a partir do
-  // mesmo "faturas" desatualizado, e os dois acabavam com o MESMO
-  // próximo número — fazendo um deles colidir com o outro. Filtra-se a
-  // si própria a cada chamada (em vez de depender de um useEffect
-  // separado) — descarta o que já está refletido em "faturas", para
-  // nunca crescer sem controlo.
   const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
-    faturasCriadasNestaSessao.current = faturasCriadasNestaSessao.current.filter(
-      (f) => !faturas.some((fReal) => fReal.numero === f.numero)
-    );
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
     const documentoBase = {
@@ -14293,60 +13651,66 @@ export default function CatumbelaGymApp() {
       // acidentalmente revertido por sincronização) sem deixar rasto.
       planoSubscricao: tipoReceita === "mensalidade" ? planoNome || null : null,
       vencimentoSubscricao: tipoReceita === "mensalidade" ? vencimentoSubscricao || null : null,
-      // Guarda qual fatura pendente este recibo quitou (se alguma).
-      faturaOrigemNumero: tipo === "RECIBO" && faturaOrigemNumero ? faturaOrigemNumero : null,
     };
 
     let documento;
     try {
-      // Via principal: o PRÓPRIO SERVIDOR atribui o número, dentro de
-      // uma operação indivisível — elimina por completo a possibilidade
-      // de dois dispositivos (ou um duplo clique) calcularem o mesmo
-      // número, porque o cálculo deixa de acontecer aqui, no browser.
-      const chaveColecao = PREFIXO_COLECAO_TESTE + "faturas";
-      const gerado = await gerarDocumentoAtomico(chaveColecao, prefixo, ano, documentoBase);
-      documento = gerado;
+      // Tenta primeiro a numeração ATÓMICA no próprio Postgres — o cálculo
+      // do número e a gravação acontecem numa única operação lá, com a
+      // linha bloqueada enquanto isso acontece, por isso dois dispositivos
+      // NUNCA conseguem calcular o mesmo próximo número ao mesmo tempo.
+      documento = await gerarDocumentoAtomico(PREFIXO_COLECAO_TESTE + "faturas", prefixo, ano, documentoBase);
     } catch {
-      // Sem rede neste preciso momento (ou o servidor não respondeu a
-      // tempo) — cai para o cálculo local antigo, para nunca travar o
-      // atendimento por falta de internet. Fica com um risco residual
-      // de colisão SÓ neste cenário raro (offline), que a limpeza
-      // automática de duplicados (mais abaixo) resolve assim que a
-      // rede voltar.
+      // Sem internet, ou a função ainda não existe neste projeto Supabase
+      // (precisa de correr o supabase-estado-app.sql atualizado) — usa o
+      // cálculo local como recurso. Continua a funcionar normalmente,
+      // apenas sem a garantia extra contra a corrida rara de dois
+      // dispositivos gerarem um documento no MESMO segundo exato.
+      //
+      // Numeração pelo MAIOR número já existente + 1 — nunca pela
+      // CONTAGEM de quantos documentos existem. Contar (.length) dá o
+      // número errado sempre que há algum documento eliminado, ou
+      // duplicado por uma sincronização antiga, ou ainda não chegou
+      // deste dispositivo — nesses casos a contagem fica mais baixa (ou
+      // mais alta) do que o maior número real, e o próximo documento
+      // nasce com um número que ou colide com um que já existe, ou salta
+      // muitos números de uma vez (ex.: de 600 para 800) sem nenhuma
+      // razão visível. Usar o maior número existente é imune a isso.
       const todasConhecidas = [...faturas, ...faturasCriadasNestaSessao.current];
-      const maiorNumero = todasConhecidas
-        .filter((f) => f.tipo === tipo && f.numero.includes(`-${ano}-`))
+      const maiorNumeroDoc = todasConhecidas
+        .filter((f) => f.tipo === tipo && f.numero && f.numero.includes(`-${ano}-`))
         .reduce((max, f) => {
           const n = parseInt(f.numero.split("-").pop(), 10);
-          return n > max ? n : max;
+          return Number.isFinite(n) && n > max ? n : max;
         }, 0);
-      const numero = `${prefixo}-${ano}-` + String(maiorNumero + 1).padStart(6, "0");
-      documento = { ...documentoBase, numero };
+      const numeroLocal = `${prefixo}-${ano}-` + String(maiorNumeroDoc + 1).padStart(6, "0");
+      // ID único global — permite à fusão entre dispositivos tratar cada
+      // documento como um registo à parte. Usa o próprio "numero" como id
+      // (já é único por construção, e é sempre o MESMO valor para o MESMO
+      // documento em qualquer dispositivo — evita que dois dispositivos
+      // inventem ids diferentes para o mesmo documento antigo).
+      documento = { ...documentoBase, numero: numeroLocal, id: numeroLocal };
     }
-
+    // Guarda os documentos gerados NESTA sessão (mesmo antes de aparecerem
+    // de volta em "faturas" via sincronização) — sem isto, gerar dois
+    // documentos rapidamente pelo caminho de recurso local podia calcular
+    // o mesmo número duas vezes, porque "faturas" ainda não tinha sido
+    // atualizado com o primeiro.
     faturasCriadasNestaSessao.current.push(documento);
+    const { numero } = documento;
     setFaturas((atual) => {
-      // Se a via atómica já inseriu o documento diretamente no
-      // servidor, uma sincronização em tempo real pode entretanto já
-      // tê-lo trazido para aqui — evita duplicar no ecrã.
-      if (atual.some((f) => f.numero === documento.numero)) return atual;
+      if (atual.some((f) => f.numero === documento.numero)) return atual; // já chegou via sincronização em tempo real
+
       let novo = [documento, ...atual];
       if (tipo === "RECIBO" && faturaOrigemNumero) {
         novo = novo.map((f) => (f.numero === faturaOrigemNumero ? { ...f, estado: "paga" } : f));
       }
       return novo;
     });
-    const { numero } = documento;
     if (tipo === "RECIBO" && metodo) {
       setPagamentosFeitos((atual) => [
         ...atual,
-        // Nota: antes o padrão aqui era "mensalidade" quando tipoReceita
-        // não vinha preenchido — isso fazia qualquer chamador que se
-        // esquecesse de indicar a categoria (como acontecia na tela de
-        // Faturação) entrar sempre como Subscrição nos relatórios, mesmo
-        // sendo outra coisa. "outros" é o padrão mais seguro: nunca
-        // inflaciona uma categoria específica por engano.
-        { id: gerarIdUnico(), numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "outros", planoNome: planoNome || null, data: new Date().toISOString().slice(0, 10) },
+        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: dataLocalISO(new Date()) },
       ]);
       // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
       // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
@@ -14354,7 +13718,7 @@ export default function CatumbelaGymApp() {
       // indicada a conta/Express específica, fica ligado a ela.
       const contaEscolhida = contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId)) : null;
       const registoLedger = {
-        id: gerarIdUnico(),
+        id: Date.now(),
         direcao: "entrada",
         subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
         valor,
@@ -14363,9 +13727,8 @@ export default function CatumbelaGymApp() {
         registadoPor: contaAtual?.nome || "—",
         origem: "recibo",
         origemNumero: numero,
-
         contaBancariaNome: contaEscolhida?.banco || null,
-        tipoReceita: tipoReceita || "outros",
+        tipoReceita: tipoReceita || "mensalidade",
       };
       if (metodo === "dinheiro") {
         setMovimentosCaixa((atual) => [registoLedger, ...atual]);
@@ -14399,7 +13762,7 @@ export default function CatumbelaGymApp() {
       setMembros((atual) =>
         atual.map((m) => {
           if (m.id !== membroAfetado.id) return m;
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(new Date());
           const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
           const novoVencimento = vencimentoAnterior || null;
           const novoPlano = planoAnterior || null;
@@ -14414,60 +13777,6 @@ export default function CatumbelaGymApp() {
     } else {
       registarAuditoria("Eliminou documento e desfez os seus efeitos financeiros", `${numero} — ${doc?.membro?.nome || "—"}`);
     }
-  };
-
-  // Reinicia SÓ o histórico de faturação — apaga todos os recibos/faturas
-  // e faz a numeração recomeçar do zero, sem tocar em mais nada (membros,
-  // subscrições, pagamentos dos relatórios, movimentos de caixa/banco).
-  const reiniciarFaturacao = () => {
-    const totalAntes = faturas.length;
-    setFaturas([]);
-    registarAuditoria("Reiniciou a Faturação", `Apagou todo o histórico de recibos/faturas (${totalAntes} documento${totalAntes !== 1 ? "s" : ""}) — a numeração recomeça do zero.`);
-  };
-
-  // As funções abaixo seguem todas o mesmo princípio: apagam só a
-  // coleção indicada, sem tocar em mais nada do sistema — cada uma
-  // isolada na sua própria área.
-  const reiniciarCustos = () => {
-    const totalAntes = custos.length;
-    setCustos([]);
-    registarAuditoria("Reiniciou o Centro de Custos", `Apagou todos os custos registados (${totalAntes}).`);
-  };
-
-  const reiniciarAcessos = () => {
-    const totalAntes = acessos.length;
-    setAcessos([]);
-    registarAuditoria("Reiniciou o Controlo de Acessos", `Apagou todo o histórico de entradas/saídas (${totalAntes}).`);
-  };
-
-  const reiniciarVendas = () => {
-    const totalAntes = vendasProdutos.length;
-    setVendasProdutos([]);
-    registarAuditoria("Reiniciou o histórico de Vendas", `Apagou todo o histórico de vendas (${totalAntes}) — o stock atual dos produtos não é afetado.`);
-  };
-
-  const reiniciarMensagens = () => {
-    const totalAntes = mensagens.length;
-    setMensagens([]);
-    registarAuditoria("Reiniciou as Mensagens", `Apagou todas as conversas (${totalAntes} mensagens).`);
-  };
-
-  const reiniciarAvisosEnviados = () => {
-    const totalAntes = avisosEnviados.length;
-    setAvisosEnviados([]);
-    registarAuditoria("Reiniciou o histórico de avisos enviados", `Apagou o registo de quem já foi avisado (${totalAntes}) — todos voltam a aparecer como "por contactar".`);
-  };
-
-  const reiniciarAuditoria = () => {
-    const totalAntes = auditLog.length;
-    setAuditLog([]);
-    registarAuditoria("Reiniciou a Auditoria", `Apagou o registo de ações anteriores (${totalAntes}) — esta própria ação fica como a primeira do novo histórico.`);
-  };
-
-  const reiniciarPonto = () => {
-    const totalAntes = registosPonto.length;
-    setRegistosPonto([]);
-    registarAuditoria("Reiniciou o Ponto (histórico)", `Apagou todos os registos de ponto dos funcionários (${totalAntes}).`);
   };
 
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
@@ -14529,7 +13838,7 @@ export default function CatumbelaGymApp() {
     const base = new Date(pendente.membro.vencimento) > new Date() ? new Date(pendente.membro.vencimento) : new Date();
     base.setDate(base.getDate() + (plano ? plano.duracaoDias : 30));
     const novoVencimento = dataLocalISO(base);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     // Se este pagamento incluir a taxa de inscrição (típico de quem se
     // inscreveu sozinho pelo QR/link), separa o valor: a mensalidade gera o
     // recibo normal de "mensalidade", e a taxa gera o seu próprio recibo de
@@ -14611,7 +13920,7 @@ export default function CatumbelaGymApp() {
   // subscrição fica sempre ligada à parte financeira (numeração, histórico
   // de documentos, e a receita conta nos relatórios/lucro), nunca só a
   // atualizar os dados do membro sem deixar rasto do pagamento.
-  const atualizarSubscricao = async (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId, taxasParaQuitar) => {
+  const atualizarSubscricao = async (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return null;
     const plano = planos.find((p) => p.nome === novoPlanoNome);
@@ -14622,10 +13931,10 @@ export default function CatumbelaGymApp() {
       alert("Escolhe um plano válido antes de confirmar.");
       return null;
     }
-    const base = new Date((dataInicio || new Date().toISOString().slice(0, 10)) + "T00:00:00");
+    const base = new Date((dataInicio || dataLocalISO(new Date())) + "T00:00:00");
     base.setDate(base.getDate() + plano.duracaoDias);
     const novoVencimento = dataLocalISO(base);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     let documento = null;
     if (metodo) {
       documento = await gerarDocumentoFaturacao({
@@ -14643,24 +13952,6 @@ export default function CatumbelaGymApp() {
         planoNome: novoPlanoNome,
         vencimentoSubscricao: novoVencimento,
       });
-      // Se o atleta tem taxas de sessão longa por pagar e o utilizador
-      // escolheu cobrá-las junto com esta renovação, gera um recibo
-      // próprio para cada uma — a mesma conta bancária/método da
-      // renovação, e cada uma fica ligada à fatura pendente que quita
-      // (marcando-a automaticamente como paga). Uma de cada vez, para
-      // cada uma já "ver" a anterior ao calcular o seu próprio número.
-      for (const faturaPendente of taxasParaQuitar || []) {
-        await gerarDocumentoFaturacao({
-          tipo: "RECIBO",
-          membro,
-          itens: faturaPendente.itens,
-          valor: faturaPendente.valor,
-          metodo,
-          contaBancariaId,
-          tipoReceita: "taxa-sessao-longa",
-          faturaOrigemNumero: faturaPendente.numero,
-        });
-      }
     }
     setMembros((atual) =>
       atual.map((m) => {
@@ -14699,7 +13990,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const plano = planos.find((p) => p.nome === nomePlanoPago);
     if (!membro || !plano) return;
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     // Renova a partir do vencimento atual, se ainda estiver a decorrer — ou
     // a partir de hoje, se já tiver expirado (mesma regra usada na aprovação
     // de pagamentos por transferência).
@@ -14743,7 +14034,7 @@ export default function CatumbelaGymApp() {
       setMembros((atual) =>
         atual.map((m) => {
           if (m.id !== membroId) return m;
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = dataLocalISO(new Date());
           const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
           return {
             ...resto,
@@ -14773,7 +14064,7 @@ export default function CatumbelaGymApp() {
     setMembros((atual) =>
       atual.map((m) =>
         m.id === membroId
-          ? { ...m, estadoAntesPausa: m.estado, dataPausa: new Date().toISOString().slice(0, 10), estado: "pausada" }
+          ? { ...m, estadoAntesPausa: m.estado, dataPausa: dataLocalISO(new Date()), estado: "pausada" }
           : m
       )
     );
@@ -14822,7 +14113,7 @@ export default function CatumbelaGymApp() {
     const novoVenc = new Date(membro.vencimento + "T00:00:00");
     novoVenc.setDate(novoVenc.getDate() + diasPausados);
     const novoVencStr = dataLocalISO(novoVenc);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     setMembros((atual) =>
       atual.map((m) => {
         if (m.id !== membroId) return m;
@@ -14848,9 +14139,9 @@ export default function CatumbelaGymApp() {
     // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
     // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
     // a nenhum custo real.
-    const novoId = gerarIdUnico();
+    const novoId = Math.max(0, ...custos.map((c) => c.id || 0)) + 1;
     setCustos((atual) => [
-      { ...custo, id: novoId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...custo, id: novoId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     // Liga automaticamente ao Caixa ou ao Banco (consoante escolhido), como
@@ -14880,7 +14171,7 @@ export default function CatumbelaGymApp() {
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
-      { ...item, id: gerarIdUnico(), estado: "planeado", data: new Date().toISOString().slice(0, 10) },
+      { ...item, id: Math.max(0, ...atual.map((i) => i.id || 0)) + 1, estado: "planeado", data: dataLocalISO(new Date()) },
       ...atual,
     ]);
     registarAuditoria("Adicionou item ao orçamento", `${item.nome} — ${kz(item.valorEstimado)}`);
@@ -14897,7 +14188,7 @@ export default function CatumbelaGymApp() {
   const marcarItemComprado = (id, { valorReal, pagoDe, contaBancariaId }) => {
     const item = orcamento.find((i) => i.id === id);
     if (!item) return;
-    setOrcamento((atual) => atual.map((i) => (i.id === id ? { ...i, estado: "comprado", valorReal, dataCompra: new Date().toISOString().slice(0, 10) } : i)));
+    setOrcamento((atual) => atual.map((i) => (i.id === id ? { ...i, estado: "comprado", valorReal, dataCompra: dataLocalISO(new Date()) } : i)));
     adicionarCusto({ categoria: item.categoria, descricao: `Compra: ${item.nome}`, valor: valorReal, pagoDe, contaBancariaId });
   };
 
@@ -14918,7 +14209,7 @@ export default function CatumbelaGymApp() {
               valorPago: jaPago,
               estado: totalmentePago ? "comprado" : "planeado",
               valorReal: totalmentePago ? jaPago : i.valorReal,
-              dataCompra: totalmentePago ? new Date().toISOString().slice(0, 10) : i.dataCompra,
+              dataCompra: totalmentePago ? dataLocalISO(new Date()) : i.dataCompra,
             }
           : i
       )
@@ -14934,7 +14225,7 @@ export default function CatumbelaGymApp() {
 
   // PLANO DE ATIVIDADES
   const adicionarAtividade = (dados) => {
-    setAtividades((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
+    setAtividades((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1 }]);
     registarAuditoria("Criou atividade no horário", `${dados.nome} — ${dados.diaSemana} ${dados.horaInicio}`);
   };
 
@@ -14963,7 +14254,7 @@ export default function CatumbelaGymApp() {
       atividadeId,
       membroId: membro.id,
       membroNome: membro.nome,
-      data: new Date().toISOString().slice(0, 10),
+      data: dataLocalISO(new Date()),
     };
 
     try {
@@ -15002,7 +14293,7 @@ export default function CatumbelaGymApp() {
   const adicionarAvaliacaoFisica = (membroId, dados) => {
     const membro = membros.find((m) => m.id === membroId);
     setAvaliacoesFisicas((atual) => [
-      { ...dados, id: gerarIdUnico(), membroId, data: new Date().toISOString().slice(0, 10), registadoPor: contaAtual?.nome || "—" },
+      { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria("Registou avaliação física", `${membro?.nome || membroId} — ${dados.peso ? dados.peso + "kg" : ""}`);
@@ -15023,12 +14314,12 @@ export default function CatumbelaGymApp() {
       // identifica este registo de forma única e estável, o que é
       // exatamente o que a fusão entre dispositivos precisa para tratar
       // cada plano individualmente em vez de em bloco.
-      return [...semEsteMembro, { ...dados, id: membroId, membroId, atualizadoEm: new Date().toISOString().slice(0, 10), criadoPor: contaAtual?.nome || "—" }];
+      return [...semEsteMembro, { ...dados, id: membroId, membroId, atualizadoEm: dataLocalISO(new Date()), criadoPor: contaAtual?.nome || "—" }];
     });
     // Regista no histórico a carga de cada exercício com peso preenchido —
     // é isto que permite depois mostrar a evolução ao longo do tempo (ex.:
     // "Supino: 20kg em julho → 25kg em agosto"), não só o valor mais recente.
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(new Date());
     const novasEntradas = (dados.exercicios || [])
       .filter((ex) => ex.carga && Number(ex.carga) > 0)
       .map((ex) => ({ id: `${membroId}-${ex.nome}-${hojeStr}-${Date.now()}`, membroId, exercicio: ex.nome, carga: Number(ex.carga), data: hojeStr }));
@@ -15042,7 +14333,7 @@ export default function CatumbelaGymApp() {
   // com o que o sistema esperava, para detetar diferenças cedo.
   const registarFechoTurno = (dados) => {
     setFechosTurno((atual) => [
-      { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { ...dados, id: Math.max(0, ...atual.map((f) => f.id || 0)) + 1, data: dataLocalISO(new Date()), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
     // Se a contagem física não bateu certo com o sistema, ajusta logo o saldo
@@ -15051,7 +14342,7 @@ export default function CatumbelaGymApp() {
     if (dados.diferenca !== 0) {
       setMovimentosCaixa((atual) => [
         {
-          id: gerarIdUnico(),
+          id: Date.now(),
           direcao: dados.diferenca > 0 ? "entrada" : "saida",
           subtipo: "Ajuste de caixa (fecho de turno)",
           valor: Math.abs(dados.diferenca),
@@ -15070,13 +14361,13 @@ export default function CatumbelaGymApp() {
   };
 
   const registarPonto = (dados) => {
-    setRegistosPonto((atual) => [{ ...dados, id: gerarIdUnico() }, ...atual]);
+    setRegistosPonto((atual) => [{ ...dados, id: Math.max(0, ...atual.map((r) => r.id || 0)) + 1 }, ...atual]);
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
   };
 
   // MANUTENÇÃO DE EQUIPAMENTOS
   const adicionarEquipamento = (dados) => {
-    setEquipamentos((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
+    setEquipamentos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((e) => e.id || 0)) + 1 }]);
     registarAuditoria("Adicionou equipamento", dados.nome);
   };
   const atualizarEquipamento = (id, dados) => {
@@ -15091,7 +14382,7 @@ export default function CatumbelaGymApp() {
 
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
-    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: new Date().toISOString().slice(0, 10) }]);
+    setAvisos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, data: dataLocalISO(new Date()) }]);
     registarAuditoria("Publicou aviso", dados.titulo);
   };
   const removerAviso = (id) => {
@@ -15143,8 +14434,9 @@ export default function CatumbelaGymApp() {
       data: agora.toLocaleDateString("pt-PT"),
       hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
     };
+    let proximoId = Math.max(0, ...mensagens.map((m) => m.id || 0)) + 1;
     const novasMensagens = membros.map((m) => ({
-      id: gerarIdUnico(),
+      id: proximoId++,
       participanteId: m.id,
       participanteNome: m.nome,
       participanteTipo: "membro",
@@ -15160,7 +14452,7 @@ export default function CatumbelaGymApp() {
   const adicionarMovimento = (ledger, movimento) => {
     const registo = {
       ...movimento,
-      id: gerarIdUnico(),
+      id: Date.now(),
       data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       registadoPor: contaAtual?.nome || "—",
     };
@@ -15261,7 +14553,7 @@ export default function CatumbelaGymApp() {
       // vencimento), por isso serve perfeitamente como identificador
       // estável para a fusão entre dispositivos tratar cada aviso
       // individualmente.
-      { id: chave, chave, membroId, tipo, canal, data: new Date().toISOString().slice(0, 10), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { id: chave, chave, membroId, tipo, canal, data: dataLocalISO(new Date()), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
     ]);
   };
 
@@ -15272,7 +14564,7 @@ export default function CatumbelaGymApp() {
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
-      data: agora.toISOString().slice(0, 10),
+      data: dataLocalISO(agora),
       entrada: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       saida: null,
     };
@@ -15286,7 +14578,7 @@ export default function CatumbelaGymApp() {
 
   const registarSaida = async (membro) => {
     const agora = new Date();
-    const hojeStr = agora.toISOString().slice(0, 10);
+    const hojeStr = dataLocalISO(agora);
     const horaSaida = agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
     // Procura QUALQUER entrada em aberto deste membro, não só a de hoje —
     // se ninguém deu saída há dois dias (esqueceram-se), a entrada antiga
@@ -15385,7 +14677,7 @@ export default function CatumbelaGymApp() {
       membro: membro.nome,
       numero: membro.numero,
       foto: membro.foto || null,
-      data: data || new Date().toISOString().slice(0, 10),
+      data: data || dataLocalISO(new Date()),
       entrada,
       saida: saida || null,
     };
@@ -15657,41 +14949,6 @@ export default function CatumbelaGymApp() {
             </button>
           </div>
         )}
-        {backupAutoFeitoAgora && perfil === "administrador" && (
-          <div className="bg-emerald-50 dark:bg-emerald-900/20 border-b border-emerald-200 dark:border-emerald-800 px-4 py-3 flex items-center gap-3">
-            <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />
-            <p className="text-sm text-emerald-700 dark:text-emerald-400 flex-1">
-              Cópia de segurança semanal feita automaticamente agora — verifica a pasta de transferências do
-              computador. Se não aparecer nada, o browser pode ter bloqueado; nesse caso, faz uma manualmente em{" "}
-              <button onClick={() => setTela("configuracoes")} className="underline font-semibold">Configurações → Dados do ginásio</button>.
-            </p>
-            <button onClick={() => setBackupAutoFeitoAgora(false)} className="text-emerald-400 hover:text-emerald-600 shrink-0">
-              <X size={16} />
-            </button>
-          </div>
-        )}
-        {!avisoNotificacoesDismissed && perfil === "administrador" && (() => {
-          const chaveDeAviso = (n) => `${n.membro.id}-${n.tipo}-${n.membro.vencimento}`;
-          const enviadosChaves = new Set((avisosEnviados || []).map((a) => a.chave));
-          const notifPorEnviar = calcularNotificacoes(membros, planos).filter((n) => !enviadosChaves.has(chaveDeAviso(n)));
-          if (notifPorEnviar.length === 0) return null;
-          return (
-            <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 py-3 flex items-center gap-3">
-              <MessageCircle size={18} className="text-blue-500 shrink-0" />
-              <p className="text-sm text-blue-700 dark:text-blue-400 flex-1">
-                <strong>{notifPorEnviar.length} atleta{notifPorEnviar.length > 1 ? "s" : ""}</strong> por avisar sobre
-                a subscrição (a vencer em breve, hoje, ou já vencida) — links de WhatsApp já prontos, um clique por
-                pessoa.
-              </p>
-              <button onClick={() => setTela("notificacoes")} className="text-xs font-semibold bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-lg shrink-0">
-                Ver e avisar
-              </button>
-              <button onClick={() => setAvisoNotificacoesDismissed(true)} className="text-blue-400 hover:text-blue-600 shrink-0">
-                <X size={16} />
-              </button>
-            </div>
-          );
-        })()}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6">
           {telaAtual === "meus-alunos" && perfil === "personal_trainer" && (
             <MeusAlunos
@@ -15737,10 +14994,7 @@ export default function CatumbelaGymApp() {
             <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
-            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} faturas={faturas} />
-          )}
-          {telaAtual === "vencimentos-semana" && perfil === "administrador" && (
-            <VencimentosDaSemana membros={membros} />
+            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} />
           )}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
@@ -15764,7 +15018,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
-            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} onReiniciar={reiniciarCustos} perfil={perfil} />
+            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "orcamento" && perfil === "administrador" && (
             <Orcamento itens={orcamento} onAdicionar={adicionarItemOrcamento} onRemover={removerItemOrcamento} onMarcarComprado={marcarItemComprado} onRegistarPagamento={registarPagamentoOrcamento} dadosGinasio={dadosGinasio} />
@@ -15773,17 +15027,17 @@ export default function CatumbelaGymApp() {
             <PlanoAtividades atividades={atividades} trainers={trainers} reservasAtividades={reservasAtividades} onAdicionar={adicionarAtividade} onAtualizar={atualizarAtividade} onRemover={removerAtividade} />
           )}
           {telaAtual === "faturacao" && (perfil === "administrador" || perfil === "recepcionista") && (
-            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} onReiniciarFaturacao={reiniciarFaturacao} />
+            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} />
           )}
           {telaAtual === "pos" && (
             <VendasPOS produtos={produtos} membros={membros} dadosGinasio={dadosGinasio} onFinalizar={finalizarVenda} />
           )}
           {telaAtual === "stock" && (
-            <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} perfil={perfil} onReiniciarVendas={reiniciarVendas} />
+            <Stock produtos={produtos} vendasProdutos={vendasProdutos} onAdd={adicionarProduto} onUpdate={atualizarProduto} onRemove={removerProduto} onEntrada={entradaStock} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "balcao" && (
             <Balcao
-              membros={membros} planos={planos} acessos={acessos} faturas={faturas} pagamentosPendentes={pagamentosPendentes}
+              membros={membros} planos={planos} acessos={acessos} pagamentosPendentes={pagamentosPendentes}
               dadosGinasio={dadosGinasio} contaAtual={contaAtual}
               onCriarMembro={adicionarMembro}
               onAtualizarSubscricao={atualizarSubscricao}
@@ -15797,22 +15051,16 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "acessos" && (
-            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} onReiniciar={reiniciarAcessos} />
+            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
-          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} onReiniciar={reiniciarAvisosEnviados} />}
+          {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "sem-recibo" && perfil === "administrador" && (
             <div className="space-y-4">
               <SubscricoesDivergentes membros={membros} historicoSubscricoes={historicoSubscricoes} onRepor={reporSubscricao} />
               <SubscricoesSemRecibo membros={membros} faturas={faturas} planos={planos} historicoSubscricoes={historicoSubscricoes} />
             </div>
-          )}
-          {telaAtual === "taxas-sessao-longa" && perfil === "administrador" && (
-            <TaxasSessaoLongaPendentes membros={membros} faturas={faturas} dadosGinasio={dadosGinasio} />
-          )}
-          {telaAtual === "recibos-duplicados" && perfil === "administrador" && (
-            <PossiveisRecibosDuplicados faturas={faturas} onEliminar={eliminarFatura} />
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
@@ -15829,7 +15077,7 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "mensagens" && perfil === "administrador" && (
-            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} onReiniciar={reiniciarMensagens} />
+            <MensagensAdmin mensagens={mensagens} onEnviar={enviarMensagem} onMarcarLidas={marcarMensagensLidas} onEnviarGeral={enviarMensagemGeral} totalMembros={membros.length} funcionarios={contas.filter((c) => (c.perfil === "recepcionista" || c.perfil === "personal_trainer") && !c.desativada)} />
           )}
           {telaAtual === "mensagens" && (perfil === "recepcionista" || perfil === "personal_trainer") && (
             <MensagensParticipante

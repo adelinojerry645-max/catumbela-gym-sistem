@@ -9,14 +9,6 @@
 -- e é fácil de verificar/corrigir diretamente no Supabase se for preciso.
 --
 -- Corre este ficheiro no SQL Editor do teu projeto Supabase.
---
--- >>> JÁ CORRESTE ESTE FICHEIRO NUMA VERSÃO ANTERIOR? <<<
--- Corre-o OUTRA VEZ na íntegra — é seguro, nada é apagado (a tabela e as
--- funções antigas usam "IF NOT EXISTS" / "OR REPLACE", por isso só são
--- atualizadas, nunca recriadas do zero). A parte nova, mais abaixo
--- ("NUMERAÇÃO DE DOCUMENTOS"), é o que corrige os recibos/faturas a
--- duplicarem-se — sem correr este ficheiro de novo, essa correção fica
--- só no código da aplicação, sem efeito nenhum no Supabase.
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS estado_app (
@@ -115,17 +107,16 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =====================================================================
--- NUMERAÇÃO DE DOCUMENTOS (RECIBOS/FATURAS) — a causa mais persistente
--- de duplicação nesta aplicação: o número de cada documento era
--- calculado no PRÓPRIO DISPOSITIVO, a partir do maior número que esse
--- dispositivo já conhecia. Se dois dispositivos gerassem um documento
--- quase ao mesmo tempo (ou até o MESMO dispositivo, com um duplo
--- clique), os dois podiam calcular o MESMO "próximo número" — cada um
--- sem saber do outro. Esta função resolve isso da mesma forma que a
--- reserva de atividades acima: bloqueia a linha (FOR UPDATE), calcula o
--- número, e insere o documento — tudo numa única operação indivisível
--- dentro do Postgres. Duas chamadas concorrentes são sempre postas em
--- fila pelo próprio banco de dados; nunca correm ao mesmo tempo.
+-- NUMERAÇÃO ATÓMICA DE FATURAS/RECIBOS/PROFORMAS — a numeração calculada
+-- no dispositivo (mesmo pelo maior número existente) ainda tinha uma
+-- janela rara: se DOIS dispositivos gerassem um documento no MESMO
+-- segundo, antes de um saber do outro, os dois podiam calcular o MESMO
+-- "próximo número" para dois documentos diferentes — um dos dois acabava
+-- por se perder ao sincronizar. Esta função resolve isso de vez: o
+-- cálculo do número E a gravação do documento acontecem numa ÚNICA
+-- operação dentro do Postgres, com a linha bloqueada (FOR UPDATE)
+-- enquanto isso acontece — o segundo dispositivo espera a sua vez em vez
+-- de calcular às cegas, e por isso nunca pode colidir com o primeiro.
 -- =====================================================================
 CREATE OR REPLACE FUNCTION gerar_documento_atomico(p_chave TEXT, p_prefixo TEXT, p_ano TEXT, p_documento_sem_numero JSONB)
 RETURNS JSONB AS $$
@@ -138,9 +129,10 @@ DECLARE
   sufixo TEXT;
   n INT;
 BEGIN
-  -- Bloqueia até ao fim desta operação — qualquer outra chamada
-  -- concorrente (de outro dispositivo, ou de um duplo clique no mesmo)
-  -- espera aqui a sua vez, nunca lê um valor desatualizado.
+  -- Bloqueia a linha até ao fim desta operação — qualquer outra chamada
+  -- concorrente a esta mesma função (mesmo de outro dispositivo) espera
+  -- aqui a sua vez, em vez de calcular o número a partir de uma versão
+  -- desatualizada.
   SELECT valor INTO lista_atual FROM estado_app WHERE chave = p_chave FOR UPDATE;
   IF lista_atual IS NULL THEN
     lista_atual := '[]'::jsonb;
@@ -160,10 +152,13 @@ BEGIN
   END LOOP;
 
   numero_gerado := p_prefixo || '-' || p_ano || '-' || lpad((maior_numero + 1)::TEXT, 6, '0');
-  documento_completo := p_documento_sem_numero || jsonb_build_object('numero', numero_gerado);
+  -- O "id" é o próprio número — já é único por construção, e é sempre o
+  -- MESMO valor para o MESMO documento em qualquer dispositivo (importante
+  -- para a fusão de dados entre dispositivos conseguir comparar documentos
+  -- um a um sem inventar ids diferentes para o mesmo documento).
+  documento_completo := p_documento_sem_numero || jsonb_build_object('numero', numero_gerado, 'id', numero_gerado);
 
   UPDATE estado_app SET valor = lista_atual || documento_completo, atualizado_em = now() WHERE chave = p_chave;
   RETURN documento_completo;
 END;
 $$ LANGUAGE plpgsql;
-

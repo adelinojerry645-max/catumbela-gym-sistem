@@ -71,16 +71,10 @@ export async function reservarAtividadeAtomico(chave, atividadeId, capacidade, i
   return data; // { ok: true } ou { ok: false, motivo: "..." }
 }
 
-// Gera o NÚMERO de um documento (recibo/fatura/proforma) e insere-o na
-// coleção, tudo dentro de uma única operação indivisível no Postgres —
-// a diferença essencial em relação ao resto do sistema (que grava
-// localmente primeiro, e sincroniza depois): aqui, o número só é
-// calculado DEPOIS de o servidor ter a certeza absoluta de que nenhum
-// outro dispositivo está a fazer o mesmo ao mesmo tempo. Elimina por
-// completo a categoria de bug mais persistente desta aplicação —
-// documentos duplicados ou com o mesmo número, mesmo que dois
-// dispositivos (ou um duplo clique no mesmo) tentem gerar um documento
-// no mesmo instante.
+// Gera o número de uma fatura/recibo/proforma E grava o documento, tudo
+// numa única operação atómica dentro do Postgres — elimina por completo a
+// janela em que dois dispositivos podiam calcular o MESMO próximo número
+// ao mesmo tempo. Ver "gerar_documento_atomico" em supabase-estado-app.sql.
 export async function gerarDocumentoAtomico(chave, prefixo, ano, documentoSemNumero) {
   const { data, error } = await supabase.rpc("gerar_documento_atomico", {
     p_chave: chave,
@@ -89,5 +83,5 @@ export async function gerarDocumentoAtomico(chave, prefixo, ano, documentoSemNum
     p_documento_sem_numero: documentoSemNumero,
   });
   if (error) throw error;
-  return data; // o documento completo, já com "numero" atribuído
+  return data; // documento completo, já com "numero" e "id"
 }
