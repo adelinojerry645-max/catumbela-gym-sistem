@@ -9958,7 +9958,7 @@ function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
 // Relatório de horário dos COLABORADORES (receção, personal trainers,
 // administradores) — a partir do registosPonto (entrada/saída/falta).
 // Distinto do RelatorioHorasMensal acima, que é sobre os ATLETAS.
-function RelatorioHorarioColaboradores({ contas, registosPonto }) {
+function RelatorioHorarioColaboradores({ contas, registosPonto, dadosGinasio, onFechar }) {
   const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
 
   // registosPonto guarda a data em formato pt-PT "dd/mm/aaaa" (ver
@@ -10018,57 +10018,68 @@ function RelatorioHorarioColaboradores({ contas, registosPonto }) {
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Mês:</label>
-            <input
-              type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
-            />
+    <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
+      <div className="max-w-2xl mx-auto bg-white my-4 rounded-2xl print:rounded-none print:my-0 p-6 text-slate-800 area-imprimivel">
+        <div className="flex items-center justify-between mb-4 print:hidden flex-wrap gap-2">
+          <h2 className="font-bold text-lg">Horário dos colaboradores</h2>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportar}
+              disabled={linhas.length === 0}
+              className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2 disabled:opacity-40"
+            >
+              <Download size={15} /> Excel
+            </button>
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold ring-1 ring-slate-200 text-slate-600 rounded-lg px-3 py-2">
+              <Printer size={15} /> Imprimir / Guardar PDF
+            </button>
+            {onFechar && <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>}
           </div>
-          <button
-            onClick={exportar}
-            disabled={linhas.length === 0}
-            className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-40"
-          >
-            <Download size={16} /> Exportar para Excel
-          </button>
         </div>
-      </Card>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Colaboradores com registo em {nomeMes}</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{linhas.length}</p></Card>
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total de horas trabalhadas</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{totalHoras.toFixed(1)}h</p></Card>
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total de faltas</p><p className="text-xl font-extrabold text-red-600">{totalFaltas}</p></Card>
-      </div>
+        <div className="flex items-center gap-3 border-b pb-3 mb-4">
+          {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
+          <div>
+            <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
+            <p className="text-xs text-slate-500">Horário dos colaboradores de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+          </div>
+        </div>
 
-      <Card title={`Horário por colaborador — ${nomeMes}`}>
+        <div className="print:hidden mb-4">
+          <label className="text-xs font-medium text-slate-500">Mês</label>
+          <input type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="bg-slate-50 rounded-xl p-3"><p className="text-xs text-slate-400">Colaboradores</p><p className="text-lg font-extrabold text-slate-900">{linhas.length}</p></div>
+          <div className="bg-slate-50 rounded-xl p-3"><p className="text-xs text-slate-400">Horas trabalhadas</p><p className="text-lg font-extrabold text-slate-900">{totalHoras.toFixed(1)}h</p></div>
+          <div className="bg-slate-50 rounded-xl p-3"><p className="text-xs text-slate-400">Faltas</p><p className="text-lg font-extrabold text-red-600">{totalFaltas}</p></div>
+        </div>
+
         {linhas.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">Sem registos de ponto neste mês.</p>
+          <p className="text-sm text-slate-400">Sem registos de ponto neste mês.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                <tr className="text-left text-slate-500 border-b border-slate-100">
                   <th className="pb-2 font-medium">Colaborador</th>
                   <th className="pb-2 font-medium text-right">Dias trabalhados</th>
                   <th className="pb-2 font-medium text-right">Horas totais</th>
                   <th className="pb-2 font-medium text-right">Faltas</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+              <tbody className="divide-y divide-slate-50">
                 {linhas.map((r) => (
                   <tr key={r.funcionario.id}>
                     <td className="py-2">
-                      <p className="font-medium text-slate-900 dark:text-slate-100">{r.funcionario.nome}</p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500">{ROTULO_PERFIL[r.funcionario.perfil]}</p>
+                      <p className="font-medium text-slate-900">{r.funcionario.nome}</p>
+                      <p className="text-xs text-slate-400">{ROTULO_PERFIL[r.funcionario.perfil]}</p>
                     </td>
-                    <td className="py-2 text-right text-slate-600 dark:text-slate-300">{r.diasTrabalhados}</td>
-                    <td className="py-2 text-right font-semibold text-slate-900 dark:text-slate-100">{r.horasTotais.toFixed(1)}h</td>
+                    <td className="py-2 text-right text-slate-600">{r.diasTrabalhados}</td>
+                    <td className="py-2 text-right font-semibold text-slate-900">{r.horasTotais.toFixed(1)}h</td>
                     <td className="py-2 text-right">
-                      {r.numFaltas > 0 ? <span className="text-red-600 font-medium">{r.numFaltas}</span> : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                      {r.numFaltas > 0 ? <span className="text-red-600 font-medium">{r.numFaltas}</span> : <span className="text-slate-300">—</span>}
                     </td>
                   </tr>
                 ))}
@@ -10076,7 +10087,7 @@ function RelatorioHorarioColaboradores({ contas, registosPonto }) {
             </table>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }
@@ -10413,7 +10424,7 @@ function RelatorioMensalEvolucao({ mesEscolhido, resumoMensal, membros, dadosGin
   );
 }
 
-function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas }) {
+function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas, registosPonto }) {
   // "Saldo inicial" é dinheiro que o ginásio já tinha antes de começar a
   // usar o sistema — conta como receita/lucro já feita.
   const saldoInicialTotal = [...movimentosCaixa, ...movimentosBancarios]
@@ -10426,6 +10437,7 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   const [aVerRelatorioMensal, setAVerRelatorioMensal] = useState(false);
   const [aVerEvolucaoTreino, setAVerEvolucaoTreino] = useState(false);
   const [aVerMelhorAtleta, setAVerMelhorAtleta] = useState(false);
+  const [aVerRelatorioColaboradores, setAVerRelatorioColaboradores] = useState(false);
 
   // Produtos mais e menos vendidos — para saber o que reabastecer e o que
   // talvez já não valha a pena manter em stock.
@@ -10890,6 +10902,12 @@ const exportarMembros = () => {
             <Award size={15} /> Melhor atleta do mês (PDF)
           </button>
           <button
+            onClick={() => setAVerRelatorioColaboradores(true)}
+            className="flex items-center justify-center gap-2 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold px-4 py-2.5 rounded-lg"
+          >
+            <Clock size={15} /> Horário dos colaboradores (PDF)
+          </button>
+          <button
             onClick={() => exportarExcelCompleto({ membros, planos, pagamentosFeitos, custos, produtos, vendasProdutos, mesEscolhido })}
             className="flex items-center justify-center gap-2 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 text-sm font-semibold px-4 py-2.5 rounded-lg"
           >
@@ -10916,6 +10934,13 @@ const exportarMembros = () => {
         <MelhorAtleta
           membros={membros} acessos={acessos} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
           onFechar={() => setAVerMelhorAtleta(false)}
+        />
+      )}
+
+      {aVerRelatorioColaboradores && (
+        <RelatorioHorarioColaboradores
+          contas={contas} registosPonto={registosPonto} dadosGinasio={dadosGinasio}
+          onFechar={() => setAVerRelatorioColaboradores(false)}
         />
       )}
 
@@ -12422,7 +12447,6 @@ const MENU_ADMIN = [
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
-      { id: "horario-colaboradores", label: "Horário dos Colaboradores", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
@@ -13584,7 +13608,14 @@ export default function CatumbelaGymApp() {
       assinaturaContrato: novo.assinaturaContrato || null,
       dataAssinaturaContrato: novo.assinaturaContrato ? dataInscricaoFinal : null,
     };
-    setMembros([...membros, membroNovo]);
+    // IMPORTANTE: usa a forma funcional (atual => ...), nunca "membros"
+    // direto — "membros" aqui é só a fotografia de quando este ecrã
+    // renderizou pela última vez. Se, entretanto, chegou uma atualização
+    // em tempo real de OUTRO dispositivo (ex.: alguém inscreveu outro
+    // atleta há poucos segundos), gravar por cima dessa fotografia antiga
+    // apagava silenciosamente esse outro atleta — a causa mais provável de
+    // "inscrições que desaparecem sozinhas".
+    setMembros((atual) => [...atual, membroNovo]);
     // Se foi indicado e-mail e palavra-passe, cria também a conta de acesso à área do membro
     if (novo.email && novo.senha) {
       setContas((atual) => [
@@ -13920,7 +13951,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarTrainer = (novo) => {
-    setTrainers([...trainers, { ...novo, id: gerarIdUnico() }]);
+    setTrainers((atual) => [...atual, { ...novo, id: gerarIdUnico() }]);
   };
 
   // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
@@ -13940,7 +13971,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarProduto = (novo) => {
-    setProdutos([...produtos, { ...novo, id: gerarIdUnico() }]);
+    setProdutos((atual) => [...atual, { ...novo, id: gerarIdUnico() }]);
     registarAuditoria("Criou novo produto", novo.nome);
   };
 
@@ -13951,7 +13982,7 @@ export default function CatumbelaGymApp() {
 
   const removerProduto = (id) => {
     const produto = produtos.find((p) => p.id === id);
-    setProdutos(produtos.filter((p) => p.id !== id));
+    setProdutos((atual) => atual.filter((p) => p.id !== id));
     registarAuditoria("Eliminou produto", produto?.nome);
   };
 
@@ -13987,7 +14018,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas([...contas, { ...nova, id: gerarIdUnico() }]);
+    setContas((atual) => [...atual, { ...nova, id: gerarIdUnico() }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
@@ -14012,7 +14043,7 @@ export default function CatumbelaGymApp() {
   // contar para os saldos.
   const removerConta = (id) => {
     const conta = contas.find((c) => c.id === id);
-    setContas(contas.filter((c) => c.id !== id));
+    setContas((atual) => atual.filter((c) => c.id !== id));
     if (conta) {
       setMovimentosCaixa((atual) => atual.filter((m) => m.registadoPor !== conta.nome));
       setMovimentosBancarios((atual) => atual.filter((m) => m.registadoPor !== conta.nome));
@@ -15559,12 +15590,11 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
-          {telaAtual === "horario-colaboradores" && perfil === "administrador" && <RelatorioHorarioColaboradores contas={contas} registosPonto={registosPonto} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
           {telaAtual === "relatorios" && perfil === "administrador" && (
-            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} />
+            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} />}
           {telaAtual === "recuperar-dados" && perfil === "administrador" && (
