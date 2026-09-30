@@ -43,6 +43,20 @@ const CONTAS_INICIAIS = [];
 
 const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 
+// Devolve um número comparável (epoch em ms) a partir dos campos "data"
+// (pt-PT, "dd/mm/aaaa") e "hora" de um registo — usado para ORDENAR por
+// tempo real, nunca pelo "id": os ids das mensagens passaram a ser
+// aleatórios (UUID), por isso comparar "m.id > outro.id" ou subtrair ids
+// deixou de refletir a ordem cronológica (e nem sequer funciona com
+// strings — dava sempre NaN).
+const timestampDeRegisto = (m) => {
+  if (!m) return 0;
+  const [d, mo, a] = (m.data || "").split("/");
+  if (!d || !mo || !a) return 0;
+  const [h, min] = (m.hora || "00:00").split(":");
+  return new Date(Number(a), Number(mo) - 1, Number(d), Number(h) || 0, Number(min) || 0).getTime();
+};
+
 // Formata uma data LOCAL como "AAAA-MM-DD" sem passar por toISOString() —
 // toISOString() converte para UTC, o que em fusos horários à frente de UTC
 // (como Angola, UTC+1) fazia "perder" sempre 1 dia em qualquer conta feita
@@ -4482,8 +4496,8 @@ function ModalAlunoDetalhe({ membro, avaliacoes, planoTreino, onAdicionarAvaliac
                 <select
                   value={novoExercicio.equipamentoId}
                   onChange={(e) => {
-                    const eq = equipamentosDeTreino.find((eq) => eq.id === Number(e.target.value));
-                    setNovoExercicio({ ...novoExercicio, equipamentoId: e.target.value ? Number(e.target.value) : "", nome: eq ? eq.nome : novoExercicio.nome });
+                    const eq = equipamentosDeTreino.find((eq) => eq.id === e.target.value);
+                    setNovoExercicio({ ...novoExercicio, equipamentoId: e.target.value || "", nome: eq ? eq.nome : novoExercicio.nome });
                   }}
                   className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs"
                 >
@@ -5134,7 +5148,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.nome || !novo.email || !novo.senha) return;
-    onAdd({ ...novo, trainerId: novo.perfil === "personal_trainer" && novo.trainerId ? Number(novo.trainerId) : null });
+    onAdd({ ...novo, trainerId: novo.perfil === "personal_trainer" && novo.trainerId ? novo.trainerId : null });
     setNovo({ nome: "", email: "", telefone: "", senha: "", perfil: "recepcionista", trainerId: "" });
     setShowForm(false);
   };
@@ -5636,7 +5650,7 @@ function PlanoAtividades({ atividades, trainers, reservasAtividades, onAdicionar
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.nome) return;
-    const dados = { ...novo, trainerId: novo.trainerId ? Number(novo.trainerId) : null, capacidadeMax: novo.capacidadeMax ? Number(novo.capacidadeMax) : null };
+    const dados = { ...novo, trainerId: novo.trainerId || null, capacidadeMax: novo.capacidadeMax ? Number(novo.capacidadeMax) : null };
     if (editandoId) onAtualizar(editandoId, dados);
     else onAdicionar(dados);
     setNovo(vazio);
@@ -7906,8 +7920,7 @@ function ContasBancariasEditor({ form, setForm, tocouNoFormulario, onSalvar }) {
     if (editandoId) {
       formAtualizado = { ...form, contasBancarias: (form.contasBancarias || []).map((c) => (c.id === editandoId ? { ...novo, id: editandoId } : c)) };
     } else {
-      const id = Math.max(0, ...contas.map((c) => (typeof c.id === "number" ? c.id : 0))) + 1;
-      formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id }] };
+      formAtualizado = { ...form, contasBancarias: [...(form.contasBancarias || []), { ...novo, id: gerarIdUnico() }] };
     }
     setForm(formAtualizado);
     onSalvar(formAtualizado);
@@ -8327,7 +8340,7 @@ function MensagensParticipante({ mensagens, participanteId, participanteTipo, pa
   const [texto, setTexto] = useState("");
   const minhasMensagens = mensagens
     .filter((m) => m.participanteId === participanteId && m.participanteTipo === participanteTipo)
-    .sort((a, b) => (a.id > b.id ? 1 : -1));
+    .sort((a, b) => timestampDeRegisto(a) - timestampDeRegisto(b));
   const fimRef = useRef(null);
 
   useEffect(() => {
@@ -8381,10 +8394,10 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
     mensagens.forEach((m) => {
       const chave = `${m.participanteTipo}-${m.participanteId}`;
       if (!mapa[chave]) mapa[chave] = { participanteId: m.participanteId, participanteTipo: m.participanteTipo, participanteNome: m.participanteNome, ultima: m, naoLidas: 0 };
-      if (m.id > mapa[chave].ultima.id) mapa[chave].ultima = m;
+      if (timestampDeRegisto(m) > timestampDeRegisto(mapa[chave].ultima)) mapa[chave].ultima = m;
       if (!m.deAdmin && !m.lida) mapa[chave].naoLidas += 1;
     });
-    return Object.values(mapa).sort((a, b) => b.ultima.id - a.ultima.id);
+    return Object.values(mapa).sort((a, b) => timestampDeRegisto(b.ultima) - timestampDeRegisto(a.ultima));
   }, [mensagens]);
 
   const [aberta, setAberta] = useState(null);
@@ -8398,7 +8411,7 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   const mensagensDaConversa = aberta
     ? mensagens
         .filter((m) => m.participanteId === aberta.participanteId && m.participanteTipo === aberta.participanteTipo)
-        .sort((a, b) => (a.id > b.id ? 1 : -1))
+        .sort((a, b) => timestampDeRegisto(a) - timestampDeRegisto(b))
     : [];
 
   useEffect(() => {
@@ -9521,7 +9534,7 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
         <div className="grid grid-cols-2 gap-3 print:hidden mb-4">
           <div>
             <label className="text-xs font-medium text-slate-500">Atleta</label>
-            <select value={membroId || ""} onChange={(e) => setMembroId(Number(e.target.value))} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm">
+            <select value={membroId || ""} onChange={(e) => setMembroId(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm">
               {listaParaEscolher.length === 0 && <option value="">Nenhum atleta com avaliações ou cargas registadas ainda</option>}
               {listaParaEscolher.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
             </select>
@@ -10159,9 +10172,17 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             <Printer size={15} /> Imprimir / Guardar PDF
           </button>
           {vencedor.membro.telefone && (
-            <a href={linkSMS(vencedor.membro.telefone, mensagemVencedor)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-4 py-2.5 shadow-lg">
-              <MessageSquare size={15} /> Enviar SMS ao vencedor
-            </a>
+            <>
+              {/* WhatsApp funciona a partir de qualquer aparelho (abre o WhatsApp
+                  Web num computador); o "sms:" só funciona em telemóvel — por
+                  isso deixamos as duas opções, tal como no resto da app. */}
+              <a href={linkWhatsApp(vencedor.membro.telefone, mensagemVencedor)} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2.5 shadow-lg">
+                <MessageSquare size={15} /> Enviar por WhatsApp
+              </a>
+              <a href={linkSMS(vencedor.membro.telefone, mensagemVencedor)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-4 py-2.5 shadow-lg">
+                <Send size={15} /> Enviar SMS (só no telemóvel)
+              </a>
+            </>
           )}
           <button onClick={() => setAVerCartaz(false)} className="flex items-center gap-1.5 text-sm font-semibold bg-white text-slate-700 rounded-lg px-4 py-2.5 shadow-lg">
             <X size={15} /> Voltar ao relatório
@@ -10231,10 +10252,11 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             )}
             {ranking.length > 0 && vencedor.membro.telefone && (
               <a
-                href={linkSMS(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2"
               >
-                <MessageSquare size={15} /> SMS ao vencedor
+                <MessageSquare size={15} /> WhatsApp ao vencedor
               </a>
             )}
             <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
@@ -12783,7 +12805,7 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
               {planosDisponiveis.length > 0 && (
                 <div>
                   <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Escolhe o teu plano</label>
-                  <select value={inscPlanoId} onChange={(e) => setInscPlanoId(Number(e.target.value))}
+                  <select value={inscPlanoId} onChange={(e) => setInscPlanoId(e.target.value)}
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
                     {planosDisponiveis.map((p) => (
                       <option key={p.id} value={p.id}>{p.nome} — {kz(p.preco)}</option>
@@ -13495,7 +13517,7 @@ export default function CatumbelaGymApp() {
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
-    const novaConta = { id: Math.max(0, ...contas.map((c) => c.id)) + 1, nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    const novaConta = { id: gerarIdUnico(), nome, email, senha, perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
     registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
@@ -13568,7 +13590,7 @@ export default function CatumbelaGymApp() {
       setContas((atual) => [
         ...atual,
         {
-          id: Math.max(0, ...atual.map((c) => c.id)) + 1,
+          id: gerarIdUnico(),
           nome: novo.nome,
           email: novo.email,
           senha: novo.senha,
@@ -13699,7 +13721,7 @@ export default function CatumbelaGymApp() {
         if (!dados.senha) return atual; // precisa de senha para criar acesso novo
         return [
           ...atual,
-          { id: Math.max(0, ...atual.map((c) => c.id)) + 1, nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
+          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
         ];
       });
     } else if (contaExistente) {
@@ -13727,7 +13749,7 @@ export default function CatumbelaGymApp() {
     const membroId = contaAtual?.membroId;
     setAvaliacoesTrainer((atual) => [
       ...atual.filter((a) => !(a.trainerId === trainerId && a.membroId === membroId)),
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, trainerId, membroId, nota, comentario, data: dataLocalISO(new Date()) },
+      { id: gerarIdUnico(), trainerId, membroId, nota, comentario, data: dataLocalISO(new Date()) },
     ]);
   };
 
@@ -13823,7 +13845,7 @@ export default function CatumbelaGymApp() {
     const membro = membros.find((m) => m.id === membroId);
     const estadoInicial = perfil === "administrador" ? "aprovada" : "pendente";
     setAdvertencias((atual) => [
-      { id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
+      { id: gerarIdUnico(), membroId, motivo, estado: estadoInicial, data: new Date().toLocaleDateString("pt-PT"), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria(
@@ -13858,7 +13880,7 @@ export default function CatumbelaGymApp() {
       if (dados.id) {
         return atual.map((p) => (p.id === dados.id ? { ...p, ...dados } : p));
       }
-      return [...atual, { ...dados, id: Math.max(0, ...atual.map((p) => p.id)) + 1 }];
+      return [...atual, { ...dados, id: gerarIdUnico() }];
     });
     // Se o NOME do plano mudou, atualiza também todos os membros que já
     // estavam nesse plano — a ligação é feita pelo nome, por isso, sem isto,
@@ -13898,7 +13920,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarTrainer = (novo) => {
-    setTrainers([...trainers, { ...novo, id: Math.max(0, ...trainers.map((t) => t.id)) + 1 }]);
+    setTrainers([...trainers, { ...novo, id: gerarIdUnico() }]);
   };
 
   // Eliminar um trainer desatribui automaticamente os alunos dele (ficam
@@ -13918,7 +13940,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarProduto = (novo) => {
-    setProdutos([...produtos, { ...novo, id: Math.max(0, ...produtos.map((p) => p.id)) + 1 }]);
+    setProdutos([...produtos, { ...novo, id: gerarIdUnico() }]);
     registarAuditoria("Criou novo produto", novo.nome);
   };
 
@@ -13965,7 +13987,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas([...contas, { ...nova, id: Math.max(0, ...contas.map((c) => c.id)) + 1 }]);
+    setContas([...contas, { ...nova, id: gerarIdUnico() }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
@@ -14039,7 +14061,7 @@ export default function CatumbelaGymApp() {
     // 4. se a compra foi feita por um membro, guarda no histórico da conta dele
     if (membro) {
       setComprasMembros((atual) => [
-        { id: Math.max(0, ...atual.map((c) => c.id || 0)) + 1, membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
+        { id: gerarIdUnico(), membroId: membro.id, itens, total, data: new Date().toLocaleDateString("pt-PT") },
         ...atual,
       ]);
     }
@@ -14582,7 +14604,7 @@ export default function CatumbelaGymApp() {
     // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
     // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
     // a nenhum custo real.
-    const novoId = Math.max(0, ...custos.map((c) => c.id || 0)) + 1;
+    const novoId = gerarIdUnico();
     setCustos((atual) => [
       { ...custo, id: novoId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
@@ -14614,7 +14636,7 @@ export default function CatumbelaGymApp() {
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
-      { ...item, id: Math.max(0, ...atual.map((i) => i.id || 0)) + 1, estado: "planeado", data: dataLocalISO(new Date()) },
+      { ...item, id: gerarIdUnico(), estado: "planeado", data: dataLocalISO(new Date()) },
       ...atual,
     ]);
     registarAuditoria("Adicionou item ao orçamento", `${item.nome} — ${kz(item.valorEstimado)}`);
@@ -14668,7 +14690,7 @@ export default function CatumbelaGymApp() {
 
   // PLANO DE ATIVIDADES
   const adicionarAtividade = (dados) => {
-    setAtividades((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1 }]);
+    setAtividades((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Criou atividade no horário", `${dados.nome} — ${dados.diaSemana} ${dados.horaInicio}`);
   };
 
@@ -14736,7 +14758,7 @@ export default function CatumbelaGymApp() {
   const adicionarAvaliacaoFisica = (membroId, dados) => {
     const membro = membros.find((m) => m.id === membroId);
     setAvaliacoesFisicas((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, membroId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
+      { ...dados, id: gerarIdUnico(), membroId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     registarAuditoria("Registou avaliação física", `${membro?.nome || membroId} — ${dados.peso ? dados.peso + "kg" : ""}`);
@@ -14776,7 +14798,7 @@ export default function CatumbelaGymApp() {
   // com o que o sistema esperava, para detetar diferenças cedo.
   const registarFechoTurno = (dados) => {
     setFechosTurno((atual) => [
-      { ...dados, id: Math.max(0, ...atual.map((f) => f.id || 0)) + 1, data: dataLocalISO(new Date()), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
+      { ...dados, id: gerarIdUnico(), data: dataLocalISO(new Date()), hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
       ...atual,
     ]);
     // Se a contagem física não bateu certo com o sistema, ajusta logo o saldo
@@ -14842,7 +14864,7 @@ export default function CatumbelaGymApp() {
 
   // MANUTENÇÃO DE EQUIPAMENTOS
   const adicionarEquipamento = (dados) => {
-    setEquipamentos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((e) => e.id || 0)) + 1 }]);
+    setEquipamentos((atual) => [...atual, { ...dados, id: gerarIdUnico() }]);
     registarAuditoria("Adicionou equipamento", dados.nome);
   };
   const atualizarEquipamento = (id, dados) => {
@@ -14857,7 +14879,7 @@ export default function CatumbelaGymApp() {
 
   // CENTRAL DE AVISOS — mural visível a todos os atletas, gerido só pelo administrador.
   const adicionarAviso = (dados) => {
-    setAvisos((atual) => [...atual, { ...dados, id: Math.max(0, ...atual.map((a) => a.id || 0)) + 1, data: dataLocalISO(new Date()) }]);
+    setAvisos((atual) => [...atual, { ...dados, id: gerarIdUnico(), data: dataLocalISO(new Date()) }]);
     registarAuditoria("Publicou aviso", dados.titulo);
   };
   const removerAviso = (id) => {
@@ -14909,9 +14931,8 @@ export default function CatumbelaGymApp() {
       data: agora.toLocaleDateString("pt-PT"),
       hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
     };
-    let proximoId = Math.max(0, ...mensagens.map((m) => m.id || 0)) + 1;
     const novasMensagens = membros.map((m) => ({
-      id: proximoId++,
+      id: gerarIdUnico(),
       participanteId: m.id,
       participanteNome: m.nome,
       participanteTipo: "membro",
