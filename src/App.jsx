@@ -4821,23 +4821,61 @@ const ROTULO_PERFIL = {
 // sua própria entrada/saída aqui, escolhendo o seu nome de uma lista —
 // sem precisar de sair e voltar a entrar no sistema a cada troca de turno.
 // Vê-se aqui quem está e quem já saiu, hoje.
-function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPonto }) {
+const DIAS_SEMANA_PONTO = [
+  { chave: "segunda", abrev: "Seg" },
+  { chave: "terca", abrev: "Ter" },
+  { chave: "quarta", abrev: "Qua" },
+  { chave: "quinta", abrev: "Qui" },
+  { chave: "sexta", abrev: "Sex" },
+  { chave: "sabado", abrev: "Sáb" },
+  { chave: "domingo", abrev: "Dom" },
+];
+
+const formatarHorarioTrabalho = (horario) => {
+  if (!horario) return null;
+  const partes = DIAS_SEMANA_PONTO.filter((d) => horario[d.chave]?.trabalha).map(
+    (d) => `${d.abrev} ${horario[d.chave].inicio || "?"}-${horario[d.chave].fim || "?"}`
+  );
+  return partes.length > 0 ? partes.join(", ") : null;
+};
+
+function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPonto, onRegistarFalta, onRemoverRegistoPonto, onDefinirHorario }) {
   const [aRegistar, setARegistar] = useState(null); // conta selecionada, ou null
+  const [aMarcarFalta, setAMarcarFalta] = useState(null); // conta selecionada, ou null
+  const [dataFalta, setDataFalta] = useState("");
+  const [motivoFalta, setMotivoFalta] = useState("");
+  const [aEditarHorario, setAEditarHorario] = useState(null); // conta selecionada, ou null
+  const [horarioEmEdicao, setHorarioEmEdicao] = useState(null);
 
   // Cada funcionário só pode marcar a SUA PRÓPRIA entrada/saída — mesmo
   // partilhando o computador da receção, ninguém deve conseguir marcar
-  // presença (ou ausência) em nome de um colega. O administrador continua a
-  // ver a lista toda, só para acompanhar quem está no ginásio, mas mesmo
-  // ele só pode registar ponto da sua própria conta aqui.
+  // presença em nome de um colega. Marcar FALTA já é o contrário — é sempre
+  // outra pessoa (a receção ou o administrador) a fazê-lo por conta de um
+  // colega (ninguém marca a própria falta, isso não faria sentido) — daí a
+  // distinção abaixo entre "éAMinhaConta" (entrada/saída) e o grupo que
+  // pode gerir ponto de terceiros (falta, horário, remover registos).
+  const podeGerirPonto = perfil === "administrador" || perfil === "recepcionista";
   const todosFuncionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
-  const funcionarios = perfil === "administrador" ? todosFuncionarios : todosFuncionarios.filter((c) => c.id === contaAtual?.id);
+  const funcionarios = podeGerirPonto ? todosFuncionarios : todosFuncionarios.filter((c) => c.id === contaAtual?.id);
   const hojeStr = new Date().toLocaleDateString("pt-PT");
+  const hojeISO = dataLocalISO(new Date());
   // registarPonto já grava os registos mais recentes no início da lista —
   // não precisamos (nem devemos) inverter aqui, ou o estado de "está no
   // ginásio / já saiu" passa a olhar para o registo mais ANTIGO do dia em
   // vez do mais recente, mostrando sempre a pessoa como presente mesmo
   // depois de já ter saído.
-  const registosHoje = registosPonto.filter((r) => r.data === hojeStr);
+  const registosHoje = registosPonto.filter((r) => r.data === hojeStr && r.tipo !== "falta");
+
+  // Faltas dos últimos 30 dias — ficam à parte porque, ao contrário de
+  // entrada/saída, uma falta é normalmente marcada depois (ex.: o
+  // administrador só nota ao fim do dia que alguém não apareceu), por
+  // isso "só hoje" escondia quase todas.
+  const faltasRecentes = registosPonto
+    .filter((r) => r.tipo === "falta")
+    .filter((r) => {
+      const dias = Math.round((new Date(hojeISO) - new Date(r.data)) / (1000 * 60 * 60 * 24));
+      return dias >= 0 && dias <= 30;
+    });
 
   // Para cada funcionário, o último registo de hoje diz se está "dentro" ou "fora"
   const estadoAtual = (funcionarioId) => {
@@ -4851,29 +4889,94 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
     setARegistar(null);
   };
 
+  const abrirMarcarFalta = (conta) => {
+    setAMarcarFalta(conta);
+    setDataFalta(hojeISO);
+    setMotivoFalta("");
+  };
+
+  const confirmarFalta = () => {
+    if (!aMarcarFalta || !dataFalta) return;
+    // Guarda a data já no formato usado no resto do histórico (pt-PT,
+    // "dd/mm/aaaa"), para uma falta aparecer ao lado das entradas/saídas
+    // desse mesmo dia sem precisar de converter formatos em todo o lado.
+    const dataFormatada = new Date(dataFalta + "T00:00:00").toLocaleDateString("pt-PT");
+    onRegistarFalta({ funcionarioId: aMarcarFalta.id, funcionarioNome: aMarcarFalta.nome, data: dataFormatada, motivo: motivoFalta.trim() });
+    setAMarcarFalta(null);
+  };
+
+  const abrirEditarHorario = (conta) => {
+    setAEditarHorario(conta);
+    const base = {};
+    DIAS_SEMANA_PONTO.forEach((d) => {
+      base[d.chave] = conta.horarioTrabalho?.[d.chave] || { trabalha: false, inicio: "08:00", fim: "17:00" };
+    });
+    setHorarioEmEdicao(base);
+  };
+
+  const alternarDiaHorario = (chave) => {
+    setHorarioEmEdicao((atual) => ({ ...atual, [chave]: { ...atual[chave], trabalha: !atual[chave].trabalha } }));
+  };
+
+  const alterarHoraDia = (chave, campo, valor) => {
+    setHorarioEmEdicao((atual) => ({ ...atual, [chave]: { ...atual[chave], [campo]: valor } }));
+  };
+
+  const confirmarHorario = () => {
+    if (!aEditarHorario || !horarioEmEdicao) return;
+    onDefinirHorario(aEditarHorario.id, horarioEmEdicao);
+    setAEditarHorario(null);
+  };
+
   return (
     <div className="space-y-5">
-      <Card title={perfil === "administrador" ? "Quem está a trabalhar agora?" : "O meu ponto"}>
+      <Card title={podeGerirPonto ? "Quem está a trabalhar agora?" : "O meu ponto"}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {funcionarios.map((f) => {
             const dentro = estadoAtual(f.id) === "entrada";
             const éAMinhaConta = f.id === contaAtual?.id;
+            const horarioTexto = formatarHorarioTrabalho(f.horarioTrabalho);
             return (
-              <button
+              <div
                 key={f.id}
-                onClick={() => éAMinhaConta && setARegistar(f)}
-                disabled={!éAMinhaConta}
-                title={éAMinhaConta ? undefined : "Só podes marcar o teu próprio ponto"}
-                className={`flex items-center justify-between p-3 rounded-lg ring-1 text-left ${dentro ? "ring-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" : "ring-slate-200 dark:ring-slate-600"} ${!éAMinhaConta ? "opacity-70 cursor-default" : ""}`}
+                className={`flex items-center justify-between p-3 rounded-lg ring-1 ${dentro ? "ring-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" : "ring-slate-200 dark:ring-slate-600"}`}
               >
-                <div>
+                <button
+                  onClick={() => éAMinhaConta && setARegistar(f)}
+                  disabled={!éAMinhaConta}
+                  title={éAMinhaConta ? undefined : "Só podes marcar o teu próprio ponto"}
+                  className={`flex-1 text-left ${!éAMinhaConta ? "cursor-default" : ""}`}
+                >
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.nome}{éAMinhaConta ? " (tu)" : ""}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">{ROTULO_PERFIL[f.perfil]}</p>
+                  {horarioTexto && <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">{horarioTexto}</p>}
+                </button>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${dentro ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-500"}`}>
+                    {dentro ? "No ginásio" : "Fora"}
+                  </span>
+                  {podeGerirPonto && (
+                    <div className="flex items-center gap-1">
+                      {!éAMinhaConta && (
+                        <button
+                          onClick={() => abrirMarcarFalta(f)}
+                          title="Marcar falta"
+                          className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 px-2 py-1 rounded-full hover:bg-red-100"
+                        >
+                          Falta
+                        </button>
+                      )}
+                      <button
+                        onClick={() => abrirEditarHorario(f)}
+                        title="Definir horário de trabalho"
+                        className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 ring-1 ring-slate-200 dark:ring-slate-600 px-2 py-1 rounded-full hover:bg-slate-200"
+                      >
+                        Horário
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${dentro ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-500"}`}>
-                  {dentro ? "No ginásio" : "Fora"}
-                </span>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -4884,17 +4987,42 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
           <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há nenhum registo hoje.</p>
         ) : (
           <div className="space-y-1.5">
-            {registosHoje.map((r, i) => (
-              <div key={i} className="flex items-center justify-between text-sm p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
+            {registosHoje.map((r) => (
+              <div key={r.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
                 <span className="text-slate-700 dark:text-slate-200">{r.funcionarioNome}</span>
-                <span className={`font-medium ${r.tipo === "entrada" ? "text-emerald-600" : "text-slate-400"}`}>
-                  {r.tipo === "entrada" ? "Entrou" : "Saiu"} às {r.hora}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`font-medium ${r.tipo === "entrada" ? "text-emerald-600" : "text-slate-400"}`}>
+                    {r.tipo === "entrada" ? "Entrou" : "Saiu"} às {r.hora}
+                  </span>
+                  {podeGerirPonto && (
+                    <button onClick={() => onRemoverRegistoPonto(r.id)} title="Remover registo" className="text-slate-300 hover:text-red-500"><X size={14} /></button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         )}
       </Card>
+
+      {podeGerirPonto && (
+        <Card title="Faltas (últimos 30 dias)">
+          {faltasRecentes.length === 0 ? (
+            <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma falta registada.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {faltasRecentes.map((r) => (
+                <div key={r.id} className="flex items-center justify-between text-sm p-2 rounded-lg bg-red-50 dark:bg-red-900/10">
+                  <div>
+                    <span className="text-slate-700 dark:text-slate-200 font-medium">{r.funcionarioNome}</span>
+                    <span className="text-slate-400 dark:text-slate-500"> — {r.data}{r.motivo ? ` · ${r.motivo}` : ""}</span>
+                  </div>
+                  <button onClick={() => onRemoverRegistoPonto(r.id)} title="Remover falta" className="text-slate-300 hover:text-red-500"><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       {aRegistar && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -4911,6 +5039,68 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
                 Registar saída
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {aMarcarFalta && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">Marcar falta — {aMarcarFalta.nome}</h3>
+              <button onClick={() => setAMarcarFalta(null)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data</label>
+                <input type="date" value={dataFalta} onChange={(e) => setDataFalta(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Motivo (opcional)</label>
+                <input value={motivoFalta} onChange={(e) => setMotivoFalta(e.target.value)} placeholder="Ex.: doença, sem aviso, ..."
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <button onClick={confirmarFalta} className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 rounded-lg text-sm">
+                Confirmar falta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aEditarHorario && horarioEmEdicao && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">Horário de trabalho — {aEditarHorario.nome}</h3>
+              <button onClick={() => setAEditarHorario(null)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+              {DIAS_SEMANA_PONTO.map((d) => {
+                const dia = horarioEmEdicao[d.chave];
+                return (
+                  <div key={d.chave} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
+                    <label className="flex items-center gap-1.5 w-20 shrink-0 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <input type="checkbox" checked={dia.trabalha} onChange={() => alternarDiaHorario(d.chave)} className="rounded" />
+                      {d.abrev}
+                    </label>
+                    <input
+                      type="time" value={dia.inicio} disabled={!dia.trabalha} onChange={(e) => alterarHoraDia(d.chave, "inicio", e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm disabled:opacity-40"
+                    />
+                    <span className="text-slate-400 text-sm">às</span>
+                    <input
+                      type="time" value={dia.fim} disabled={!dia.trabalha} onChange={(e) => alterarHoraDia(d.chave, "fim", e.target.value)}
+                      className="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm disabled:opacity-40"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={confirmarHorario} className="w-full mt-4 bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">
+              Guardar horário
+            </button>
           </div>
         </div>
       )}
@@ -9752,6 +9942,132 @@ function RelatorioHorasMensal({ membros, acessos, dadosGinasio }) {
   );
 }
 
+// Relatório de horário dos COLABORADORES (receção, personal trainers,
+// administradores) — a partir do registosPonto (entrada/saída/falta).
+// Distinto do RelatorioHorasMensal acima, que é sobre os ATLETAS.
+function RelatorioHorarioColaboradores({ contas, registosPonto }) {
+  const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
+
+  // registosPonto guarda a data em formato pt-PT "dd/mm/aaaa" (ver
+  // RegistoPonto); para filtrar por mês "AAAA-MM" convertemos aqui.
+  const paraAAAAMM = (dataPT) => {
+    const [d, m, a] = (dataPT || "").split("/");
+    return d && m && a ? `${a}-${m}` : "";
+  };
+  const paraDataOrdenavel = (dataPT) => {
+    const [d, m, a] = (dataPT || "").split("/");
+    return d && m && a ? `${a}-${m}-${d}` : "";
+  };
+
+  const funcionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
+
+  const linhas = useMemo(() => {
+    return funcionarios
+      .map((f) => {
+        const registosDoMes = registosPonto.filter((r) => r.funcionarioId === f.id && paraAAAAMM(r.data) === mesEscolhido);
+        const faltas = registosDoMes.filter((r) => r.tipo === "falta");
+        const porDia = {};
+        registosDoMes
+          .filter((r) => r.tipo === "entrada" || r.tipo === "saida")
+          .forEach((r) => {
+            const chave = paraDataOrdenavel(r.data);
+            if (!porDia[chave]) porDia[chave] = {};
+            if (r.tipo === "entrada" && (!porDia[chave].entrada || r.hora < porDia[chave].entrada)) porDia[chave].entrada = r.hora;
+            if (r.tipo === "saida" && (!porDia[chave].saida || r.hora > porDia[chave].saida)) porDia[chave].saida = r.hora;
+          });
+        const dias = Object.entries(porDia).sort(([a], [b]) => a.localeCompare(b));
+        const diasTrabalhados = dias.length;
+        const horasTotais = dias.reduce((s, [, d]) => (d.entrada && d.saida ? s + calcularHorasEntreHorarios(d.entrada, d.saida) : s), 0);
+        return { funcionario: f, diasTrabalhados, horasTotais, numFaltas: faltas.length, faltas };
+      })
+      .filter((r) => r.diasTrabalhados > 0 || r.numFaltas > 0)
+      .sort((a, b) => b.horasTotais - a.horasTotais);
+  }, [funcionarios, registosPonto, mesEscolhido]);
+
+  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const totalHoras = linhas.reduce((s, r) => s + r.horasTotais, 0);
+  const totalFaltas = linhas.reduce((s, r) => s + r.numFaltas, 0);
+
+  const exportar = () => {
+    const folha = criarFolhaOrganizada(
+      linhas.map((r) => ({
+        Nome: r.funcionario.nome,
+        Perfil: ROTULO_PERFIL[r.funcionario.perfil],
+        "Dias trabalhados": r.diasTrabalhados,
+        "Horas totais": Number(r.horasTotais.toFixed(2)),
+        Faltas: r.numFaltas,
+      })),
+      "Horário colaboradores"
+    );
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, folha, "Horário colaboradores");
+    XLSX.writeFile(livro, `Catumbela-Gym-Horario-Colaboradores-${mesEscolhido}.xlsx`);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Mês:</label>
+            <input
+              type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
+            />
+          </div>
+          <button
+            onClick={exportar}
+            disabled={linhas.length === 0}
+            className="flex items-center gap-1.5 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-40"
+          >
+            <Download size={16} /> Exportar para Excel
+          </button>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Colaboradores com registo em {nomeMes}</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{linhas.length}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total de horas trabalhadas</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{totalHoras.toFixed(1)}h</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total de faltas</p><p className="text-xl font-extrabold text-red-600">{totalFaltas}</p></Card>
+      </div>
+
+      <Card title={`Horário por colaborador — ${nomeMes}`}>
+        {linhas.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Sem registos de ponto neste mês.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Colaborador</th>
+                  <th className="pb-2 font-medium text-right">Dias trabalhados</th>
+                  <th className="pb-2 font-medium text-right">Horas totais</th>
+                  <th className="pb-2 font-medium text-right">Faltas</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+                {linhas.map((r) => (
+                  <tr key={r.funcionario.id}>
+                    <td className="py-2">
+                      <p className="font-medium text-slate-900 dark:text-slate-100">{r.funcionario.nome}</p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500">{ROTULO_PERFIL[r.funcionario.perfil]}</p>
+                    </td>
+                    <td className="py-2 text-right text-slate-600 dark:text-slate-300">{r.diasTrabalhados}</td>
+                    <td className="py-2 text-right font-semibold text-slate-900 dark:text-slate-100">{r.horasTotais.toFixed(1)}h</td>
+                    <td className="py-2 text-right">
+                      {r.numFaltas > 0 ? <span className="text-red-600 font-medium">{r.numFaltas}</span> : <span className="text-slate-300 dark:text-slate-600">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
   const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
 
@@ -9835,12 +10151,18 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       ...(vencedor.reducaoGordura > 0 ? [{ label: "Redução de gordura", valor: `-${vencedor.reducaoGordura.toFixed(1)}%` }] : []),
     ];
     const iniciais = vencedor.membro.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
     return (
       <div className="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
-        <div className="flex items-center justify-center gap-2 py-4 print:hidden">
+        <div className="flex items-center justify-center gap-2 py-4 print:hidden flex-wrap">
           <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-4 py-2.5 shadow-lg">
             <Printer size={15} /> Imprimir / Guardar PDF
           </button>
+          {vencedor.membro.telefone && (
+            <a href={linkSMS(vencedor.membro.telefone, mensagemVencedor)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-4 py-2.5 shadow-lg">
+              <MessageSquare size={15} /> Enviar SMS ao vencedor
+            </a>
+          )}
           <button onClick={() => setAVerCartaz(false)} className="flex items-center gap-1.5 text-sm font-semibold bg-white text-slate-700 rounded-lg px-4 py-2.5 shadow-lg">
             <X size={15} /> Voltar ao relatório
           </button>
@@ -9880,6 +10202,11 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
                 ))}
               </div>
 
+              <div className="w-full mt-4 bg-amber-400/15 ring-1 ring-amber-300/40 rounded-xl py-2.5 px-3 flex items-center justify-center gap-2">
+                <Award size={14} className="text-amber-300" />
+                <p className="text-xs font-bold text-amber-200">Prémio: Plano de treino semanal</p>
+              </div>
+
               <div className="mt-auto pt-6 flex items-center gap-2 text-white/80">
                 {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-6" />}
                 <p className="text-sm font-bold">{dadosGinasio?.nome || "Catumbela Gym"}</p>
@@ -9901,6 +10228,14 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
               <button onClick={() => setAVerCartaz(true)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-2">
                 <Award size={15} /> Cartaz do vencedor
               </button>
+            )}
+            {ranking.length > 0 && vencedor.membro.telefone && (
+              <a
+                href={linkSMS(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2"
+              >
+                <MessageSquare size={15} /> SMS ao vencedor
+              </a>
             )}
             <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-2">
               <Printer size={15} /> Imprimir / Guardar PDF
@@ -12065,6 +12400,7 @@ const MENU_ADMIN = [
       { id: "atletas-perdidos", label: "Atletas Perdidos", icon: Users },
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
+      { id: "horario-colaboradores", label: "Horário dos Colaboradores", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
@@ -14468,8 +14804,40 @@ export default function CatumbelaGymApp() {
   };
 
   const registarPonto = (dados) => {
-    setRegistosPonto((atual) => [{ ...dados, id: Math.max(0, ...atual.map((r) => r.id || 0)) + 1 }, ...atual]);
+    setRegistosPonto((atual) => [{ ...dados, id: gerarIdUnico() }, ...atual]);
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
+  };
+
+  // Marcar falta de um colaborador — só o administrador pode fazer isto, e
+  // pode fazê-lo por QUALQUER colaborador (ao contrário de entrada/saída,
+  // que cada um só regista de si próprio). Fica na mesma coleção do ponto
+  // (registosPonto), só com tipo "falta" — assim entra na mesma linha do
+  // tempo e no mesmo relatório de horário, sem precisar de outra coleção.
+  const registarFalta = ({ funcionarioId, funcionarioNome, data, motivo }) => {
+    setRegistosPonto((atual) => [
+      { id: gerarIdUnico(), funcionarioId, funcionarioNome, tipo: "falta", data, motivo: motivo || null, registadoPor: contaAtual?.nome || "—" },
+      ...atual,
+    ]);
+    registarAuditoria("Marcou falta de colaborador", `${funcionarioNome} — ${data}${motivo ? ` · ${motivo}` : ""}`);
+  };
+
+  // Remove um registo de ponto (entrada, saída ou falta) enganado —
+  // administrador e receção veem esta opção na UI, mas a verificação real
+  // também fica aqui, como segunda camada de proteção.
+  const removerRegistoPonto = (id) => {
+    if (perfil !== "administrador" && perfil !== "recepcionista") return;
+    const registo = registosPonto.find((r) => r.id === id);
+    setRegistosPonto((atual) => atual.filter((r) => r.id !== id));
+    registarAuditoria("Removeu registo de ponto", `${registo?.funcionarioNome || id} — ${registo?.tipo || ""} ${registo?.data || ""}${registo?.motivo ? ` · ${registo.motivo}` : ""}`);
+  };
+
+  // HORÁRIO DE TRABALHO de cada colaborador (dias da semana + horas
+  // esperadas) — fica guardado na própria conta, para aparecer no ecrã de
+  // Ponto como referência de quem devia estar a trabalhar quando.
+  const definirHorarioTrabalho = (contaId, horario) => {
+    const conta = contas.find((c) => c.id === contaId);
+    setContas((atual) => atual.map((c) => (c.id === contaId ? { ...c, horarioTrabalho: horario } : c)));
+    registarAuditoria("Definiu horário de trabalho", conta?.nome);
   };
 
   // MANUTENÇÃO DE EQUIPAMENTOS
@@ -15170,6 +15538,7 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
+          {telaAtual === "horario-colaboradores" && perfil === "administrador" && <RelatorioHorarioColaboradores contas={contas} registosPonto={registosPonto} />}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
@@ -15198,7 +15567,7 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "caixa" && perfil === "recepcionista" && <TurnoCaixa pagamentosFeitos={pagamentosFeitos} nomeAtual={contaAtual?.nome} onFecharTurno={registarFechoTurno} />}
           {telaAtual === "ponto" && (
-            <RegistoPonto contas={contas} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} />
+            <RegistoPonto contas={contas} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} onRegistarFalta={registarFalta} onRemoverRegistoPonto={removerRegistoPonto} onDefinirHorario={definirHorarioTrabalho} />
           )}
           {telaAtual === "equipamentos" && perfil === "administrador" && (
             <Equipamentos equipamentos={equipamentos} onAdd={adicionarEquipamento} onUpdate={atualizarEquipamento} onRemove={removerEquipamento} />
