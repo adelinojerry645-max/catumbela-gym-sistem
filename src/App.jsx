@@ -4602,37 +4602,226 @@ function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdici
   );
 }
 
-function Funcionarios({ contas }) {
+const CARGOS_FUNCIONARIO_GERAL = ["Limpeza", "Segurança", "Manutenção", "Cozinha/Bar", "Outro"];
+
+function Funcionarios({ contas, funcionariosGerais, onAdicionarFuncionario, onEditarFuncionario, onRemoverFuncionario, onPagarSalario, contasBancarias, podeGerir }) {
   const funcionarios = contas.filter((c) => c.perfil === "recepcionista" || c.perfil === "personal_trainer");
+  const [showForm, setShowForm] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const vazio = { nome: "", cargo: "Limpeza", cargoOutro: "", salario: "", telefone: "" };
+  const [novo, setNovo] = useState(vazio);
+  const [aEliminar, setAEliminar] = useState(null);
+  const [aPagar, setAPagar] = useState(null); // funcionário selecionado
+  const [pagoDe, setPagoDe] = useState("caixa");
+  const [contaBancariaId, setContaBancariaId] = useState("");
+
+  const abrirNovo = () => { setNovo(vazio); setEditandoId(null); setShowForm(true); };
+  const abrirEdicao = (f) => {
+    const cargoConhecido = CARGOS_FUNCIONARIO_GERAL.includes(f.cargo);
+    setNovo({ nome: f.nome, cargo: cargoConhecido ? f.cargo : "Outro", cargoOutro: cargoConhecido ? "" : f.cargo, salario: f.salario, telefone: f.telefone || "" });
+    setEditandoId(f.id);
+    setShowForm(true);
+  };
+
+  const submeter = (e) => {
+    e.preventDefault();
+    if (!novo.nome || !novo.salario) return;
+    const dados = {
+      nome: novo.nome,
+      cargo: novo.cargo === "Outro" ? (novo.cargoOutro || "Outro") : novo.cargo,
+      salario: Number(novo.salario),
+      telefone: novo.telefone,
+    };
+    if (editandoId) onEditarFuncionario(editandoId, dados);
+    else onAdicionarFuncionario(dados);
+    setShowForm(false);
+    setNovo(vazio);
+    setEditandoId(null);
+  };
+
+  const abrirPagar = (f) => { setAPagar(f); setPagoDe("caixa"); setContaBancariaId(""); };
+  const confirmarPagamento = () => {
+    onPagarSalario(aPagar.id, { pagoDe, contaBancariaId: pagoDe === "banco" ? contaBancariaId : null });
+    setAPagar(null);
+  };
+
+  const mesAtual = mesLocalISO(new Date());
+
   return (
-    <Card title="Funcionários inscritos">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-500 dark:text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700">
-              <th className="pb-2 font-medium">Nome</th>
-              <th className="pb-2 font-medium">E-mail</th>
-              <th className="pb-2 font-medium">Cargo</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-            {funcionarios.map((f) => (
-              <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
-                <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.nome}</td>
-                <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.email}</td>
-                <td className="py-2.5 text-slate-600 dark:text-slate-300">{ROTULO_PERFIL[f.perfil]}</td>
+    <div className="space-y-4">
+      <Card title="Funcionários inscritos (com acesso ao sistema)">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 dark:text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-700">
+                <th className="pb-2 font-medium">Nome</th>
+                <th className="pb-2 font-medium">E-mail</th>
+                <th className="pb-2 font-medium">Cargo</th>
               </tr>
-            ))}
-            {funcionarios.length === 0 && (
-              <tr><td colSpan={3} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há funcionários inscritos. Cria contas em Configurações → Utilizadores.</td></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+              {funcionarios.map((f) => (
+                <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.nome}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.email}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{ROTULO_PERFIL[f.perfil]}</td>
+                </tr>
+              ))}
+              {funcionarios.length === 0 && (
+                <tr><td colSpan={3} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há funcionários inscritos. Cria contas em Configurações → Utilizadores.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <Card
+        title="Outros colaboradores (limpeza, segurança, etc. — sem acesso ao sistema)"
+        action={podeGerir && (
+          <button onClick={abrirNovo} className="flex items-center gap-1.5 text-sm font-semibold bg-[#3F8F87] text-white rounded-lg px-3 py-1.5">
+            <Plus size={15} /> Adicionar
+          </button>
+        )}
+      >
+        <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-3">
+          Para pessoal que não precisa de entrar no sistema (limpeza, segurança, manutenção...), mas cujo salário deves ter como custo do ginásio.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                <th className="pb-2 font-medium">Nome</th>
+                <th className="pb-2 font-medium">Cargo</th>
+                <th className="pb-2 font-medium text-right">Salário</th>
+                <th className="pb-2 font-medium">Último pagamento</th>
+                {podeGerir && <th className="pb-2 font-medium"></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
+              {(funcionariosGerais || []).map((f) => (
+                <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
+                  <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.nome}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.cargo}</td>
+                  <td className="py-2.5 text-right text-slate-600 dark:text-slate-300">{kz(f.salario)}</td>
+                  <td className="py-2.5">
+                    {f.ultimoPagamento === mesAtual ? (
+                      <span className="text-xs font-semibold text-emerald-600">Pago este mês</span>
+                    ) : (
+                      <span className="text-xs text-slate-400 dark:text-slate-500">{f.ultimoPagamento ? `Último: ${f.ultimoPagamento}` : "Ainda não pago"}</span>
+                    )}
+                  </td>
+                  {podeGerir && (
+                    <td className="py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {f.ultimoPagamento !== mesAtual && (
+                          <button onClick={() => abrirPagar(f)} className="text-[11px] font-semibold text-white bg-[#3F8F87] hover:bg-[#357A73] px-2.5 py-1 rounded-full">
+                            Pagar salário
+                          </button>
+                        )}
+                        <button onClick={() => abrirEdicao(f)} className="text-slate-400 hover:text-[#3F8F87]"><Pencil size={14} /></button>
+                        <button onClick={() => setAEliminar(f)} className="text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {(funcionariosGerais || []).length === 0 && (
+                <tr><td colSpan={5} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há nenhum colaborador aqui.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {showForm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <form onSubmit={submeter} className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-sm space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">{editandoId ? "Editar colaborador" : "Novo colaborador"}</h3>
+              <button type="button" onClick={() => setShowForm(false)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Nome</label>
+              <input value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} required
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Cargo</label>
+              <select value={novo.cargo} onChange={(e) => setNovo({ ...novo, cargo: e.target.value })}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+                {CARGOS_FUNCIONARIO_GERAL.map((c) => <option key={c}>{c}</option>)}
+              </select>
+              {novo.cargo === "Outro" && (
+                <input value={novo.cargoOutro} onChange={(e) => setNovo({ ...novo, cargoOutro: e.target.value })} placeholder="Qual cargo?"
+                  className="w-full mt-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Salário mensal (Kz)</label>
+              <input type="number" min="0" value={novo.salario} onChange={(e) => setNovo({ ...novo, salario: e.target.value })} required
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone (opcional)</label>
+              <input value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+            </div>
+            <button type="submit" className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">
+              {editandoId ? "Guardar alterações" : "Adicionar colaborador"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {aPagar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-sm space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">Pagar salário — {aPagar.nome}</h3>
+              <button onClick={() => setAPagar(null)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-300">Valor: <strong>{kz(aPagar.salario)}</strong> — cria logo um custo em "Salários" e desconta do Caixa/Banco escolhido.</p>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Pago de</label>
+              <select value={pagoDe} onChange={(e) => setPagoDe(e.target.value)}
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+                <option value="caixa">Caixa</option>
+                <option value="banco">Banco</option>
+              </select>
+            </div>
+            {pagoDe === "banco" && (
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Conta bancária</label>
+                <select value={contaBancariaId} onChange={(e) => setContaBancariaId(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+                  <option value="">Selecionar...</option>
+                  {(contasBancarias || []).map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                </select>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-3">
+            <button onClick={confirmarPagamento} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">
+              Confirmar pagamento
+            </button>
+          </div>
+        </div>
+      )}
+
+      {aEliminar && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-xs">
+            <p className="text-sm text-slate-700 dark:text-slate-200 mb-4">Remover <strong>{aEliminar.nome}</strong> da lista de colaboradores? Isto não apaga os custos de salário já registados.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setAEliminar(null)} className="flex-1 ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
+              <button onClick={() => { onRemoverFuncionario(aEliminar.id); setAEliminar(null); }} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-semibold py-2 rounded-lg text-sm">Remover</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-[11px] text-slate-400 dark:text-slate-500">
         O registo de ponto (horas, atrasos, faltas) fica disponível assim que o sistema estiver ligado à base de dados — cada funcionário terá de marcar entrada/saída no próprio dispositivo.
       </p>
-    </Card>
+    </div>
   );
 }
 
@@ -13169,6 +13358,10 @@ export default function CatumbelaGymApp() {
   const [planos, setPlanos] = usePersistente("planos", PLANOS_INICIAIS, setStatusSync);
   const [produtos, setProdutos] = usePersistente("produtos", PRODUTOS_INICIAIS, setStatusSync);
   const [trainers, setTrainers] = usePersistente("trainers", PERSONAL_TRAINERS_INICIAIS, setStatusSync);
+  // Colaboradores SEM conta de acesso ao sistema (limpeza, segurança, etc.)
+  // — só para teres o salário deles como custo fixo no Centro de Custos,
+  // sem precisarem de fazer login em lado nenhum.
+  const [funcionariosGerais, setFuncionariosGerais] = usePersistente("funcionariosGerais", [], setStatusSync);
   const [dadosGinasio, setDadosGinasio] = usePersistente("dadosGinasio", {
     nome: "Catumbela Gym",
     morada: "",
@@ -14664,6 +14857,42 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Removeu custo", `${custo?.categoria} — ${kz(custo?.valor || 0)} (e o movimento financeiro ligado a ele)`);
   };
 
+  // COLABORADORES SEM CONTA (limpeza, segurança, etc.) — só para teres o
+  // salário deles como custo fixo, sem precisarem de login no sistema.
+  const adicionarFuncionarioGeral = (dados) => {
+    setFuncionariosGerais((atual) => [...atual, { ...dados, id: gerarIdUnico(), ultimoPagamento: null }]);
+    registarAuditoria("Adicionou colaborador", `${dados.nome} — ${dados.cargo}`);
+  };
+
+  const editarFuncionarioGeral = (id, dados) => {
+    setFuncionariosGerais((atual) => atual.map((f) => (f.id === id ? { ...f, ...dados } : f)));
+    registarAuditoria("Editou colaborador", dados.nome);
+  };
+
+  const removerFuncionarioGeral = (id) => {
+    const funcionario = funcionariosGerais.find((f) => f.id === id);
+    setFuncionariosGerais((atual) => atual.filter((f) => f.id !== id));
+    registarAuditoria("Removeu colaborador", funcionario?.nome);
+  };
+
+  // Paga o salário de um colaborador — gera logo o custo (categoria
+  // "Salários"), já ligado ao Caixa/Banco tal como qualquer outro custo, e
+  // marca o mês como pago nesse colaborador, para não haver pagamentos
+  // duplicados por engano no mesmo mês.
+  const pagarSalarioFuncionario = (id, { pagoDe, contaBancariaId }) => {
+    const funcionario = funcionariosGerais.find((f) => f.id === id);
+    if (!funcionario) return;
+    const mesAtual = mesLocalISO(new Date());
+    adicionarCusto({
+      categoria: "Salários",
+      descricao: `Salário — ${funcionario.nome} (${funcionario.cargo}) · ${mesAtual}`,
+      valor: funcionario.salario,
+      pagoDe,
+      contaBancariaId,
+    });
+    setFuncionariosGerais((atual) => atual.map((f) => (f.id === id ? { ...f, ultimoPagamento: mesAtual } : f)));
+  };
+
   // ORÇAMENTO (plano de compras)
   const adicionarItemOrcamento = (item) => {
     setOrcamento((atual) => [
@@ -15580,7 +15809,14 @@ export default function CatumbelaGymApp() {
           {telaAtual === "acessos" && (
             <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
-          {telaAtual === "funcionarios" && perfil === "administrador" && <Funcionarios contas={contas} />}
+          {telaAtual === "funcionarios" && perfil === "administrador" && (
+            <Funcionarios
+              contas={contas} funcionariosGerais={funcionariosGerais}
+              onAdicionarFuncionario={adicionarFuncionarioGeral} onEditarFuncionario={editarFuncionarioGeral}
+              onRemoverFuncionario={removerFuncionarioGeral} onPagarSalario={pagarSalarioFuncionario}
+              contasBancarias={obterContasBancarias(dadosGinasio)} podeGerir={perfil === "administrador"}
+            />
+          )}
           {telaAtual === "notificacoes" && perfil === "administrador" && <Notificacoes membros={membros} planos={planos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "atletas-perdidos" && perfil === "administrador" && <AtletasPerdidos membros={membros} pagamentosFeitos={pagamentosFeitos} faturas={faturas} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />}
           {telaAtual === "sem-recibo" && perfil === "administrador" && (
