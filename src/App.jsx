@@ -169,7 +169,7 @@ function numeroPorExtenso(valor) {
 // DOCUMENTO FINANCEIRO (recibo / fatura / proforma) — segue o formato
 // de fatura-recibo angolana de referência, ligado aos dados do ginásio
 // ---------------------------------------------------------------------
-function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens, metodo, dadosGinasio }) {
+function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens, metodo, divisaoPagamento, dadosGinasio }) {
   const total = itens.reduce((s, i) => s + i.total, 0);
   const rotuloMetodo = { dinheiro: "Numerário", tpa: "TPA", express: "MULTICAIXA Express", referencia: "Referência", transferencia: "Transferência Bancária" };
   const contasBancarias = obterContasBancarias(dadosGinasio || {});
@@ -244,12 +244,35 @@ function DocumentoFinanceiro({ docRef, tipo, numero, data, hora, cliente, itens,
             <td style={td}>{cliente.numero}</td>
             <td style={td}>{cliente.numero}</td>
             <td style={td}>1</td>
-            <td style={td}>{metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}</td>
+            <td style={td}>
+              {divisaoPagamento && divisaoPagamento.length > 0
+                ? "Pagamento dividido"
+                : metodo ? (rotuloMetodo[metodo] || metodo) : "Pronto Pagamento"}
+            </td>
             <td style={td}>{data}</td>
             <td style={{ ...td, paddingRight: 0 }}>1 / 1</td>
           </tr>
         </tbody>
       </table>
+
+      {/* Discriminação do pagamento dividido — mostra exatamente quanto foi
+          pago em cada método, para o cliente e para quem reconcilia o
+          caixa depois não terem dúvidas de como o valor foi repartido. */}
+      {divisaoPagamento && divisaoPagamento.length > 0 && (
+        <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "12px", fontSize: "10px" }}>
+          <tbody>
+            <tr>
+              <td style={{ ...td, fontWeight: 700, paddingBottom: "2px" }} colSpan={2}>Discriminação do pagamento:</td>
+            </tr>
+            {divisaoPagamento.map((p, idx) => (
+              <tr key={idx}>
+                <td style={{ ...td, paddingLeft: "8px" }}>{rotuloMetodo[p.metodo] || p.metodo}</td>
+                <td style={td}>{kz(p.valor)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       {/* Tabela de itens */}
       <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "4px", fontSize: "10px" }}>
@@ -2876,6 +2899,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                 hora={recibo.hora}
                 cliente={recibo.membro}
                 metodo={recibo.metodo}
+                divisaoPagamento={recibo.divisaoPagamento}
                 dadosGinasio={dadosGinasio}
                 itens={recibo.itens}
               />
@@ -2889,6 +2913,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
                   hora={recibo.hora}
                   cliente={recibo.membro}
                   metodo={recibo.metodo}
+                  divisaoPagamento={recibo.divisaoPagamento}
                   dadosGinasio={dadosGinasio}
                   itens={recibo.itens}
                 />
@@ -3191,6 +3216,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
                 hora={concluida.hora}
                 cliente={concluida.membro}
                 metodo={concluida.metodo}
+                divisaoPagamento={concluida.divisaoPagamento}
                 dadosGinasio={dadosGinasio}
                 itens={concluida.itens}
               />
@@ -6593,6 +6619,14 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   const [metodoPagamento, setMetodoPagamento] = useState("dinheiro");
   const [contaBancariaId, setContaBancariaId] = useState("");
   const [semPagamentoAgora, setSemPagamentoAgora] = useState(false);
+  // Pagamento dividido — o cliente paga uma parte em dinheiro (em mão) e o
+  // resto por outro método (transferência, TPA, etc.) — o recibo único tem
+  // de mostrar as duas partes, e cada uma entra no ledger certo (caixa ou
+  // banco), em vez de o valor todo cair só no primeiro método escolhido.
+  const [pagamentoDividido, setPagamentoDividido] = useState(false);
+  const [valorParte1, setValorParte1] = useState("");
+  const [metodoParte2, setMetodoParte2] = useState("dinheiro");
+  const [contaBancariaIdParte2, setContaBancariaIdParte2] = useState("");
   const [ultimoRecibo, setUltimoRecibo] = useState(null);
   const [ultimoPlanoConfirmado, setUltimoPlanoConfirmado] = useState("");
   const [pesquisa, setPesquisa] = useState("");
@@ -6642,6 +6676,10 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     setMetodoPagamento("dinheiro");
     setContaBancariaId("");
     setSemPagamentoAgora(false);
+    setPagamentoDividido(false);
+    setValorParte1("");
+    setMetodoParte2("dinheiro");
+    setContaBancariaIdParte2("");
     setUltimoRecibo(null);
     aConfirmarMudancaRef.current = false;
   };
@@ -6650,7 +6688,31 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
     if (aConfirmarMudancaRef.current) return;
     aConfirmarMudancaRef.current = true;
     try {
-      const documento = await onAtualizarSubscricao(membro.id, novoPlano, dataInicio, semPagamentoAgora ? null : metodoPagamento, semPagamentoAgora ? null : contaBancariaId);
+      let divisaoPagamento = null;
+      if (!semPagamentoAgora && pagamentoDividido) {
+        const planoObj = planos.find((p) => p.nome === novoPlano);
+        const totalPlano = planoObj?.preco || 0;
+        const parte1 = Number(valorParte1) || 0;
+        // Sem um valor válido para a 1ª parte, não há o que dividir — melhor
+        // avisar e deixar a pessoa corrigir do que gerar um recibo com uma
+        // das partes a zero.
+        if (parte1 <= 0 || parte1 >= totalPlano) {
+          aConfirmarMudancaRef.current = false;
+          alert(`Põe um valor da 1ª parte maior que 0 e menor que o total do plano (${kz(totalPlano)}).`);
+          return;
+        }
+        const parte2 = Math.max(0, totalPlano - parte1);
+        divisaoPagamento = [
+          { metodo: metodoPagamento, valor: parte1, contaBancariaId: metodoPagamento === "dinheiro" ? null : contaBancariaId },
+          { metodo: metodoParte2, valor: parte2, contaBancariaId: metodoParte2 === "dinheiro" ? null : contaBancariaIdParte2 },
+        ];
+      }
+      const documento = await onAtualizarSubscricao(
+        membro.id, novoPlano, dataInicio,
+        semPagamentoAgora ? null : metodoPagamento,
+        semPagamentoAgora ? null : contaBancariaId,
+        divisaoPagamento
+      );
       setUltimoRecibo(documento);
       setUltimoPlanoConfirmado(novoPlano);
       setEditandoId(null);
@@ -6821,6 +6883,55 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                               Ainda não tens nenhuma conta configurada. Vai a <strong>Configurações → Dados do ginásio → Contas bancárias</strong> e adiciona uma primeiro.
                             </p>
                           )}
+                          {!semPagamentoAgora && (
+                            <label className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 font-medium mt-2">
+                              <input type="checkbox" checked={pagamentoDividido} onChange={(e) => setPagamentoDividido(e.target.checked)} />
+                              Pagamento dividido (uma parte em {ROTULO_METODO_PAGAMENTO[metodoPagamento] || metodoPagamento}, outra parte noutro método)
+                            </label>
+                          )}
+                          {!semPagamentoAgora && pagamentoDividido && (() => {
+                            const planoObj = planos.find((p) => p.nome === novoPlano);
+                            const totalPlano = planoObj?.preco || 0;
+                            const parte1 = Number(valorParte1) || 0;
+                            const parte2 = Math.max(0, totalPlano - parte1);
+                            return (
+                              <div className="mt-2 bg-white dark:bg-slate-800 ring-1 ring-[#BFE4E1] dark:ring-slate-600 rounded-lg p-2.5 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <span className="text-slate-500 dark:text-slate-400">1ª parte, em {ROTULO_METODO_PAGAMENTO[metodoPagamento] || metodoPagamento}:</span>
+                                  <input type="number" min="0" max={totalPlano} value={valorParte1} onChange={(e) => setValorParte1(e.target.value)}
+                                    placeholder="Valor em Kz"
+                                    className="w-28 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                  <span className="text-slate-500 dark:text-slate-400">2ª parte, resto ({kz(parte2)}), em:</span>
+                                  <select value={metodoParte2} onChange={(e) => setMetodoParte2(e.target.value)}
+                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                                    <option value="dinheiro">Dinheiro</option>
+                                    <option value="tpa">TPA</option>
+                                    <option value="express">MULTICAIXA Express</option>
+                                    <option value="referencia">Referência</option>
+                                    <option value="transferencia">Transferência</option>
+                                  </select>
+                                  {(metodoParte2 === "tpa" || metodoParte2 === "express" || metodoParte2 === "transferencia") && (
+                                    <select value={contaBancariaIdParte2} onChange={(e) => setContaBancariaIdParte2(e.target.value)}
+                                      className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                                      <option value="">
+                                        {metodoParte2 === "express" ? "Qual número Express?" : metodoParte2 === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
+                                      </option>
+                                      {obterContasBancarias(dadosGinasio)
+                                        .filter((c) => (metodoParte2 === "express" ? !!c.telefone : !!c.iban))
+                                        .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                                    </select>
+                                  )}
+                                </div>
+                                {(parte1 <= 0 || parte1 >= totalPlano) && (
+                                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                                    Põe um valor da 1ª parte maior que 0 e menor que o total do plano ({kz(totalPlano)}) — senão não há nada para dividir.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {!semPagamentoAgora && (
                             <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1.5">
                               Ao confirmar, gera-se logo o recibo correspondente — a subscrição fica sempre ligada à
@@ -7015,6 +7126,12 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const [itensSelecionados, setItensSelecionados] = useState([]); // {referencia, descricao, qtd, precoUnit}
   const [metodoPagamento, setMetodoPagamento] = useState("dinheiro");
   const [contaBancariaId, setContaBancariaId] = useState("");
+  // Pagamento dividido — mesma lógica usada em Subscrições: parte em
+  // dinheiro/em mão, parte noutro método, no mesmo recibo.
+  const [pagamentoDividido, setPagamentoDividido] = useState(false);
+  const [valorParte1, setValorParte1] = useState("");
+  const [metodoParte2, setMetodoParte2] = useState("dinheiro");
+  const [contaBancariaIdParte2, setContaBancariaIdParte2] = useState("");
   const [faturaOrigemNumero, setFaturaOrigemNumero] = useState(null); // se este recibo quita uma fatura pendente
   const [gerada, setGerada] = useState(null);
   const [aGerarPDF, setAGerarPDF] = useState(false);
@@ -7049,6 +7166,13 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const gerar = () => {
     if (!membro || itensSelecionados.length === 0) return;
     if (tipo === "RECIBO" && !metodoPagamento) return;
+    if (tipo === "RECIBO" && pagamentoDividido) {
+      const parte1 = Number(valorParte1) || 0;
+      if (parte1 <= 0 || parte1 >= total) {
+        alert(`Põe um valor da 1ª parte maior que 0 e menor que o total (${kz(total)}).`);
+        return;
+      }
+    }
     // Proteção contra duplo clique: sem isto, dois cliques rápidos no mesmo
     // botão (ou um duplo-toque no telemóvel) chamavam esta função duas
     // vezes antes do ecrã ter tempo de re-renderizar — as duas chamadas
@@ -7060,6 +7184,15 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
     // chamada ainda dentro do mesmo instante da primeira.
     if (aGerarRef.current) return;
     aGerarRef.current = true;
+    // Pagamento dividido — uma parte em dinheiro/em mão, outra noutro
+    // método, tudo no mesmo recibo (ver DocumentoFinanceiro e
+    // gerarDocumentoFaturacao para o resto desta lógica).
+    const divisaoPagamento = tipo === "RECIBO" && pagamentoDividido
+      ? [
+          { metodo: metodoPagamento, valor: Number(valorParte1) || 0, contaBancariaId: metodoPagamento === "dinheiro" ? null : contaBancariaId },
+          { metodo: metodoParte2, valor: Math.max(0, total - (Number(valorParte1) || 0)), contaBancariaId: metodoParte2 === "dinheiro" ? null : contaBancariaIdParte2 },
+        ]
+      : undefined;
     const documento = {
       tipo,
       membro,
@@ -7067,6 +7200,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       valor: total,
       metodo: tipo === "RECIBO" ? metodoPagamento : undefined,
       contaBancariaId: tipo === "RECIBO" && (metodoPagamento === "transferencia" || metodoPagamento === "express" || metodoPagamento === "tpa") ? contaBancariaId : undefined,
+      divisaoPagamento,
       faturaOrigemNumero: tipo === "RECIBO" ? faturaOrigemNumero : undefined,
     };
     const gravado = onGerarFatura(documento); // devolve o documento já com número e data reais
@@ -7086,6 +7220,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
     setGerada(null);
     setItensSelecionados([]);
     setMembroId("");
+    setPagamentoDividido(false);
+    setValorParte1("");
+    setMetodoParte2("dinheiro");
+    setContaBancariaIdParte2("");
   };
 
   return (
@@ -7239,6 +7377,51 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                   </div>
                 )}
 
+                {tipo === "RECIBO" && (
+                  <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    <input type="checkbox" checked={pagamentoDividido} onChange={(e) => setPagamentoDividido(e.target.checked)} />
+                    Pagamento dividido (uma parte em {ROTULO_METODO_PAGAMENTO[metodoPagamento] || metodoPagamento}, outra parte noutro método)
+                  </label>
+                )}
+
+                {tipo === "RECIBO" && pagamentoDividido && (
+                  <div className="bg-[#EAF5F4] dark:bg-slate-700 ring-1 ring-[#BFE4E1] dark:ring-slate-600 rounded-lg p-2.5 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">1ª parte, em {ROTULO_METODO_PAGAMENTO[metodoPagamento] || metodoPagamento}:</span>
+                      <input type="number" min="0" max={total} value={valorParte1} onChange={(e) => setValorParte1(e.target.value)}
+                        placeholder="Valor em Kz"
+                        className="w-28 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">2ª parte, resto ({kz(Math.max(0, total - (Number(valorParte1) || 0)))}), em:</span>
+                      <select value={metodoParte2} onChange={(e) => setMetodoParte2(e.target.value)}
+                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="tpa">TPA</option>
+                        <option value="express">MULTICAIXA Express</option>
+                        <option value="referencia">Referência</option>
+                        <option value="transferencia">Transferência bancária</option>
+                      </select>
+                      {(metodoParte2 === "tpa" || metodoParte2 === "express" || metodoParte2 === "transferencia") && (
+                        <select value={contaBancariaIdParte2} onChange={(e) => setContaBancariaIdParte2(e.target.value)}
+                          className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-xs focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                          <option value="">
+                            {metodoParte2 === "express" ? "Qual número Express?" : metodoParte2 === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}
+                          </option>
+                          {obterContasBancarias(dadosGinasio)
+                            .filter((c) => (metodoParte2 === "express" ? !!c.telefone : !!c.iban))
+                            .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    {(Number(valorParte1) <= 0 || Number(valorParte1) >= total) && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                        Põe um valor da 1ª parte maior que 0 e menor que o total ({kz(total)}) — senão não há nada para dividir.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {faturaOrigemNumero && (
                   <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 -mb-1">
                     A quitar a fatura <strong>{faturaOrigemNumero}</strong> — clica no botão abaixo para confirmar de
@@ -7352,6 +7535,8 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                 hora={gerada.hora}
                 cliente={gerada.membro}
                 itens={gerada.itens}
+                metodo={gerada.metodo}
+                divisaoPagamento={gerada.divisaoPagamento}
                 dadosGinasio={dadosGinasio}
               />
             </div>
@@ -7364,6 +7549,8 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                   hora={gerada.hora}
                   cliente={gerada.membro}
                   itens={gerada.itens}
+                  metodo={gerada.metodo}
+                  divisaoPagamento={gerada.divisaoPagamento}
                   dadosGinasio={dadosGinasio}
                 />
               </PreviewDocumentoEscalado>
@@ -13769,13 +13956,46 @@ export default function CatumbelaGymApp() {
   // protege contra qualquer instante intermédio da sincronização).
   const subscricoesJaRepostasRef = useRef(new Set());
   useEffect(() => {
+    // Nota: esta lógica está propositadamente escrita por extenso aqui (em
+    // vez de chamar reporSubscricao/registarAuditoria, que só são
+    // declaradas mais abaixo nesta função) para evitar qualquer referência
+    // a uma const declarada mais tarde a partir de um efeito registado tão
+    // cedo — isso já causou um ecrã em branco em produção depois de o
+    // código passar por minificação.
     const divergentes = encontrarSubscricoesDivergentes(membros, historicoSubscricoes);
+    if (divergentes.length === 0) return;
+    const hojeStr = dataLocalISO(new Date());
+    const porId = new Map();
     divergentes.forEach((d) => {
       const chave = `${d.membro.id}|${d.ultimo.planoNovo}|${d.ultimo.vencimentoNovo}`;
       if (subscricoesJaRepostasRef.current.has(chave)) return;
       subscricoesJaRepostasRef.current.add(chave);
-      reporSubscricao(d.membro.id, d.ultimo.planoNovo, d.ultimo.vencimentoNovo);
+      porId.set(d.membro.id, d);
     });
+    if (porId.size === 0) return;
+    setMembros((atual) =>
+      atual.map((m) => {
+        const d = porId.get(m.id);
+        if (!d) return m;
+        const plano = d.ultimo.planoNovo;
+        const vencimento = d.ultimo.vencimentoNovo;
+        return { ...m, plano, vencimento, estado: vencimento ? (vencimento < hojeStr ? "vencido" : "ativo") : "sem-subscricao" };
+      })
+    );
+    const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
+    const agora = new Date();
+    setAuditLog((atual) => [
+      ...Array.from(porId.values()).map((d) => ({
+        id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}-${d.membro.id}`,
+        utilizador: nomeAtor,
+        acao: "Repôs subscrição divergente (usando o histórico)",
+        detalhe: `${d.membro.nome || d.membro.id} — ${d.ultimo.planoNovo || "sem plano"}, vence ${d.ultimo.vencimentoNovo || "—"}`,
+        destino: undefined,
+        data: agora.toLocaleDateString("pt-PT"),
+        hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      })),
+      ...atual,
+    ]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membros, historicoSubscricoes]);
 
@@ -14529,15 +14749,23 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao }) => {
+  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao, divisaoPagamento }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
+    // Pagamento dividido — o cliente paga uma parte em dinheiro (em mão) e
+    // outra por outro método (transferência, TPA, etc.) no mesmo recibo.
+    // "divisaoPagamento" é uma lista de { metodo, valor, contaBancariaId };
+    // quando vem preenchida (2 ou mais partes), substitui o "metodo" único
+    // só para efeitos de registo — mas o recibo continua a ser UM só
+    // documento, com o valor total, e mostra as duas partes discriminadas.
+    const partes = divisaoPagamento && divisaoPagamento.length > 0 ? divisaoPagamento.filter((p) => Number(p.valor) > 0) : null;
     const documentoBase = {
       tipo,
       membro,
       itens,
       valor,
-      metodo: metodo || null,
+      metodo: partes ? "dividido" : metodo || null,
+      divisaoPagamento: partes || null,
       estado: tipo === "FATURA" ? "emitida" : undefined,
       data: new Date().toLocaleDateString("pt-PT"),
       hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
@@ -14606,34 +14834,45 @@ export default function CatumbelaGymApp() {
       }
       return novo;
     });
-    if (tipo === "RECIBO" && metodo) {
+    if (tipo === "RECIBO" && (metodo || partes)) {
+      // Com pagamento dividido, cada parte conta como se fosse o seu
+      // próprio pagamento (mesmo número de recibo) — assim os relatórios
+      // por método (dinheiro vs. banco) continuam corretos, em vez de todo
+      // o valor cair só no primeiro método escolhido.
+      const listaPartes = partes || [{ metodo, valor, contaBancariaId }];
       setPagamentosFeitos((atual) => [
         ...atual,
-        { numero, metodo, valor, registadoPor: contaAtual?.nome || "—", tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: dataLocalISO(new Date()) },
+        ...listaPartes.map((p) => ({
+          numero, metodo: p.metodo, valor: Number(p.valor), registadoPor: contaAtual?.nome || "—",
+          tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: dataLocalISO(new Date()),
+        })),
       ]);
-      // Regista automaticamente o dinheiro recebido no ledger certo: pagamentos
-      // em dinheiro entram no Caixa; qualquer método eletrónico (TPA, Express,
-      // Referência, Transferência) entra na Movimentação Bancária — e, se foi
-      // indicada a conta/Express específica, fica ligado a ela.
-      const contaEscolhida = contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId)) : null;
-      const registoLedger = {
-        id: Date.now(),
-        direcao: "entrada",
-        subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
-        valor,
-        descricao: `${numero} — ${membro.nome}`,
-        data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
-        registadoPor: contaAtual?.nome || "—",
-        origem: "recibo",
-        origemNumero: numero,
-        contaBancariaNome: contaEscolhida?.banco || null,
-        tipoReceita: tipoReceita || "mensalidade",
-      };
-      if (metodo === "dinheiro") {
-        setMovimentosCaixa((atual) => [registoLedger, ...atual]);
-      } else {
-        setMovimentosBancarios((atual) => [registoLedger, ...atual]);
-      }
+      // Regista automaticamente o dinheiro recebido no ledger certo, parte a
+      // parte: pagamentos em dinheiro entram no Caixa; qualquer método
+      // eletrónico (TPA, Express, Referência, Transferência) entra na
+      // Movimentação Bancária — e, se foi indicada a conta/Express
+      // específica, fica ligado a ela.
+      const registosLedger = listaPartes.map((p, idx) => {
+        const contaEscolhida = p.contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(p.contaBancariaId)) : null;
+        return {
+          id: Date.now() + idx,
+          direcao: "entrada",
+          subtipo: `Recibo (${ROTULO_METODO_PAGAMENTO[p.metodo] || p.metodo})${listaPartes.length > 1 ? " — pagamento dividido" : ""}`,
+          valor: Number(p.valor),
+          descricao: `${numero} — ${membro.nome}`,
+          data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          registadoPor: contaAtual?.nome || "—",
+          origem: "recibo",
+          origemNumero: numero,
+          contaBancariaNome: contaEscolhida?.banco || null,
+          tipoReceita: tipoReceita || "mensalidade",
+          metodo: p.metodo,
+        };
+      });
+      const paraCaixa = registosLedger.filter((r) => r.metodo === "dinheiro");
+      const paraBanco = registosLedger.filter((r) => r.metodo !== "dinheiro");
+      if (paraCaixa.length > 0) setMovimentosCaixa((atual) => [...paraCaixa, ...atual]);
+      if (paraBanco.length > 0) setMovimentosBancarios((atual) => [...paraBanco, ...atual]);
     }
     registarAuditoria(`Gerou ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"} ${numero}`, `${membro.nome} — ${kz(valor)}`);
     return documento;
@@ -14827,7 +15066,7 @@ export default function CatumbelaGymApp() {
   // subscrição fica sempre ligada à parte financeira (numeração, histórico
   // de documentos, e a receita conta nos relatórios/lucro), nunca só a
   // atualizar os dados do membro sem deixar rasto do pagamento.
-  const atualizarSubscricao = async (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId) => {
+  const atualizarSubscricao = async (membroId, novoPlanoNome, dataInicio, metodo, contaBancariaId, divisaoPagamento) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return null;
     const plano = planos.find((p) => p.nome === novoPlanoNome);
@@ -14843,7 +15082,7 @@ export default function CatumbelaGymApp() {
     const novoVencimento = dataLocalISO(base);
     const hojeStr = dataLocalISO(new Date());
     let documento = null;
-    if (metodo) {
+    if (metodo || (divisaoPagamento && divisaoPagamento.length > 0)) {
       documento = await gerarDocumentoFaturacao({
         tipo: "RECIBO",
         membro,
@@ -14855,6 +15094,7 @@ export default function CatumbelaGymApp() {
         valor: plano.preco,
         metodo,
         contaBancariaId,
+        divisaoPagamento,
         tipoReceita: "mensalidade",
         planoNome: novoPlanoNome,
         vencimentoSubscricao: novoVencimento,
