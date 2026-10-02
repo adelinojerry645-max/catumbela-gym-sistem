@@ -2509,19 +2509,41 @@ function Planos({ planos, membros, onSave, onRemove }) {
   const [aEliminar, setAEliminar] = useState(null);
   const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0 });
   const [historicoPreco, setHistoricoPreco] = useState({}); // { planoId: [{de, para, data}] }
+  const [erroNomeDuplicado, setErroNomeDuplicado] = useState("");
 
   const abrirNovo = () => {
     setForm({ nome: "", duracaoDias: 30, preco: 0 });
+    setErroNomeDuplicado("");
     setEditando({});
   };
 
   const abrirEdicao = (p) => {
     setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco });
+    setErroNomeDuplicado("");
     setEditando(p);
   };
 
   const submeter = (e) => {
     e.preventDefault();
+    // Dois planos com o MESMO nome (ex.: criar um "Mensal" novo em vez de
+    // editar o "Mensal" já existente, ao mudar o preço) é o que causa um
+    // recibo a sair com o preço do plano ERRADO: em todo o resto da app, um
+    // plano é encontrado pelo NOME (não pelo id), e "planos.find" fica
+    // sempre com o PRIMEIRO que encontrar — por isso alguém podia escolher
+    // visivelmente o plano de 8000, mas o recibo saía com os 2000 do plano
+    // antigo, mesmo com o mesmo nome, que continuava por trás. Nunca deixa
+    // gravar um nome repetido — força a editar o plano existente, em vez
+    // de criar um "fantasma" com o mesmo nome.
+    const nomeNormalizado = form.nome.trim().toLowerCase();
+    const duplicado = planos.find((p) => p.id !== editando?.id && p.nome.trim().toLowerCase() === nomeNormalizado);
+    if (duplicado) {
+      setErroNomeDuplicado(
+        `Já existe um plano chamado "${duplicado.nome}" (${kz(duplicado.preco)}). Edita esse em vez de criar outro igual — ` +
+          `ter dois planos com o mesmo nome é o que faz o recibo sair com o preço errado.`
+      );
+      return;
+    }
+    setErroNomeDuplicado("");
     const precoAntigo = editando?.id ? planos.find((p) => p.id === editando.id)?.preco : null;
     onSave({ ...editando, ...form, preco: Number(form.preco), duracaoDias: Number(form.duracaoDias) });
 
@@ -2537,8 +2559,40 @@ function Planos({ planos, membros, onSave, onRemove }) {
     setEditando(null);
   };
 
+  // Deteta planos já existentes com o mesmo nome (de antes desta proteção
+  // existir) — é isto que causa um recibo sair com o preço ERRADO: o resto
+  // da app encontra o plano pelo NOME, e fica sempre com o primeiro que
+  // encontrar, mesmo que a pessoa tenha escolhido visivelmente o outro.
+  const gruposDuplicados = useMemo(() => {
+    const porNome = {};
+    planos.forEach((p) => {
+      const chave = p.nome.trim().toLowerCase();
+      (porNome[chave] = porNome[chave] || []).push(p);
+    });
+    return Object.values(porNome).filter((grupo) => grupo.length > 1);
+  }, [planos]);
+
   return (
     <div className="space-y-5">
+      {gruposDuplicados.length > 0 && (
+        <div className="bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 rounded-xl p-4">
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-1">
+            ⚠ Há planos com o mesmo nome — isto pode fazer um recibo sair com o preço errado
+          </p>
+          <p className="text-xs text-red-600 dark:text-red-400 mb-3">
+            Quando dois planos têm o mesmo nome, a app não consegue saber qual dos dois foi escolhido — fica sempre
+            com o primeiro, mesmo que se tenha escolhido o outro visivelmente. Edita um deles para ficar com um nome
+            diferente (ex.: adiciona o ano), ou elimina o que já não deve usar-se.
+          </p>
+          <div className="space-y-1.5">
+            {gruposDuplicados.map((grupo) => (
+              <p key={grupo[0].nome} className="text-xs text-red-700 dark:text-red-300">
+                <strong>"{grupo[0].nome}"</strong> aparece {grupo.length}× — {grupo.map((p) => kz(p.preco)).join(" · ")}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex justify-end">
         <button
           onClick={abrirNovo}
@@ -2591,8 +2645,9 @@ function Planos({ planos, membros, onSave, onRemove }) {
             <form onSubmit={submeter} className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Nome do plano</label>
-                <input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })}
+                <input required value={form.nome} onChange={(e) => { setForm({ ...form, nome: e.target.value }); setErroNomeDuplicado(""); }}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                {erroNomeDuplicado && <p className="text-xs text-red-500 mt-1.5">{erroNomeDuplicado}</p>}
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Duração (dias)</label>
@@ -4085,7 +4140,8 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
       return (
         numeroMembro === alvo ||
         (!isNaN(alvoNumerico) && numeroMembroInt === alvoNumerico) ||
-        m.nome.toLowerCase().includes(alvo)
+        m.nome.toLowerCase().includes(alvo) ||
+        (m.telefone || "").toLowerCase().includes(alvo)
       );
     });
     setEncontrado(m || "nao-encontrado");
@@ -4094,6 +4150,29 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   const pesquisar = (e) => {
     e.preventDefault();
     localizar(query);
+  };
+
+  // Lista de nomes correspondentes que aparece por baixo do campo à medida
+  // que se escreve, para escolher diretamente em vez de ter de escrever o
+  // nome todo (ou o número exato) e só depois carregar em "Validar".
+  const [mostrarSugestoes, setMostrarSugestoes] = useState(false);
+  const sugestoesNome = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return membros
+      .filter(
+        (m) =>
+          m.nome.toLowerCase().includes(q) ||
+          m.numero.toLowerCase().includes(q) ||
+          (m.telefone || "").toLowerCase().includes(q)
+      )
+      .slice(0, 6);
+  }, [membros, query]);
+
+  const escolherSugestao = (m) => {
+    setQuery(m.nome);
+    setMostrarSugestoes(false);
+    setEncontrado(m);
   };
 
   const pararCamara = () => {
@@ -4199,14 +4278,33 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
       <div className="space-y-5">
         <Card title="Validação de acesso">
           <form onSubmit={pesquisar} className="space-y-3">
-            <div>
+            <div className="relative">
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1 block">Número do membro, nome ou telefone</label>
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => { setQuery(e.target.value); setMostrarSugestoes(true); }}
+                onFocus={() => setMostrarSugestoes(true)}
+                onBlur={() => setTimeout(() => setMostrarSugestoes(false), 150)}
                 placeholder="Ex.: 1"
+                autoComplete="off"
                 className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
               />
+              {mostrarSugestoes && sugestoesNome.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full max-h-52 overflow-y-auto bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-600 rounded-lg shadow-lg">
+                  {sugestoesNome.map((m) => (
+                    <button
+                      type="button"
+                      key={m.id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => escolherSugestao(m)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-900 dark:text-white flex items-center justify-between"
+                    >
+                      <span>{m.nome}</span>
+                      <span className="text-slate-400 text-xs">{m.numero}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2.5 rounded-lg">
               <CheckCircle2 size={16} /> Validar
@@ -6175,17 +6273,36 @@ function Equipamentos({ equipamentos, onAdd, onUpdate, onRemove }) {
   );
 }
 
-function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
+function CentroCustos({ custos, onAdicionar, onEditar, onRemover, dadosGinasio }) {
   const [showForm, setShowForm] = useState(false);
   const contasBancarias = obterContasBancarias(dadosGinasio);
-  const [novo, setNovo] = useState({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+  const vazio = () => ({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", data: dataLocalISO(new Date()), pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+  const [novo, setNovo] = useState(vazio);
+  // Corrigir ("reparar") um custo já registado — ex.: esqueceram-se de
+  // registar na data certa, ou enganaram-se na categoria/valor do CMV
+  // (compra de mercadoria) ou de outro custo qualquer.
+  const [aEditar, setAEditar] = useState(null); // id do custo a editar
+  const [editado, setEditado] = useState(null);
 
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.valor) return;
-    onAdicionar({ ...novo, valor: Number(novo.valor) });
-    setNovo({ categoria: "Renda", tipo: "fixo", descricao: "", valor: "", pagoDe: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+    onAdicionar({ ...novo, valor: Number(novo.valor), data: novo.data || dataLocalISO(new Date()) });
+    setNovo(vazio());
     setShowForm(false);
+  };
+
+  const abrirEdicao = (c) => {
+    setAEditar(c.id);
+    setEditado({ categoria: c.categoria, tipo: c.tipo, descricao: c.descricao || "", valor: String(c.valor), data: c.data || dataLocalISO(new Date()) });
+  };
+
+  const submeterEdicao = (e) => {
+    e.preventDefault();
+    if (!editado.valor) return;
+    onEditar(aEditar, { ...editado, valor: Number(editado.valor) });
+    setAEditar(null);
+    setEditado(null);
   };
 
   const totalGeral = custos.reduce((s, c) => s + c.valor, 0);
@@ -6265,9 +6382,14 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
                     <td className="py-2 text-slate-700 dark:text-slate-200">{c.descricao || "—"}</td>
                     <td className="py-2 font-semibold text-slate-900 dark:text-slate-100">{kz(c.valor)}</td>
                     <td className="py-2 text-right">
-                      <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => abrirEdicao(c)} className="text-slate-300 dark:text-slate-600 hover:text-[#3F8F87]" title="Corrigir custo (categoria, valor, data...)">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => onRemover(c.id)} className="text-slate-300 dark:text-slate-600 hover:text-red-500">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -6305,11 +6427,21 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
                 <input value={novo.descricao} onChange={(e) => setNovo({ ...novo, descricao: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
               </div>
-              <div>
-                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
-                <input type="number" min={0} value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
+                  <input type="number" min={0} value={novo.valor} onChange={(e) => setNovo({ ...novo, valor: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data do custo</label>
+                  <input type="date" value={novo.data} onChange={(e) => setNovo({ ...novo, data: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
               </div>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 -mt-2">
+                Vem já preenchida com hoje, mas muda-a se o custo for de um dia anterior que se esqueceram de registar.
+              </p>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 block">Pago de onde?</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -6334,6 +6466,56 @@ function CentroCustos({ custos, onAdicionar, onRemover, dadosGinasio }) {
               )}
               <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg mt-2">
                 <Save size={16} /> Guardar custo
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {aEditar && editado && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm relative">
+            <button onClick={() => { setAEditar(null); setEditado(null); }} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+              <X size={18} />
+            </button>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Corrigir custo</h3>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
+              Para esquecimentos de data ou enganos na categoria/valor (ex.: compra de mercadoria) — não muda de onde foi pago.
+            </p>
+            <form onSubmit={submeterEdicao} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Categoria</label>
+                <select value={editado.categoria} onChange={(e) => setEditado({ ...editado, categoria: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                  {CATEGORIAS_CUSTO.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Tipo</label>
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={() => setEditado({ ...editado, tipo: "fixo" })} className={`flex-1 text-xs font-semibold py-2 rounded-lg ring-1 ${editado.tipo !== "variavel" ? "bg-amber-500 text-white ring-amber-500" : "ring-slate-200 dark:ring-slate-600 text-slate-500"}`}>Fixo</button>
+                  <button type="button" onClick={() => setEditado({ ...editado, tipo: "variavel" })} className={`flex-1 text-xs font-semibold py-2 rounded-lg ring-1 ${editado.tipo === "variavel" ? "bg-blue-500 text-white ring-blue-500" : "ring-slate-200 dark:ring-slate-600 text-slate-500"}`}>Variável</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Descrição (opcional)</label>
+                <input value={editado.descricao} onChange={(e) => setEditado({ ...editado, descricao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
+                  <input type="number" min={0} value={editado.valor} onChange={(e) => setEditado({ ...editado, valor: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Data do custo</label>
+                  <input type="date" value={editado.data} onChange={(e) => setEditado({ ...editado, data: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                </div>
+              </div>
+              <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg mt-2">
+                <Save size={16} /> Guardar correção
               </button>
             </form>
           </div>
@@ -7691,20 +7873,31 @@ function Notificacoes({ membros, planos, avisosEnviados, onMarcarEnviado }) {
 // a reconciliação automática (baseada em recibos) não consegue proteger,
 // porque não há recibo nenhum para comparar.
 // ---------------------------------------------------------------------
+// Compara o que está guardado em cada atleta com a última alteração
+// registada no histórico de subscrições (a fonte da verdade) — se não
+// baterem certo, é sinal de que algo reverteu essa alteração sozinho
+// (ex.: um conflito de sincronização entre dois dispositivos), sem
+// ninguém pedir. Extraída à parte para poder ser usada quer pelo ecrã
+// manual "Subscrições sem Recibo", quer pela auto-correção silenciosa.
+function encontrarSubscricoesDivergentes(membros, historicoSubscricoes) {
+  return membros
+    .filter((m) => m.estado !== "suspenso" && m.estado !== "pausada" && m.estado !== "cancelado")
+    .map((m) => {
+      const ultimo = (historicoSubscricoes || [])
+        .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
+        .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+      return { membro: m, ultimo };
+    })
+    .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
+}
+
 function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
   const [repostos, setRepostos] = useState({});
 
-  const divergentes = useMemo(() => {
-    return membros
-      .filter((m) => m.estado !== "suspenso" && m.estado !== "pausada" && m.estado !== "cancelado")
-      .map((m) => {
-        const ultimo = (historicoSubscricoes || [])
-          .filter((h) => h.membroId === m.id && h.acao !== "pausa" && h.acao !== "cancelar-pausa")
-          .sort((a, b) => (a.id < b.id ? 1 : -1))[0];
-        return { membro: m, ultimo };
-      })
-      .filter((r) => r.ultimo && (r.ultimo.planoNovo !== r.membro.plano || r.ultimo.vencimentoNovo !== r.membro.vencimento));
-  }, [membros, historicoSubscricoes]);
+  const divergentes = useMemo(
+    () => encontrarSubscricoesDivergentes(membros, historicoSubscricoes),
+    [membros, historicoSubscricoes]
+  );
 
   const repor = (r) => {
     onRepor(r.membro.id, r.ultimo.planoNovo, r.ultimo.vencimentoNovo);
@@ -13561,6 +13754,31 @@ export default function CatumbelaGymApp() {
   // o histórico de UM atleta específico, como para encontrar rapidamente
   // quem tem alterações sem nenhum recibo a apoiá-las.
   const [historicoSubscricoes, setHistoricoSubscricoes] = usePersistente("historicoSubscricoes", [], setStatusSync);
+
+  // Auto-correção de subscrições "sem recibo" que caíram — a reconciliação
+  // acima (que usa os recibos como fonte da verdade) só cobre quem tem
+  // recibo; quem foi ajustado manualmente sem recibo nenhum ficava sem
+  // nenhuma rede de proteção, e tinha de esperar que um administrador
+  // entrasse em "Subscrições sem Recibo" e clicasse "Repor" à mão para
+  // cada caso. Aqui usa-se o histórico de subscrições (que regista mesmo
+  // os ajustes sem recibo) como fonte da verdade equivalente, e repõe
+  // sozinho assim que deteta uma divergência — em qualquer ecrã, não só
+  // na página de recuperação.
+  // Guarda o que já foi reposto nesta sessão para nunca repetir a mesma
+  // correção em loop (depois de repor, deixa de ser divergente, mas isto
+  // protege contra qualquer instante intermédio da sincronização).
+  const subscricoesJaRepostasRef = useRef(new Set());
+  useEffect(() => {
+    const divergentes = encontrarSubscricoesDivergentes(membros, historicoSubscricoes);
+    divergentes.forEach((d) => {
+      const chave = `${d.membro.id}|${d.ultimo.planoNovo}|${d.ultimo.vencimentoNovo}`;
+      if (subscricoesJaRepostasRef.current.has(chave)) return;
+      subscricoesJaRepostasRef.current.add(chave);
+      reporSubscricao(d.membro.id, d.ultimo.planoNovo, d.ultimo.vencimentoNovo);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membros, historicoSubscricoes]);
+
   const registarHistoricoSubscricao = (membro, dados) => {
     setHistoricoSubscricoes((atual) => [
       {
@@ -14829,12 +15047,18 @@ export default function CatumbelaGymApp() {
     // no Caixa/Banco, em vez de deixar lá um rasto que já não corresponde
     // a nenhum custo real.
     const novoId = gerarIdUnico();
+    // A data vem do formulário quando quem regista escolheu backdatar o
+    // custo (ex.: esqueceram-se de o lançar no próprio dia) — só cai para
+    // "hoje" quando não foi indicada nenhuma.
+    const dataCusto = custo.data || dataLocalISO(new Date());
     setCustos((atual) => [
-      { ...custo, id: novoId, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
+      { ...custo, id: novoId, data: dataCusto, registadoPor: contaAtual?.nome || "—" },
       ...atual,
     ]);
     // Liga automaticamente ao Caixa ou ao Banco (consoante escolhido), como
     // uma saída — assim o centro de custos fica sempre coerente com o saldo.
+    // Passa a data escolhida (dataISO) para que o movimento financeiro
+    // fique com a mesma data do custo, e não sempre "hoje".
     adicionarMovimento(custo.pagoDe === "banco" ? "banco" : "caixa", {
       direcao: "saida",
       subtipo: `Custo — ${custo.categoria}`,
@@ -14842,8 +15066,48 @@ export default function CatumbelaGymApp() {
       descricao: custo.descricao || custo.categoria,
       contaBancariaId: custo.contaBancariaId,
       custoId: novoId,
+      dataISO: dataCusto,
     });
-    registarAuditoria("Registou custo", `${custo.categoria} — ${kz(custo.valor)}`);
+    registarAuditoria(
+      "Registou custo",
+      `${custo.categoria} — ${kz(custo.valor)}${dataCusto !== dataLocalISO(new Date()) ? ` (data: ${dataCusto})` : ""}`
+    );
+  };
+
+  // Corrigir ("reparar") um custo já registado — categoria, tipo, descrição,
+  // valor ou data (ex.: um custo de CMV/compra de mercadoria lançado com a
+  // data ou o valor errados). Não muda de onde foi pago (Caixa/Banco), só
+  // para não complicar a transferência do movimento entre os dois ledgers.
+  const editarCusto = (id, dados) => {
+    const custoAntigo = custos.find((c) => c.id === id);
+    if (!custoAntigo) return;
+    setCustos((atual) => atual.map((c) => (c.id === id ? { ...c, ...dados } : c)));
+    // Mantém o movimento financeiro ligado coerente com a correção — senão
+    // o Caixa/Banco continuava a mostrar a categoria/valor/data antigos
+    // depois de "reparar" o custo.
+    const atualizarLigado = (m) => {
+      if (m.custoId !== id) return m;
+      const novaCategoria = dados.categoria ?? custoAntigo.categoria;
+      const horaAtual = (m.data || "").split(" ")[1] || "";
+      const novaDataVisivel =
+        dados.data && dados.data !== custoAntigo.data
+          ? new Date(dados.data + "T12:00:00").toLocaleDateString("pt-PT") + (horaAtual ? " " + horaAtual : "")
+          : m.data;
+      return {
+        ...m,
+        valor: dados.valor ?? m.valor,
+        subtipo: `Custo — ${novaCategoria}`,
+        descricao: dados.descricao || novaCategoria,
+        data: novaDataVisivel,
+      };
+    };
+    setMovimentosCaixa((atual) => atual.map(atualizarLigado));
+    setMovimentosBancarios((atual) => atual.map(atualizarLigado));
+    registarAuditoria(
+      "Corrigiu custo",
+      `${custoAntigo.categoria} — ${kz(custoAntigo.valor)} → ${kz(dados.valor ?? custoAntigo.valor)}` +
+        (dados.data && dados.data !== custoAntigo.data ? ` · data ${custoAntigo.data} → ${dados.data}` : "")
+    );
   };
 
   // Apagar um custo tem de apagar também o movimento financeiro que ele
@@ -15206,10 +15470,15 @@ export default function CatumbelaGymApp() {
   // nome de quem registou, data, e — se for movimento bancário — o nome da
   // conta escolhida (das que existem em Configurações).
   const adicionarMovimento = (ledger, movimento) => {
+    // "dataISO" (YYYY-MM-DD) é um campo auxiliar só usado para backdatar o
+    // movimento quando vem ligado a um custo registado numa data anterior
+    // (ver adicionarCusto) — a hora fica sempre a de agora, só o dia muda.
+    const { dataISO, ...dadosMovimento } = movimento;
+    const diaVisivel = dataISO ? new Date(dataISO + "T12:00:00").toLocaleDateString("pt-PT") : new Date().toLocaleDateString("pt-PT");
     const registo = {
-      ...movimento,
+      ...dadosMovimento,
       id: Date.now(),
-      data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      data: diaVisivel + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
       registadoPor: contaAtual?.nome || "—",
     };
     if (ledger === "banco") {
@@ -15774,7 +16043,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
-            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
+            <CentroCustos custos={custos} onAdicionar={adicionarCusto} onEditar={editarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
           )}
           {telaAtual === "orcamento" && perfil === "administrador" && (
             <Orcamento itens={orcamento} onAdicionar={adicionarItemOrcamento} onRemover={removerItemOrcamento} onMarcarComprado={marcarItemComprado} onRegistarPagamento={registarPagamentoOrcamento} dadosGinasio={dadosGinasio} />
