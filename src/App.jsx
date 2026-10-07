@@ -9551,13 +9551,41 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
     }
   }, [auditLog, membros]);
 
+  const [confirmacoes, setConfirmacoes] = useState({}); // nome -> "a-confirmar" | "ok" | "falhou" | "incerto"
   const recriar = (c) => {
-    onRecriar({ nome: c.nome }, c.ultimoPlano, c.ultimoVencimento);
-    setRecriados((atual) => ({ ...atual, [c.nome.toLowerCase()]: true }));
+    const chave = c.nome.toLowerCase();
+    const resultado = onRecriar({ nome: c.nome }, c.ultimoPlano, c.ultimoVencimento);
+    setRecriados((atual) => ({ ...atual, [chave]: true }));
+    setConfirmacoes((atual) => ({ ...atual, [chave]: "a-confirmar" }));
+    (resultado?.confirmarNoServidor ? resultado.confirmarNoServidor() : Promise.resolve(null)).then((ok) => {
+      setConfirmacoes((atual) => ({ ...atual, [chave]: ok === true ? "ok" : ok === false ? "falhou" : "incerto" }));
+    });
   };
+
+  // Quem acabou de ser recriado já aparece na lista de membros — por isso
+  // sai dos "candidatos" automaticamente. Mostra aqui o resultado da
+  // confirmação, para a pessoa saber se ficou mesmo gravado.
+  const recriadosAgora = Object.entries(confirmacoes);
 
   return (
     <Card title={`${candidatos.length} possíveis membros apagados encontrados na auditoria`}>
+      {recriadosAgora.length > 0 && (
+        <div className="mb-3 space-y-1.5">
+          {recriadosAgora.map(([nome, estado]) => (
+            <p key={nome} className={`text-xs rounded-lg px-3 py-2 ${
+              estado === "ok" ? "bg-emerald-50 text-emerald-700" :
+              estado === "falhou" ? "bg-red-50 text-red-700" :
+              estado === "incerto" ? "bg-amber-50 text-amber-700" : "bg-slate-50 text-slate-500"
+            }`}>
+              <strong className="capitalize">{nome}</strong> —{" "}
+              {estado === "a-confirmar" && "recriado, a confirmar que ficou gravado no servidor…"}
+              {estado === "ok" && "recriado e confirmado no servidor ✔ (já está em Membros, com um número novo)."}
+              {estado === "falhou" && "⚠ foi recriado neste aparelho mas NÃO chegou ao servidor — pode voltar a desaparecer. Verifica a ligação (indicador de sincronização) e tenta de novo."}
+              {estado === "incerto" && "recriado, mas não consegui confirmar no servidor agora (sem ligação?). Confirma em Membros daqui a pouco, também noutro aparelho."}
+            </p>
+          ))}
+        </div>
+      )}
       <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
         Vasculha todo o registo de auditoria à procura de nomes que já não existem na lista de membros — a auditoria
         é a única coisa que sobrevive quando um membro é eliminado. O membro recriado fica com um <strong>número novo</strong>
@@ -13701,7 +13729,7 @@ export default function CatumbelaGymApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessoesAtivas, autenticado, contaAtual?.id, meuTokenSessao]);
 
-  const [membros, setMembros] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
+  const [membros, setMembros, adicionarMembroSeguro] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
 
   // Corrige automaticamente o estado "ativo"/"vencido" com base na data real,
   // sempre que a app abre e a cada hora — sem isto, um membro cuja mensalidade
@@ -13885,8 +13913,43 @@ export default function CatumbelaGymApp() {
   // mensalidade (atleta antigo, já a pagar antes deste sistema) também
   // fica intocado — o campo guardado manualmente continua a ser a verdade
   // para esses casos.
+  const reconciliacoesJaRegistadasRef = useRef(new Set());
   useEffect(() => {
     const reconciliar = () => {
+      // Lista (só para o registo na Auditoria) do que vai ser corrigido
+      // AGORA — calculada à parte, com a mesma regra do "map" abaixo, porque
+      // a função passada a setMembros tem de ficar "pura" (sem gravar mais
+      // nada lá dentro). Antes disto, esta correção automática acontecia em
+      // silêncio total: o atleta voltava ao normal, mas não ficava nenhum
+      // rasto do que tinha sido reposto.
+      const registosParaAuditoria = [];
+      membros.forEach((m) => {
+        if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado") return;
+        const efetivo = vencimentoEfetivoDoMembro(m, faturas, planos);
+        if (!efetivo.temRecibo || !(efetivo.vencimento > m.vencimento)) return;
+        if (m.plano === efetivo.plano && m.vencimento === efetivo.vencimento && m.estado === efetivo.estado) return;
+        const chave = `${m.id}|${efetivo.plano}|${efetivo.vencimento}`;
+        if (reconciliacoesJaRegistadasRef.current.has(chave)) return;
+        reconciliacoesJaRegistadasRef.current.add(chave);
+        registosParaAuditoria.push(
+          `${m.nome} — antes: ${m.plano || "sem plano"}, vencia ${m.vencimento || "—"} → agora: ${efetivo.plano || "sem plano"}, vence ${efetivo.vencimento} (pelo recibo mais recente)`
+        );
+      });
+      if (registosParaAuditoria.length > 0) {
+        const agoraAud = new Date();
+        const nomeAtorAud = contaAtual?.nome || "Sistema";
+        setAuditLog((atualAud) => [
+          ...registosParaAuditoria.map((detalhe, i) => ({
+            id: `${agoraAud.getTime()}-${i}-${Math.floor(Math.random() * 100000)}`,
+            utilizador: nomeAtorAud,
+            acao: "Recuperou subscrição automaticamente (pelo recibo)",
+            detalhe,
+            data: agoraAud.toLocaleDateString("pt-PT"),
+            hora: agoraAud.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+          })),
+          ...atualAud,
+        ]);
+      }
       setMembros((atual) => {
         let mudouAlgumaCoisa = false;
         const novo = atual.map((m) => {
@@ -13988,8 +14051,8 @@ export default function CatumbelaGymApp() {
       ...Array.from(porId.values()).map((d) => ({
         id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}-${d.membro.id}`,
         utilizador: nomeAtor,
-        acao: "Repôs subscrição divergente (usando o histórico)",
-        detalhe: `${d.membro.nome || d.membro.id} — ${d.ultimo.planoNovo || "sem plano"}, vence ${d.ultimo.vencimentoNovo || "—"}`,
+        acao: "Recuperou subscrição automaticamente (pelo histórico)",
+        detalhe: `${d.membro.nome || d.membro.id} — antes: ${d.membro.plano || "sem plano"}, vencia ${d.membro.vencimento || "—"} → agora: ${d.ultimo.planoNovo || "sem plano"}, vence ${d.ultimo.vencimentoNovo || "—"} (pelo histórico de subscrições)`,
         destino: undefined,
         data: agora.toLocaleDateString("pt-PT"),
         hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
@@ -14312,12 +14375,33 @@ export default function CatumbelaGymApp() {
       assinaturaContrato: null,
       dataAssinaturaContrato: null,
     };
-    setMembros((atual) => [...atual, membroNovo]);
+    // Grava de forma ATÓMICA no servidor (acrescenta só este membro à lista
+    // que já lá está), em vez de reenviar a lista inteira deste aparelho —
+    // se esta lista estiver desatualizada (outro aparelho inscreveu/alterou
+    // alguém há pouco), reenviá-la por cima era uma forma de o membro
+    // recriado desaparecer logo a seguir. Se a gravação atómica não estiver
+    // disponível, usa o método normal.
+    const gravacaoAtomica = adicionarMembroSeguro(membroNovo);
     registarAuditoria(
       "Inscreveu novo membro (recuperado da auditoria)",
       `${novo.nome} — ${numero}${planoNome ? ` · ${planoNome}, vence ${vencimento}` : ""}`
     );
-    return { membro: membroNovo };
+    // Confirma, de verdade, que o membro chegou ao servidor: volta a ler a
+    // lista de lá e procura-o. Devolve true/false (ou null se não foi
+    // possível confirmar, ex.: sem ligação) — o ecrã mostra o resultado, em
+    // vez de dizer "Recriado" às cegas.
+    const confirmarNoServidor = async () => {
+      try {
+        await gravacaoAtomica;
+        await new Promise((r) => setTimeout(r, 1500));
+        const remoto = await lerColecao(PREFIXO_COLECAO_TESTE + "membros");
+        if (!Array.isArray(remoto)) return null;
+        return remoto.some((m) => m && m.id === novoId);
+      } catch {
+        return null;
+      }
+    };
+    return { membro: membroNovo, confirmarNoServidor };
   };
 
   // Repõe o plano/vencimento de um atleta diretamente (sem gerar recibo,
