@@ -610,6 +610,9 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     // uma fusão que confiava cegamente num "local" vazio, e gravava esse
     // vazio por cima de tudo o que estava no Supabase. Nunca mais.
     if (local.length === 0 && base.length > 0) return remoto;
+    // Local vazio e base vazia (ex.: dispositivo que ainda não recebeu nada): o
+    // que existe no remoto veio de outro lado — nunca o apagar com um vazio.
+    if (local.length === 0 && base.length === 0 && remoto.length > 0) return remoto;
     if (local.length === 0 || !local.every((i) => i && typeof i === "object" && "id" in i)) return local;
     if (!remoto.every((i) => i && typeof i === "object" && "id" in i)) return local;
 
@@ -677,7 +680,18 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             ultimoRemotoConhecido.current = JSON.stringify(dados);
             baseParaFusao.current = dados;
             guardarBaseSincronizada(chave, dados);
-            if (!mudouLocalmente.current) {
+            if (mudouLocalmente.current) {
+              // A pessoa (ou um arranque automático, como a recuperação de
+              // subscrições) já mudou a lista ANTES desta leitura chegar. Antes,
+              // o que veio do servidor era simplesmente deitado fora, e a lista
+              // antiga deste dispositivo era gravada por cima — apagando quem
+              // tinha sido criado/recuperado noutro sítio. Agora funde sempre.
+              setValor((valorLocalAtual) =>
+                Array.isArray(valorLocalAtual) && Array.isArray(dados)
+                  ? fundirPorId(Array.isArray(baseAoIniciar) ? baseAoIniciar : [], valorLocalAtual, dados)
+                  : valorLocalAtual
+              );
+            } else {
               // Se já havia uma base local (de uma sessão anterior) e o
               // valor local difere dela, pode haver alterações feitas
               // offline que ainda não chegaram ao Supabase — funde em vez
@@ -826,15 +840,21 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       lerColecao(PREFIXO_COLECAO_TESTE + chave)
         .then((remoto) => {
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
+          // Sem "ultimoRemotoConhecido" (leitura inicial ainda não chegou ou
+          // falhou) e com listas dos dois lados, também se funde — antes,
+          // nesse caso gravava-se a lista deste dispositivo às cegas por cima
+          // do servidor, apagando quem tinha sido criado noutro dispositivo.
+          const semReferenciaMasComListas =
+            ultimoRemotoConhecido.current === null && Array.isArray(remoto) && Array.isArray(valor);
           const houveConflito =
             remotoTexto !== null &&
-            ultimoRemotoConhecido.current !== null &&
+            (ultimoRemotoConhecido.current !== null || semReferenciaMasComListas) &&
             remotoTexto !== ultimoRemotoConhecido.current &&
             remotoTexto !== valorTexto;
           if (houveConflito) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
-          let paraGravar = houveConflito ? fundirPorId(baseParaFusao.current, valor, remoto) : valor;
+          let paraGravar = houveConflito ? fundirPorId(Array.isArray(baseParaFusao.current) || !Array.isArray(remoto) ? baseParaFusao.current : [], valor, remoto) : valor;
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
             if (jaBloqueouVazioAntes.current) {
               // Já bloqueámos esta mesma situação uma vez antes, e a
@@ -9633,8 +9653,173 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
   );
 }
 
-function Auditoria({ registos, onNavegar }) {
+// ---------------------------------------------------------------------
+// VERSÃO DO SITE + APARELHOS
+// ---------------------------------------------------------------------
+// Identifica a versão do site que ESTE aparelho está a correr (o nome do
+// ficheiro principal muda a cada atualização publicada no Vercel).
+function versaoDoSite() {
+  try {
+    const el = document.querySelector('script[type="module"][src*="/assets/"]');
+    const m = el && /index-([\w-]+)\.js/.exec(el.getAttribute("src") || "");
+    return m ? m[1] : "dev";
+  } catch {
+    return "dev";
+  }
+}
+
+// Um aparelho que ficou aberto dias com uma versão antiga é o maior risco
+// para os dados (continua a gravar listas desatualizadas). Esta função faz
+// com que, a partir desta versão, qualquer aparelho repare sozinho que
+// saiu uma versão nova: mostra um aviso e, se a pessoa deixar o ecrã e
+// voltar, recarrega logo por si. (Aparelhos que ainda correm uma versão
+// MUITO antiga não têm esta proteção — só a ganham ao recarregar a página.)
+function useAtualizacaoAutomatica() {
+  useEffect(() => {
+    const minha = versaoDoSite();
+    if (minha === "dev") return undefined;
+    let aviso = null;
+    let escondidoDesde = null;
+    const recarregarSePermitido = () => {
+      try {
+        const ultimo = Number(window.sessionStorage.getItem("catumbela-gym:ultimo-reload-versao") || 0);
+        if (Date.now() - ultimo < 2 * 60 * 1000) return false; // nunca em ciclo
+        window.sessionStorage.setItem("catumbela-gym:ultimo-reload-versao", String(Date.now()));
+      } catch { /* sem sessionStorage: recarrega na mesma */ }
+      window.location.reload();
+      return true;
+    };
+    const mostrarAviso = () => {
+      if (aviso) return;
+      aviso = document.createElement("div");
+      aviso.style.cssText =
+        "position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#0f766e;color:#fff;padding:12px 14px;border-radius:12px;font:600 14px system-ui,sans-serif;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.3)";
+      const texto = document.createElement("span");
+      texto.textContent = "Há uma versão nova do sistema. Atualize para não perder dados.";
+      const botao = document.createElement("button");
+      botao.textContent = "Atualizar agora";
+      botao.style.cssText = "background:#fff;color:#0f766e;border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap";
+      botao.onclick = () => window.location.reload();
+      aviso.append(texto, botao);
+      document.body.appendChild(aviso);
+    };
+    const verificar = async () => {
+      try {
+        const r = await fetch(`/index.html?v=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const m = /\/assets\/index-([\w-]+)\.js/.exec(await r.text());
+        if (!m || m[1] === minha) return;
+        const ficouFora = escondidoDesde && Date.now() - escondidoDesde > 30 * 1000;
+        if (ficouFora && recarregarSePermitido()) return;
+        mostrarAviso();
+      } catch { /* sem rede: tenta mais tarde */ }
+    };
+    const aoMudarVisibilidade = () => {
+      if (document.visibilityState === "hidden") escondidoDesde = Date.now();
+      else { verificar(); escondidoDesde = null; }
+    };
+    const primeira = setTimeout(verificar, 8000);
+    const intervalo = setInterval(verificar, 5 * 60 * 1000);
+    document.addEventListener("visibilitychange", aoMudarVisibilidade);
+    return () => {
+      clearTimeout(primeira);
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoMudarVisibilidade);
+      if (aviso) aviso.remove();
+    };
+  }, []);
+}
+
+function obterIdDispositivo() {
+  try {
+    let id = window.localStorage.getItem("catumbela-gym:dispositivo-id");
+    if (!id) {
+      id = gerarTokenSessao();
+      window.localStorage.setItem("catumbela-gym:dispositivo-id", id);
+    }
+    return id;
+  } catch {
+    return "sem-id-" + gerarTokenSessao();
+  }
+}
+
+function descreverAparelho() {
+  const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  let sistema = "Aparelho";
+  if (/iPhone/.test(ua)) sistema = "iPhone";
+  else if (/iPad/.test(ua)) sistema = "iPad";
+  else if (/Android/.test(ua)) {
+    const modelo = /Android [\d.]+;\s*([^;)]+)/.exec(ua);
+    sistema = modelo ? `Telemóvel ${modelo[1].trim()}` : "Telemóvel Android";
+  } else if (/Windows/.test(ua)) sistema = "Computador Windows";
+  else if (/Mac OS X/.test(ua)) sistema = "Mac";
+  else if (/Linux/.test(ua)) sistema = "Computador Linux";
+  let navegador = "";
+  if (/Edg\//.test(ua)) navegador = "Edge";
+  else if (/OPR\/|Opera/.test(ua)) navegador = "Opera";
+  else if (/SamsungBrowser/.test(ua)) navegador = "Samsung Internet";
+  else if (/Chrome\//.test(ua)) navegador = "Chrome";
+  else if (/Firefox\//.test(ua)) navegador = "Firefox";
+  else if (/Safari\//.test(ua)) navegador = "Safari";
+  return navegador ? `${sistema} · ${navegador}` : sistema;
+}
+
+function AparelhosComAcesso({ dispositivos, meuIdDispositivo }) {
+  const lista = Object.values(dispositivos && typeof dispositivos === "object" && !Array.isArray(dispositivos) ? dispositivos : {})
+    .filter((d) => d && d.ultimoAcesso)
+    .sort((a, b) => String(b.ultimoAcesso).localeCompare(String(a.ultimoAcesso)));
+  const minhaVersao = versaoDoSite();
+  const agora = Date.now();
+  const quandoFoi = (iso) => {
+    const min = Math.max(0, Math.round((agora - Date.parse(iso)) / 60000));
+    if (min < 2) return "agora mesmo";
+    if (min < 60) return `há ${min} min`;
+    if (min < 60 * 24) return `há ${Math.round(min / 60)} h`;
+    return `há ${Math.round(min / 1440)} dia(s)`;
+  };
+  const ativos = lista.filter((d) => agora - Date.parse(d.ultimoAcesso) < 15 * 60 * 1000).length;
+  const antigos = lista.filter((d) => d.versao && d.versao !== minhaVersao && minhaVersao !== "dev").length;
   return (
+    <Card title="Aparelhos com acesso">
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        <strong>{lista.length}</strong> aparelho(s) registado(s) nos últimos 90 dias · <strong>{ativos}</strong> ativo(s) agora
+        {antigos > 0 && <span className="text-amber-600"> · {antigos} com versão antiga</span>}
+      </p>
+      <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 mb-2">
+        Só aparecem aparelhos que já abriram esta versão do sistema. Um telemóvel que nunca recarregou o site ainda não aparece aqui.
+      </p>
+      {lista.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Ainda nenhum aparelho registado.</p>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {lista.map((d) => {
+            const antigo = minhaVersao !== "dev" && d.versao && d.versao !== minhaVersao;
+            return (
+              <div key={d.id} className="py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {d.nome}{d.id === meuIdDispositivo ? " (este aparelho)" : ""}
+                  </p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 truncate">
+                    {d.utilizador || "—"}{d.perfil ? ` · ${d.perfil}` : ""} · {quandoFoi(d.ultimoAcesso)}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-xs font-semibold ${antigo ? "text-amber-600" : "text-emerald-600"}`}>
+                  {antigo ? "Versão antiga" : "Atualizado"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function Auditoria({ registos, onNavegar, dispositivos, meuIdDispositivo }) {
+  return (
+    <div className="space-y-4">
+    <AparelhosComAcesso dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />
     <Card title="Registo de auditoria">
       {registos.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há ações registadas nesta sessão.</p>
@@ -9663,6 +9848,7 @@ function Auditoria({ registos, onNavegar }) {
         </div>
       )}
     </Card>
+    </div>
   );
 }
 
@@ -13729,6 +13915,51 @@ export default function CatumbelaGymApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessoesAtivas, autenticado, contaAtual?.id, meuTokenSessao]);
 
+
+  // Registo de aparelhos com acesso: cada aparelho (telemóvel/computador)
+  // escreve aqui o seu "batimento" — quem está a usar, quando, e que versão
+  // do site corre. Serve para o administrador ver quantos aparelhos têm
+  // acesso e quais ainda estão numa versão antiga. Aparelhos sem atividade
+  // há 90 dias são retirados da lista.
+  const [dispositivos, setDispositivos] = usePersistente("dispositivos", {}, setStatusSync);
+  const meuIdDispositivo = useRef(obterIdDispositivo()).current;
+  useAtualizacaoAutomatica();
+  useEffect(() => {
+    if (!autenticado || !contaAtual) return undefined;
+    const registar = () => {
+      const agoraIso = new Date().toISOString();
+      setDispositivos((atual) => {
+        const base = atual && typeof atual === "object" && !Array.isArray(atual) ? atual : {};
+        const limite = Date.now() - 90 * 24 * 60 * 60 * 1000;
+        const novo = {};
+        Object.entries(base).forEach(([id, d]) => {
+          if (id === meuIdDispositivo || (d && d.ultimoAcesso && Date.parse(d.ultimoAcesso) > limite)) novo[id] = d;
+        });
+        novo[meuIdDispositivo] = {
+          ...(base[meuIdDispositivo] || {}),
+          id: meuIdDispositivo,
+          nome: descreverAparelho(),
+          utilizador: contaAtual.nome,
+          perfil,
+          versao: versaoDoSite(),
+          primeiroAcesso: base[meuIdDispositivo]?.primeiroAcesso || agoraIso,
+          ultimoAcesso: agoraIso,
+        };
+        return novo;
+      });
+    };
+    const primeira = setTimeout(registar, 4000);
+    const intervalo = setInterval(registar, 5 * 60 * 1000);
+    const aoVoltar = () => { if (document.visibilityState === "visible") registar(); };
+    document.addEventListener("visibilitychange", aoVoltar);
+    return () => {
+      clearTimeout(primeira);
+      clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoVoltar);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autenticado, contaAtual?.id]);
+
   const [membros, setMembros, adicionarMembroSeguro] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
 
   // Corrige automaticamente o estado "ativo"/"vencido" com base na data real,
@@ -16425,7 +16656,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "relatorios" && perfil === "administrador" && (
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} />
           )}
-          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} />}
+          {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />}
           {telaAtual === "recuperar-dados" && perfil === "administrador" && (
             <div className="space-y-4">
               <RecuperarDadosAuditoria auditLog={auditLog} membros={membros} planos={planos} onRecriar={recriarMembroComSubscricao} />
