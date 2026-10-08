@@ -613,10 +613,31 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     // Local vazio e base vazia (ex.: dispositivo que ainda não recebeu nada): o
     // que existe no remoto veio de outro lado — nunca o apagar com um vazio.
     if (local.length === 0 && base.length === 0 && remoto.length > 0) return remoto;
-    if (local.length === 0 || !local.every((i) => i && typeof i === "object" && "id" in i)) return local;
-    if (!remoto.every((i) => i && typeof i === "object" && "id" in i)) return local;
+    // Listas de objetos SEM "id" (ex.: os pagamentos feitos, que durante
+    // muito tempo não tinham id) também são fundidas — cada item recebe uma
+    // chave pelo próprio conteúdo (+ ordem de repetição, para dois itens
+    // iguais não se fundirem num só). Antes, estas listas nunca eram
+    // fundidas: o aparelho que gravasse por último ganhava a lista inteira
+    // e os registos recentes feitos noutro aparelho desapareciam.
+    const soObjetos = (lista) => lista.every((i) => i && typeof i === "object" && !Array.isArray(i));
+    if (local.length === 0 || !soObjetos(local) || !soObjetos(remoto) || !soObjetos(base)) return local;
 
-    const porId = (lista) => { const m = new Map(); lista.forEach((i) => m.set(i.id, i)); return m; };
+    const porId = (lista) => {
+      const m = new Map();
+      const vistos = new Map();
+      lista.forEach((i) => {
+        let chave;
+        if ("id" in i && i.id !== null && i.id !== undefined) chave = i.id;
+        else {
+          const conteudo = "§" + JSON.stringify(i);
+          const n = (vistos.get(conteudo) || 0) + 1;
+          vistos.set(conteudo, n);
+          chave = `${conteudo}#${n}`;
+        }
+        m.set(chave, i);
+      });
+      return m;
+    };
     const baseMapa = porId(base);
     const localMapa = porId(local);
     const remotoMapa = porId(remoto);
@@ -9178,6 +9199,37 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   );
 }
 
+// Reconstrói, a partir dos RECIBOS, os pagamentos que deviam existir mas que
+// não estão na lista de pagamentos feitos (ex.: perdidos por um aparelho
+// antigo que gravou por cima). Cada recibo é a fonte de verdade: tem o valor,
+// o método (ou a divisão por métodos), a data e o tipo de receita.
+function reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, filtroDataISO) {
+  const comPagamento = new Set((pagamentosFeitos || []).map((p) => p.numero).filter(Boolean));
+  const lista = [];
+  (faturas || []).forEach((f) => {
+    if (f.tipo !== "RECIBO" || !f.numero || comPagamento.has(f.numero)) return;
+    if (!f.metodo || !(Number(f.valor) > 0)) return;
+    const [dia, mes, ano] = (f.data || "").split("/");
+    if (!dia || !mes || !ano) return;
+    const dataISO = `${ano}-${mes.padStart(2, "0")}-${dia.padStart(2, "0")}`;
+    if (filtroDataISO && !filtroDataISO(dataISO)) return;
+    const ref = f.itens?.[0]?.referencia || "";
+    let tipo = f.tipoReceita || null;
+    if (!tipo) {
+      if (f.planoSubscricao || ref.startsWith("PLANO-")) tipo = "mensalidade";
+      else if (ref === "TAXA-INSCRICAO") tipo = "inscricao";
+      else if (ref === "AVULSO") tipo = "avulso";
+      else tipo = "venda"; // só a venda no POS gera recibos com outras referências
+    }
+    const partes = f.divisaoPagamento && f.divisaoPagamento.length > 0 ? f.divisaoPagamento : [{ metodo: f.metodo, valor: f.valor }];
+    lista.push({
+      numero: f.numero, nome: f.membro?.nome || "—", dataISO, tipo, planoNome: f.planoSubscricao || null,
+      valor: Number(f.valor), partes, registadoPor: f.registadoPor || "—", hora: f.hora || "", itens: f.itens || [],
+    });
+  });
+  return lista;
+}
+
 // ---------------------------------------------------------------------
 // RELATÓRIO DIÁRIO — vendas POS e subscrições de um dia à escolha, para
 // controlo (confirmar que o dinheiro registado bate certo com o que
@@ -9187,9 +9239,23 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
 function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   const [dia, setDia] = useState(dataLocalISO(new Date()));
 
+  // Pagamentos do dia = os registados + os que existem como RECIBO mas se
+  // perderam da lista de pagamentos (reconstruídos). Assim o relatório diário
+  // não depende de uma única lista que pode ter ficado desatualizada.
+  const reconstruidosDoDia = useMemo(
+    () => reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, (iso) => iso === dia),
+    [faturas, pagamentosFeitos, dia]
+  );
   const pagamentosDoDia = useMemo(
-    () => pagamentosFeitos.filter((p) => p.data === dia),
-    [pagamentosFeitos, dia]
+    () => [
+      ...pagamentosFeitos.filter((p) => p.data === dia),
+      ...reconstruidosDoDia.flatMap((r) =>
+        r.partes.map((parte) => ({
+          numero: r.numero, metodo: parte.metodo, valor: Number(parte.valor), tipo: r.tipo, planoNome: r.planoNome, data: dia, reconstruido: true,
+        }))
+      ),
+    ],
+    [pagamentosFeitos, reconstruidosDoDia, dia]
   );
   const acessosDoDia = useMemo(
     () => acessos.filter((a) => a.data === dia).sort((a, b) => (a.entrada > b.entrada ? 1 : -1)),
@@ -9285,6 +9351,13 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
           </button>
         </div>
       </Card>
+
+      {reconstruidosDoDia.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-200">
+          {reconstruidosDoDia.length} recibo(s) deste dia não estavam na lista de pagamentos e foram incluídos aqui a partir dos próprios recibos. Para
+          também contarem nos lucros mensais, vá a <strong>Relatórios</strong> e clique em "Repor estes pagamentos".
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
@@ -11207,7 +11280,7 @@ function RelatorioMensalEvolucao({ mesEscolhido, resumoMensal, membros, dadosGin
   );
 }
 
-function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas, registosPonto }) {
+function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas, registosPonto, onReporPagamentos }) {
   // "Saldo inicial" é dinheiro que o ginásio já tinha antes de começar a
   // usar o sistema — conta como receita/lucro já feita.
   const saldoInicialTotal = [...movimentosCaixa, ...movimentosBancarios]
@@ -11244,6 +11317,15 @@ function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, cont
   const custoMercadoriaVendida = useMemo(() => vendasProdutos.reduce((s, v) => s + (v.custoTotal || 0), 0), [vendasProdutos]);
   const receitaVendasProdutos = useMemo(() => vendasProdutos.reduce((s, v) => s + v.subtotal, 0), [vendasProdutos]);
   const lucroBrutoProdutos = receitaVendasProdutos - custoMercadoriaVendida;
+
+  // Recibos que existem mas cujo pagamento NÃO está nos pagamentos feitos —
+  // sinal de que a receita desse recibo se perdeu (ex.: um aparelho antigo
+  // gravou a lista de pagamentos por cima). Só olha para os últimos 120
+  // dias e só para tipos que consegue identificar com certeza.
+  const recibosSemPagamento = useMemo(() => {
+    const limite = Date.now() - 120 * 24 * 60 * 60 * 1000;
+    return reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, (iso) => Date.parse(iso + "T12:00:00") >= limite);
+  }, [faturas, pagamentosFeitos]);
 
   // Lucro por mês — últimos 6 meses, para perceber a tendência (não só o total acumulado)
   const lucroPorMes = useMemo(() => {
@@ -11508,6 +11590,24 @@ const exportarMembros = () => {
           </button>
         )}
       </Card>
+
+      {recibosSemPagamento.length > 0 && onReporPagamentos && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-4">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+            {recibosSemPagamento.length} recibo(s) recente(s) não estão a contar na receita ({kz(recibosSemPagamento.reduce((t, r) => t + r.valor, 0))})
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+            Estes recibos existem, mas o pagamento deles desapareceu dos relatórios — por isso o lucro do mês parece mais baixo. Clique para os repor.
+            Recibos: {recibosSemPagamento.slice(0, 6).map((r) => `${r.numero} (${r.nome})`).join(", ")}{recibosSemPagamento.length > 6 ? "…" : ""}
+          </p>
+          <button
+            onClick={() => onReporPagamentos(recibosSemPagamento)}
+            className="mt-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold"
+          >
+            Repor estes pagamentos
+          </button>
+        </div>
+      )}
 
       <Card title="Lucro por mês" action={<span className="text-xs text-slate-400 dark:text-slate-500">Últimos 6 meses</span>}>
         <div className="h-56">
@@ -15049,10 +15149,35 @@ export default function CatumbelaGymApp() {
     return documento;
   };
 
+  // Repõe nos pagamentos feitos os recibos cujo pagamento se perdeu (ver
+  // aviso em Relatórios). Usa o mesmo id que a geração normal de recibos —
+  // repor duas vezes nunca duplica.
+  const reporPagamentosPerdidos = (lista) => {
+    if (!lista || lista.length === 0) return;
+    const novos = [];
+    lista.forEach((r) => {
+      r.partes.forEach((parte, idx) => {
+        novos.push({
+          id: `${r.numero}-p${idx}`, numero: r.numero, metodo: parte.metodo, valor: Number(parte.valor),
+          registadoPor: r.registadoPor, tipo: r.tipo, planoNome: r.planoNome, data: r.dataISO,
+        });
+      });
+    });
+    setPagamentosFeitos((atual) => {
+      const ids = new Set(atual.map((p) => p.id).filter(Boolean));
+      const numeros = new Set(atual.map((p) => p.numero).filter(Boolean));
+      return [...atual, ...novos.filter((n) => !ids.has(n.id) && !numeros.has(n.numero))];
+    });
+    registarAuditoria(
+      "Repôs pagamentos perdidos (pelos recibos)",
+      `${lista.length} recibo(s): ${lista.map((r) => `${r.numero} ${kz(r.valor)}`).join(", ")}`
+    );
+  };
+
   const registarPagamento = (recibo) => {
     setPagamentosFeitos((atual) => [
       ...atual,
-      { metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: dataLocalISO(new Date()) },
+      { id: gerarIdUnico(), metodo: recibo.metodo, valor: recibo.valor, registadoPor: contaAtual?.nome || "—", tipo: "mensalidade", data: dataLocalISO(new Date()) },
     ]);
     registarAuditoria(
       `Registou pagamento de ${kz(recibo.valor)}`,
@@ -15081,6 +15206,7 @@ export default function CatumbelaGymApp() {
       valor,
       metodo: partes ? "dividido" : metodo || null,
       divisaoPagamento: partes || null,
+      tipoReceita: tipoReceita || null,
       estado: tipo === "FATURA" ? "emitida" : undefined,
       data: new Date().toLocaleDateString("pt-PT"),
       hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
@@ -15157,8 +15283,8 @@ export default function CatumbelaGymApp() {
       const listaPartes = partes || [{ metodo, valor, contaBancariaId }];
       setPagamentosFeitos((atual) => [
         ...atual,
-        ...listaPartes.map((p) => ({
-          numero, metodo: p.metodo, valor: Number(p.valor), registadoPor: contaAtual?.nome || "—",
+        ...listaPartes.map((p, idxParte) => ({
+          id: `${numero}-p${idxParte}`, numero, metodo: p.metodo, valor: Number(p.valor), registadoPor: contaAtual?.nome || "—",
           tipo: tipoReceita || "mensalidade", planoNome: planoNome || null, data: dataLocalISO(new Date()),
         })),
       ]);
@@ -16654,7 +16780,7 @@ export default function CatumbelaGymApp() {
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
           {telaAtual === "relatorios" && perfil === "administrador" && (
-            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} />
+            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} onReporPagamentos={reporPagamentosPerdidos} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />}
           {telaAtual === "recuperar-dados" && perfil === "administrador" && (
