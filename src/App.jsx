@@ -6652,8 +6652,9 @@ function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
   );
 }
 
-function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes }) {
+function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovacao, onPausar, onRetomar, onCancelarPausa, perfil, dadosGinasio, historicoSubscricoes, onDarDias }) {
   const [aVerHistorico, setAVerHistorico] = useState(null); // membro selecionado
+  const [diasParaId, setDiasParaId] = useState(null); // atleta a quem se está a dar dias
   const [editandoId, setEditandoId] = useState(null);
   const [novoPlano, setNovoPlano] = useState("");
   const [dataInicio, setDataInicio] = useState("");
@@ -6874,6 +6875,11 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                                 </button>
                               )
                             )}
+                            {onDarDias && m.vencimento && (m.estado === "ativo" || m.estado === "vencido" || m.estado === "pausada") && (
+                              <button onClick={() => setDiasParaId(diasParaId === m.id ? null : m.id)} title="Dar dias a este atleta (faltou por trabalho, doença, etc.)" className="flex items-center gap-1 text-xs font-semibold text-amber-600 hover:text-amber-700">
+                                <Calendar size={14} /> +Dias
+                              </button>
+                            )}
                             <button onClick={() => abrirEdicao(m)} title={m.vencimento ? "Renovar ou mudar de plano" : "Nova subscrição"} className="text-[#3F8F87] hover:text-[#2E6C66]" disabled={m.estado === "pausada"}>
                               {m.vencimento ? <RefreshCw size={15} className={m.estado === "pausada" ? "opacity-30" : ""} /> : <Plus size={15} />}
                             </button>
@@ -6881,6 +6887,17 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                         )}
                       </td>
                     </tr>
+                    {onDarDias && diasParaId === m.id && (
+                      <tr className="bg-amber-50 dark:bg-slate-900">
+                        <td colSpan={6} className="py-3 px-2">
+                          <DarDiasForm
+                            membro={m} perfil={perfil}
+                            limiteAjuste={Number(dadosGinasio?.limiteDiasRecepcao) > 0 ? Number(dadosGinasio.limiteDiasRecepcao) : 7}
+                            onConfirmar={onDarDias} onFechar={() => setDiasParaId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
                     {aEditar && (
                       <tr className="bg-[#EAF5F4] dark:bg-slate-900">
                         <td colSpan={6} className="py-3 px-2">
@@ -9199,6 +9216,229 @@ function MensagensAdmin({ mensagens, onEnviar, onMarcarLidas, onEnviarGeral, tot
   );
 }
 
+// ---------------------------------------------------------------------
+// DAR DIAS A UM ATLETA (compensação) + CONTROLO DO ADMINISTRADOR
+// ---------------------------------------------------------------------
+// Quando um atleta falta por causa de trabalho, doença, viagem ou problema do
+// próprio ginásio, a recepcionista (ou o administrador) pode somar dias ao
+// vencimento dele. Tudo fica registado (quem deu, quantos dias, porquê,
+// vencimento antes/depois) e o administrador controla e pode anular em
+// "Controlo de Dias".
+const MOTIVOS_DIAS = ["Trabalho", "Doença", "Viagem", "Problema no ginásio (equipamento/avaria)", "Outro"];
+const somarDiasISO = (iso, n) => {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return dataLocalISO(d);
+};
+
+function DarDiasForm({ membro, perfil, limiteAjuste, onConfirmar, onFechar, diasIniciais, rotuloBotao }) {
+  const [dias, setDias] = useState(diasIniciais ? String(diasIniciais) : "");
+  const [motivo, setMotivo] = useState(MOTIVOS_DIAS[0]);
+  const [detalhe, setDetalhe] = useState("");
+  const [erro, setErro] = useState("");
+  const trava = useRef(false);
+  const confirmar = () => {
+    if (trava.current) return;
+    const r = onConfirmar(membro.id, Number(dias), motivo, detalhe.trim());
+    if (r && r.ok === false) { setErro(r.erro || "Não foi possível dar os dias."); return; }
+    trava.current = true;
+    onFechar();
+  };
+  return (
+    <div className="space-y-2 text-xs">
+      <p className="text-slate-600 dark:text-slate-300">
+        Dar dias a <strong>{membro.nome}</strong> — vencimento atual: <strong>{membro.vencimento || "—"}</strong>
+        {perfil !== "administrador" && <span className="text-slate-400"> · máximo por vez: {limiteAjuste} dias</span>}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="number" min="1" value={dias} onChange={(e) => { setDias(e.target.value); setErro(""); }} placeholder="Nº de dias"
+          className="w-28 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+        />
+        <select value={motivo} onChange={(e) => setMotivo(e.target.value)}
+          className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+          {MOTIVOS_DIAS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <input
+          value={detalhe} onChange={(e) => setDetalhe(e.target.value)} placeholder="Explicação (opcional)"
+          className="flex-1 min-w-[160px] px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+        />
+        <button onClick={confirmar} className="px-3 py-1.5 rounded-lg bg-[#3F8F87] text-white font-semibold">{rotuloBotao || "Dar dias"}</button>
+        <button onClick={onFechar} className="px-3 py-1.5 rounded-lg text-slate-500">Cancelar</button>
+      </div>
+      {erro && <p className="text-red-500 font-medium">{erro}</p>}
+    </div>
+  );
+}
+
+// Atletas ativos que estão a faltar — para cada um, o botão "Repor N dias"
+// soma ao vencimento exatamente os dias que ele faltou, para ele se manter
+// ativo. Os dias em falta contam desde a última visita OU desde a última
+// reposição (o que for mais recente), para nunca repor duas vezes a mesma falta.
+function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, onDarDias }) {
+  const [limiarFalta, setLimiarFalta] = useState(3);
+  const [aReporId, setAReporId] = useState(null);
+  const limiteAjuste = Number(dadosGinasio?.limiteDiasRecepcao) > 0 ? Number(dadosGinasio.limiteDiasRecepcao) : 7;
+
+  const faltosos = useMemo(() => {
+    const hoje = dataLocalISO(new Date());
+    const ultimaVisita = {};
+    (acessos || []).forEach((a) => {
+      if (!a?.numero || !a.data) return;
+      if (!ultimaVisita[a.numero] || a.data > ultimaVisita[a.numero]) ultimaVisita[a.numero] = a.data;
+    });
+    const ultimaReposicao = {};
+    (ajustesDias || []).forEach((a) => {
+      if (a.anulado || !a.membroId || !a.data) return;
+      if (!ultimaReposicao[a.membroId] || a.data > ultimaReposicao[a.membroId]) ultimaReposicao[a.membroId] = a.data;
+    });
+    const msDia = 24 * 60 * 60 * 1000;
+    return (membros || [])
+      .filter((m) => m.estado === "ativo" || m.estado === "vencido")
+      .filter((m) => m.vencimento)
+      .map((m) => {
+        const visita = ultimaVisita[m.numero] || null;
+        const repos = ultimaReposicao[m.id] || null;
+        const base = [visita, repos, m.dataInscricao].filter(Boolean).sort().pop() || null;
+        const dias = base ? Math.floor((Date.parse(hoje + "T12:00:00") - Date.parse(base + "T12:00:00")) / msDia) : null;
+        return { membro: m, visita, repos, dias };
+      })
+      .filter((x) => x.dias !== null && x.dias >= limiarFalta)
+      .sort((a, b) => b.dias - a.dias)
+      .slice(0, 100);
+  }, [membros, acessos, ajustesDias, limiarFalta]);
+
+  return (
+    <Card title="Atletas em falta — repor dias para manter ativo">
+      <div className="flex flex-wrap items-center gap-2 mb-3 text-xs text-slate-500 dark:text-slate-400">
+        Mostrar quem não vem há pelo menos
+        <select value={limiarFalta} onChange={(e) => setLimiarFalta(Number(e.target.value))} className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+          {[1, 2, 3, 5, 7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n} dia(s)</option>)}
+        </select>
+        — o botão <strong>Repor</strong> soma ao vencimento os dias que o atleta faltou.
+      </div>
+      {faltosos.length === 0 ? (
+        <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum atleta está em falta há {limiarFalta} dia(s) ou mais.</p>
+      ) : (
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {faltosos.map(({ membro: m, visita, repos, dias }) => (
+            <div key={m.id} className="py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{m.nome} <span className="text-xs font-normal text-slate-400">{m.numero}</span></p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    {visita ? `Última visita: ${visita}` : "Nunca registou entrada"}{repos ? ` · último reposto: ${repos}` : ""} · <span className="text-red-500 font-medium">{dias} dia(s) em falta</span> · vence {m.vencimento}
+                  </p>
+                </div>
+                <button onClick={() => setAReporId(aReporId === m.id ? null : m.id)} className="shrink-0 text-xs font-semibold text-white bg-[#3F8F87] px-3 py-1.5 rounded-lg">Repor {dias} dia(s)</button>
+              </div>
+              {aReporId === m.id && (
+                <div className="mt-2 p-3 rounded-lg bg-[#EAF5F4] dark:bg-slate-900">
+                  <DarDiasForm membro={m} perfil={perfil} limiteAjuste={limiteAjuste} diasIniciais={dias} rotuloBotao="Repor dias" onConfirmar={onDarDias} onFechar={() => setAReporId(null)} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ControloDias({ ajustesDias, membros, acessos, dadosGinasio, onSalvarLimites, onDarDias, onAnular }) {
+  const [mes, setMes] = useState(mesLocalISO(new Date()));
+  const [limAjuste, setLimAjuste] = useState(String(dadosGinasio?.limiteDiasRecepcao ?? 7));
+  const [limMes, setLimMes] = useState(String(dadosGinasio?.limiteDiasMesRecepcao ?? 14));
+  const [limitesGuardados, setLimitesGuardados] = useState(false);
+
+  const doMes = useMemo(
+    () => (ajustesDias || []).filter((a) => (a.data || "").startsWith(mes)).sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1)),
+    [ajustesDias, mes]
+  );
+  const porPessoa = useMemo(() => {
+    const mapa = {};
+    doMes.filter((a) => !a.anulado).forEach((a) => {
+      const k = a.registadoPor || "—";
+      if (!mapa[k]) mapa[k] = { nome: k, perfil: a.perfil, ajustes: 0, dias: 0 };
+      mapa[k].ajustes += 1; mapa[k].dias += Number(a.dias) || 0;
+    });
+    return Object.values(mapa).sort((a, b) => b.dias - a.dias);
+  }, [doMes]);
+  const totalDias = doMes.filter((a) => !a.anulado).reduce((t, a) => t + (Number(a.dias) || 0), 0);
+
+  const guardarLimites = () => {
+    const a = Math.max(1, Math.floor(Number(limAjuste) || 7));
+    const m = Math.max(a, Math.floor(Number(limMes) || 14));
+    onSalvarLimites(a, m);
+    setLimAjuste(String(a)); setLimMes(String(m));
+    setLimitesGuardados(true);
+    setTimeout(() => setLimitesGuardados(false), 2500);
+  };
+  const limiteAjuste = Number(dadosGinasio?.limiteDiasRecepcao) > 0 ? Number(dadosGinasio.limiteDiasRecepcao) : 7;
+
+  return (
+    <div className="space-y-4">
+      <Card title="Limites para as recepcionistas">
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
+          A recepcionista só pode dar até estes dias. O administrador não tem limite. Para dar mais do que o limite, só o administrador.
+        </p>
+        <div className="flex flex-wrap items-end gap-3 text-sm">
+          <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">Máximo de dias por vez
+            <input type="number" min="1" value={limAjuste} onChange={(e) => setLimAjuste(e.target.value)} className="w-28 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-500 dark:text-slate-400">Máximo por atleta em cada mês
+            <input type="number" min="1" value={limMes} onChange={(e) => setLimMes(e.target.value)} className="w-28 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+          </label>
+          <button onClick={guardarLimites} className="px-3 py-2 rounded-lg bg-[#3F8F87] text-white text-sm font-semibold">Guardar limites</button>
+          {limitesGuardados && <span className="text-xs text-emerald-600 font-semibold">Guardado ✔</span>}
+        </div>
+      </Card>
+
+      <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil="administrador" dadosGinasio={dadosGinasio} onDarDias={onDarDias} />
+
+      <Card title="Dias dados — registo e controlo">
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-xs text-slate-500 dark:text-slate-400">
+          Mês:
+          <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+          <span><strong className="text-slate-900 dark:text-slate-100">{doMes.filter((a) => !a.anulado).length}</strong> ajuste(s) · <strong className="text-slate-900 dark:text-slate-100">{totalDias}</strong> dia(s) no total</span>
+        </div>
+        {porPessoa.length > 0 && (
+          <div className="mb-3 rounded-lg bg-slate-50 dark:bg-slate-900 p-3 text-xs space-y-1">
+            {porPessoa.map((p) => (
+              <p key={p.nome} className="text-slate-600 dark:text-slate-300"><strong>{p.nome}</strong>{p.perfil ? ` (${p.perfil})` : ""}: {p.ajustes} ajuste(s), {p.dias} dia(s)</p>
+            ))}
+          </div>
+        )}
+        {doMes.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum dia foi dado neste mês.</p>
+        ) : (
+          <div className="divide-y divide-slate-50 dark:divide-slate-700">
+            {doMes.map((a) => (
+              <div key={a.id} className={`py-2.5 flex items-start justify-between gap-3 ${a.anulado ? "opacity-50" : ""}`}>
+                <div className="min-w-0 text-xs">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {a.membroNome} <span className="text-xs font-normal text-slate-400">{a.membroNumero}</span> — <span className="text-[#3F8F87]">+{a.dias} dia(s)</span>
+                    {a.anulado && <span className="ml-2 text-red-500 text-xs">anulado</span>}
+                  </p>
+                  <p className="text-slate-500 dark:text-slate-400">{a.motivo}{a.detalhe ? ` — ${a.detalhe}` : ""}</p>
+                  <p className="text-slate-400 dark:text-slate-500">
+                    {a.data} {a.hora} · por {a.registadoPor} · vencimento {a.vencimentoAntes} → {a.vencimentoDepois}
+                    {a.anulado && ` · anulado por ${a.anuladoPor || "—"} em ${a.anuladoEm || "—"}`}
+                  </p>
+                </div>
+                {!a.anulado && (
+                  <button onClick={() => { if (window.confirm(`Anular os ${a.dias} dia(s) dados a ${a.membroNome}? O vencimento volta atrás.`)) onAnular(a.id); }}
+                    className="shrink-0 text-xs font-semibold text-red-500 hover:text-red-600">Anular</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // Reconstrói, a partir dos RECIBOS, os pagamentos que deviam existir mas que
 // não estão na lista de pagamentos feitos (ex.: perdidos por um aparelho
 // antigo que gravou por cima). Cada recibo é a fonte de verdade: tem o valor,
@@ -9469,9 +9709,17 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
 // lista de membros atual, junta o que conseguir reconstruir sobre cada
 // um (plano, vencimento, quando foi eliminado), e permite recriar o
 // registo com essa informação.
-function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
+function extrairCandidatosRecuperacao(auditLog, membrosAtuais, extras) {
   const nomesAtuais = new Set(membrosAtuais.map((m) => (m.nome || "").trim().toLowerCase()));
+  const idsAtuais = new Set(membrosAtuais.map((m) => m.id));
+  const numerosAtuais = new Set(membrosAtuais.map((m) => m.numero));
   const porNome = {};
+  // Converte "dd/mm/aaaa" para "aaaa-mm-dd" — só para ORDENAR eventos pela
+  // data real (comparar "dd/mm/aaaa" como texto dá a ordem errada).
+  const dataParaOrdem = (d) => {
+    const m = typeof d === "string" && d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : d || "";
+  };
 
   const registar = (nome, numero, evento) => {
     if (!nome) return;
@@ -9479,7 +9727,42 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
     if (!porNome[chave]) porNome[chave] = { nome: nome.trim(), numero: numero || null, eventos: [] };
     if (numero && !porNome[chave].numero) porNome[chave].numero = numero;
     porNome[chave].eventos.push(evento);
+    return porNome[chave];
   };
+
+  // FONTES EXTRA — além da auditoria, procura quem ainda tem RECIBOS ou
+  // histórico de subscrições mas já não está na lista de membros (ex.: o
+  // membro desapareceu por um problema de sincronização, sem nunca ter sido
+  // "eliminado" — por isso a auditoria não sabe de nada). O recibo guarda uma
+  // cópia do membro (com telefone, e-mail, número e id), por isso aqui dá
+  // para recuperar com os dados originais.
+  try {
+    (extras?.faturas || []).forEach((f) => {
+      const mb = f?.membro;
+      if (!mb || !mb.nome || f.tipo !== "RECIBO") return;
+      if (mb.numero === "AVULSO" || !/^CG-\d+$/.test(mb.numero || "")) return;
+      if (idsAtuais.has(mb.id) || numerosAtuais.has(mb.numero)) return;
+      const c = registar(mb.nome, mb.numero, {
+        data: f.data || "", hora: f.hora || "",
+        texto: `Recibo ${f.numero}${f.planoSubscricao ? ` — ${f.planoSubscricao}, vence ${f.vencimentoSubscricao || "—"}` : ""}`,
+        plano: f.planoSubscricao || null, vencimento: f.vencimentoSubscricao || null,
+      });
+      if (c && (!c.original || dataParaOrdem(f.data) >= (c.originalData || ""))) {
+        c.original = mb; c.originalData = dataParaOrdem(f.data);
+      }
+    });
+    (extras?.historicoSubscricoes || []).forEach((h) => {
+      if (!h || !h.membroNome || !h.membroId || idsAtuais.has(h.membroId) || numerosAtuais.has(h.membroNumero)) return;
+      if (h.acao === "pausa" || h.acao === "cancelar-pausa") return;
+      registar(h.membroNome, h.membroNumero, {
+        data: h.data || "", hora: h.hora || "",
+        texto: `Subscrição ${h.planoNovo || "—"}, vence ${h.vencimentoNovo || "—"}`,
+        plano: h.planoNovo || null, vencimento: h.vencimentoNovo || null,
+      });
+      const c = porNome[h.membroNome.trim().toLowerCase()];
+      if (c && !c.original) { c.idOriginal = h.membroId; }
+    });
+  } catch { /* fontes extra nunca podem derrubar a página */ }
 
   // Blindado contra registos de auditoria antigos ou malformados (ex.:
   // sem "acao"/"detalhe"/"data" por algum motivo) — sem isto, um único
@@ -9513,12 +9796,12 @@ function extrairCandidatosRecuperacao(auditLog, membrosAtuais) {
   return Object.values(porNome)
     .filter((c) => !nomesAtuais.has(c.nome.toLowerCase()))
     .map((c) => {
-      const eventos = c.eventos.sort((a, b) => ((a.data || "") + (a.hora || "") < (b.data || "") + (b.hora || "") ? 1 : -1));
+      const eventos = c.eventos.sort((a, b) => (dataParaOrdem(a.data) + (a.hora || "") < dataParaOrdem(b.data) + (b.hora || "") ? 1 : -1));
       const comPlano = eventos.find((e) => e.plano || e.vencimento);
       const eliminado = eventos.find((e) => e.eliminado);
       return { ...c, eventos, ultimoPlano: comPlano?.plano || null, ultimoVencimento: comPlano?.vencimento || null, eliminadoEm: eliminado?.data || null };
     })
-    .sort((a, b) => ((a.eventos[0]?.data || "") < (b.eventos[0]?.data || "") ? 1 : -1));
+    .sort((a, b) => (dataParaOrdem(a.eventos[0]?.data) < dataParaOrdem(b.eventos[0]?.data) ? 1 : -1));
 }
 
 // ---------------------------------------------------------------------
@@ -9634,20 +9917,24 @@ function RecuperarAcessosAuditoria({ auditLog, acessos, membros, onAdicionarAces
   );
 }
 
-function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
+function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar, faturas, historicoSubscricoes }) {
   const [recriados, setRecriados] = useState({}); // chave -> true, depois de recriar
   const candidatos = useMemo(() => {
     try {
-      return extrairCandidatosRecuperacao(auditLog, membros);
+      return extrairCandidatosRecuperacao(auditLog, membros, { faturas, historicoSubscricoes });
     } catch {
       return []; // nunca deixa a página em branco, mesmo com algo completamente inesperado
     }
-  }, [auditLog, membros]);
+  }, [auditLog, membros, faturas, historicoSubscricoes]);
 
   const [confirmacoes, setConfirmacoes] = useState({}); // nome -> "a-confirmar" | "ok" | "falhou" | "incerto"
   const recriar = (c) => {
     const chave = c.nome.toLowerCase();
-    const resultado = onRecriar({ nome: c.nome }, c.ultimoPlano, c.ultimoVencimento);
+    const o = c.original || {};
+    const resultado = onRecriar(
+      { nome: c.nome, telefone: o.telefone, email: o.email, dataNascimento: o.dataNascimento, dataInscricao: o.dataInscricao, id: o.id || c.idOriginal, numero: c.numero },
+      c.ultimoPlano, c.ultimoVencimento
+    );
     setRecriados((atual) => ({ ...atual, [chave]: true }));
     setConfirmacoes((atual) => ({ ...atual, [chave]: "a-confirmar" }));
     (resultado?.confirmarNoServidor ? resultado.confirmarNoServidor() : Promise.resolve(null)).then((ok) => {
@@ -9661,7 +9948,7 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
   const recriadosAgora = Object.entries(confirmacoes);
 
   return (
-    <Card title={`${candidatos.length} possíveis membros apagados encontrados na auditoria`}>
+    <Card title={`${candidatos.length} possíveis membros apagados encontrados`}>
       {recriadosAgora.length > 0 && (
         <div className="mb-3 space-y-1.5">
           {recriadosAgora.map(([nome, estado]) => (
@@ -9680,13 +9967,20 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
         </div>
       )}
       <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-        Vasculha todo o registo de auditoria à procura de nomes que já não existem na lista de membros — a auditoria
-        é a única coisa que sobrevive quando um membro é eliminado. O membro recriado fica com um <strong>número novo</strong>
-        (não é possível repor o número antigo) e sem telefone (isso nunca fica guardado na auditoria) — vais precisar
-        de o voltar a preencher à mão depois de recriar.
+        Procura na auditoria, nos <strong>recibos</strong> e no histórico de subscrições quem já não está na lista de membros.
+        Quando a pessoa tem recibos, volta com o <strong>mesmo número, telefone e e-mail</strong> (se o número ainda estiver
+        livre) e os recibos voltam a ficar ligados a ela. Quando só existe na auditoria, fica com um número novo e sem telefone.
       </p>
+      {candidatos.filter((c) => c.original && !recriados[c.nome.toLowerCase()]).length > 1 && (
+        <button
+          onClick={() => candidatos.filter((c) => c.original && !recriados[c.nome.toLowerCase()]).forEach((c) => recriar(c))}
+          className="mb-3 text-xs font-semibold bg-amber-600 text-white px-3 py-2 rounded-lg"
+        >
+          Recriar todos os que têm recibo ({candidatos.filter((c) => c.original && !recriados[c.nome.toLowerCase()]).length})
+        </button>
+      )}
       {candidatos.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500">Não encontrei ninguém na auditoria que já não esteja na lista de membros.</p>
+        <p className="text-sm text-slate-400 dark:text-slate-500">Não encontrei ninguém na auditoria, nos recibos ou no histórico que já não esteja na lista de membros.</p>
       ) : (
         <div className="space-y-4">
           {candidatos.map((c) => (
@@ -9695,7 +9989,7 @@ function RecuperarDadosAuditoria({ auditLog, membros, planos, onRecriar }) {
                 <div>
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.nome}</p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {c.numero || "número desconhecido"}
+                    {c.numero || "número desconhecido"}{c.original ? " · recuperável com os dados do recibo" : ""}
                     {c.eliminadoEm && <span className="text-red-500"> · eliminado em {c.eliminadoEm}</span>}
                   </p>
                 </div>
@@ -13294,6 +13588,8 @@ const MENU_ADMIN = [
     grupo: "FINANCEIRO",
     itens: [
       { id: "subscricoes", label: "Subscrições", icon: ClipboardList },
+      { id: "atletas-em-falta", label: "Atletas em Falta", icon: AlertTriangle },
+      { id: "controlo-dias", label: "Controlo de Dias", icon: Calendar },
       { id: "pagamentos", label: "Pagamentos", icon: CreditCard },
       { id: "aprovacao", label: "Aprovação de Pagamentos", icon: ShieldCheck },
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
@@ -13356,6 +13652,7 @@ const MENU_RECEPCAO = [
       { id: "ponto", label: "Ponto", icon: Clock },
       { id: "membros", label: "Membros", icon: Users },
       { id: "subscricoes", label: "Subscrições", icon: ClipboardList },
+      { id: "atletas-em-falta", label: "Atletas em Falta", icon: AlertTriangle },
       { id: "pagamentos", label: "Pagamentos", icon: CreditCard },
       { id: "faturacao", label: "Faturação / Recibos", icon: FileText },
       { id: "pos", label: "Vendas (POS)", icon: ShoppingCart },
@@ -14060,6 +14357,7 @@ export default function CatumbelaGymApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autenticado, contaAtual?.id]);
 
+  const [ajustesDias, setAjustesDias] = usePersistente("ajustesDias", [], setStatusSync);
   const [membros, setMembros, adicionarMembroSeguro] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
 
   // Corrige automaticamente o estado "ativo"/"vencido" com base na data real,
@@ -14689,8 +14987,13 @@ export default function CatumbelaGymApp() {
       const n = parseInt(m.numero.replace("CG-", ""), 10);
       return n > max ? n : max;
     }, 0);
-    const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
-    const novoId = gerarIdUnico(); // ver nota em "autoInscrever" sobre colisão de ids entre dispositivos
+    // Se o membro vem de um recibo (tem número e id originais) e eles ainda
+    // estão livres, volta com eles — assim os recibos, acessos e a conta de
+    // login dele voltam a ficar ligados. Caso contrário, número e id novos.
+    const numeroOriginalLivre = novo.numero && /^CG-\d+$/.test(novo.numero) && !membros.some((m) => m.numero === novo.numero);
+    const idOriginalLivre = novo.id && !membros.some((m) => m.id === novo.id);
+    const numero = numeroOriginalLivre ? novo.numero : "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const novoId = idOriginalLivre ? novo.id : gerarIdUnico(); // ver nota em "autoInscrever" sobre colisão de ids entre dispositivos
     const membroNovo = {
       id: novoId,
       numero,
@@ -14698,9 +15001,9 @@ export default function CatumbelaGymApp() {
       telefone: novo.telefone || "",
       plano: planoNome || null,
       foto: null,
-      email: null,
-      dataInscricao: dataLocalISO(new Date()),
-      dataNascimento: null,
+      email: novo.email || null,
+      dataInscricao: novo.dataInscricao || dataLocalISO(new Date()),
+      dataNascimento: novo.dataNascimento || null,
       vencimento: vencimento || null,
       estado: vencimento ? (vencimento < dataLocalISO(new Date()) ? "vencido" : "ativo") : "sem-subscricao",
       assinaturaContrato: null,
@@ -15646,6 +15949,96 @@ export default function CatumbelaGymApp() {
   // sempre: pausa "congela" o vencimento (não avança nem vence enquanto
   // pausado); retomar soma de volta os dias que esteve pausado, para nunca
   // perder o que já pagou.
+  // DAR DIAS (compensação) — soma dias ao vencimento de um atleta que faltou
+  // (trabalho, doença, viagem, problema no ginásio). A recepcionista tem
+  // limites definidos pelo administrador; o administrador não tem. Tudo fica
+  // registado em "ajustesDias" (Controlo de Dias), no histórico de
+  // subscrições (para a recuperação automática não desfazer isto) e na
+  // Auditoria.
+  const darDiasAoMembro = (membroId, dias, motivo, detalhe) => {
+    const membro = membros.find((m) => m.id === membroId);
+    if (!membro) return { ok: false, erro: "Atleta não encontrado." };
+    if (!Number.isInteger(dias) || dias < 1 || dias > 365) return { ok: false, erro: "Indique um número de dias inteiro, de 1 a 365." };
+    if (!membro.vencimento) return { ok: false, erro: "Este atleta ainda não tem subscrição." };
+    if (membro.estado === "cancelado" || membro.estado === "suspenso") return { ok: false, erro: "Atleta cancelado ou suspenso — não se podem dar dias." };
+    if (perfil !== "administrador") {
+      const limiteAjuste = Number(dadosGinasio?.limiteDiasRecepcao) > 0 ? Number(dadosGinasio.limiteDiasRecepcao) : 7;
+      const limiteMesAtleta = Number(dadosGinasio?.limiteDiasMesRecepcao) > 0 ? Number(dadosGinasio.limiteDiasMesRecepcao) : 14;
+      if (dias > limiteAjuste) return { ok: false, erro: `Só pode dar até ${limiteAjuste} dias de cada vez. Para mais, peça ao administrador.` };
+      const mesAtual = mesLocalISO(new Date());
+      const jaDadosMes = ajustesDias
+        .filter((a) => a.membroId === membroId && !a.anulado && (a.data || "").startsWith(mesAtual))
+        .reduce((t, a) => t + (Number(a.dias) || 0), 0);
+      if (jaDadosMes + dias > limiteMesAtleta) {
+        return { ok: false, erro: `Este atleta já recebeu ${jaDadosMes} dias este mês (limite ${limiteMesAtleta}). Peça ao administrador.` };
+      }
+    }
+    const hojeStr = dataLocalISO(new Date());
+    const vencimentoDepois = somarDiasISO(membro.vencimento, dias);
+    setMembros((atual) =>
+      atual.map((m) => {
+        if (m.id !== membroId) return m;
+        const recalcula = m.estado === "ativo" || m.estado === "vencido";
+        return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois < hojeStr ? "vencido" : "ativo") : m.estado };
+      })
+    );
+    const agora = new Date();
+    setAjustesDias((atual) => [
+      {
+        id: gerarIdUnico(), membroId, membroNome: membro.nome, membroNumero: membro.numero, dias, motivo, detalhe: detalhe || "",
+        vencimentoAntes: membro.vencimento, vencimentoDepois, data: hojeStr,
+        hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        registadoPor: contaAtual?.nome || (perfil === "administrador" ? "Administrador" : "Recepção"), perfil: ROTULO_PERFIL[perfil] || perfil || "",
+        anulado: false,
+      },
+      ...atual,
+    ]);
+    registarHistoricoSubscricao(membro, {
+      acao: "ajuste-dias",
+      planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+      planoNovo: membro.plano, vencimentoNovo: vencimentoDepois,
+      temRecibo: false, reciboNumero: null,
+    });
+    registarAuditoria(
+      `Deu ${dias} dia(s) a atleta`,
+      `${membro.nome} — ${motivo}${detalhe ? ` (${detalhe})` : ""} · vencimento ${membro.vencimento} → ${vencimentoDepois}`
+    );
+    return { ok: true };
+  };
+
+  const anularAjusteDias = (ajusteId) => {
+    const ajuste = ajustesDias.find((a) => a.id === ajusteId);
+    if (!ajuste || ajuste.anulado || perfil !== "administrador") return;
+    const membro = membros.find((m) => m.id === ajuste.membroId);
+    const agora = new Date();
+    setAjustesDias((atual) =>
+      atual.map((a) => (a.id === ajusteId ? { ...a, anulado: true, anuladoPor: contaAtual?.nome || "Administrador", anuladoEm: agora.toLocaleDateString("pt-PT") } : a))
+    );
+    if (membro && membro.vencimento) {
+      const hojeStr = dataLocalISO(new Date());
+      const vencimentoDepois = somarDiasISO(membro.vencimento, -Number(ajuste.dias));
+      setMembros((atual) =>
+        atual.map((m) => {
+          if (m.id !== membro.id) return m;
+          const recalcula = m.estado === "ativo" || m.estado === "vencido";
+          return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois < hojeStr ? "vencido" : "ativo") : m.estado };
+        })
+      );
+      registarHistoricoSubscricao(membro, {
+        acao: "ajuste-dias",
+        planoAnterior: membro.plano, vencimentoAnterior: membro.vencimento,
+        planoNovo: membro.plano, vencimentoNovo: vencimentoDepois,
+        temRecibo: false, reciboNumero: null,
+      });
+    }
+    registarAuditoria("Anulou dias dados a atleta", `${ajuste.membroNome} — ${ajuste.dias} dia(s) retirados${membro ? ` · vencimento agora ${somarDiasISO(membro.vencimento || ajuste.vencimentoDepois, -Number(ajuste.dias))}` : ""}`);
+  };
+
+  const guardarLimitesDias = (porAjuste, porMes) => {
+    setDadosGinasio((atual) => ({ ...atual, limiteDiasRecepcao: porAjuste, limiteDiasMesRecepcao: porMes }));
+    registarAuditoria("Mudou limites de dias das recepcionistas", `Por vez: ${porAjuste} · por atleta/mês: ${porMes}`);
+  };
+
   const pausarSubscricao = (membroId) => {
     const membro = membros.find((m) => m.id === membroId);
     if (!membro) return;
@@ -16700,7 +17093,7 @@ export default function CatumbelaGymApp() {
             <PersonalTrainers trainers={trainers} membros={membros} onAdd={adicionarTrainer} onRemove={removerTrainer} onAtribuirAluno={atribuirAluno} podeGerir={perfil === "administrador"} avaliacoesTrainer={avaliacoesTrainer} />
           )}
           {telaAtual === "subscricoes" && (
-            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} />
+            <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} onDarDias={darDiasAoMembro} />
           )}
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
@@ -16783,9 +17176,15 @@ export default function CatumbelaGymApp() {
             <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} onReporPagamentos={reporPagamentosPerdidos} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />}
+          {telaAtual === "atletas-em-falta" && (perfil === "administrador" || perfil === "recepcionista") && (
+            <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil={perfil} dadosGinasio={dadosGinasio} onDarDias={darDiasAoMembro} />
+          )}
+          {telaAtual === "controlo-dias" && perfil === "administrador" && (
+            <ControloDias ajustesDias={ajustesDias} membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} onSalvarLimites={guardarLimitesDias} onDarDias={darDiasAoMembro} onAnular={anularAjusteDias} />
+          )}
           {telaAtual === "recuperar-dados" && perfil === "administrador" && (
             <div className="space-y-4">
-              <RecuperarDadosAuditoria auditLog={auditLog} membros={membros} planos={planos} onRecriar={recriarMembroComSubscricao} />
+              <RecuperarDadosAuditoria auditLog={auditLog} membros={membros} planos={planos} onRecriar={recriarMembroComSubscricao} faturas={faturas} historicoSubscricoes={historicoSubscricoes} />
               <RecuperarAcessosAuditoria auditLog={auditLog} acessos={acessos} membros={membros} onAdicionarAcessoManual={adicionarAcessoManual} />
             </div>
           )}
