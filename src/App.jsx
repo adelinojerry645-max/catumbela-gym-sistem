@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
+import { contextoErro } from "./lib/registoErros";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -14491,6 +14492,12 @@ export default function CatumbelaGymApp() {
   const [dispositivos, setDispositivos] = usePersistente("dispositivos", {}, setStatusSync);
   const meuIdDispositivo = useRef(obterIdDispositivo()).current;
   useAtualizacaoAutomatica();
+  // Diz ao registo de erros em que ecrã e com que conta estamos.
+  useEffect(() => {
+    contextoErro.tela = tela;
+    contextoErro.utilizador = contaAtual ? `${contaAtual.nome || ""} (${perfil || ""})` : "";
+    contextoErro.versao = versaoDoSite();
+  }, [tela, contaAtual, perfil]);
   useEffect(() => {
     if (!autenticado || !contaAtual) return undefined;
     const registar = () => {
