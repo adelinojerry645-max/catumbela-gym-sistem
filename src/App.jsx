@@ -12,6 +12,7 @@ import {
 import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { contextoErro } from "./lib/registoErros";
+import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
 import * as XLSX from "xlsx";
 
@@ -5562,10 +5563,13 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
   const [novo, setNovo] = useState({ nome: "", email: "", telefone: "", senha: "", perfil: "recepcionista", trainerId: "" });
   const [repondoId, setRepondoId] = useState(null);
   const [senhaNova, setSenhaNova] = useState("");
+  const [erroSenhaFraca, setErroSenhaFraca] = useState("");
 
   const submeter = (e) => {
     e.preventDefault();
     if (!novo.nome || !novo.email || !novo.senha) return;
+    if (mensagemSenhaFraca(novo.senha)) { setErroSenhaFraca(mensagemSenhaFraca(novo.senha)); return; }
+    setErroSenhaFraca("");
     onAdd({ ...novo, trainerId: novo.perfil === "personal_trainer" && novo.trainerId ? novo.trainerId : null });
     setNovo({ nome: "", email: "", telefone: "", senha: "", perfil: "recepcionista", trainerId: "" });
     setShowForm(false);
@@ -5573,7 +5577,8 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
 
   const submeterReporSenha = (e) => {
     e.preventDefault();
-    if (senhaNova.length < 6) return;
+    if (mensagemSenhaFraca(senhaNova)) { setErroSenhaFraca(mensagemSenhaFraca(senhaNova)); return; }
+    setErroSenhaFraca("");
     onReporSenha(repondoId, senhaNova);
     setRepondoId(null);
     setSenhaNova("");
@@ -5678,6 +5683,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
             <form onSubmit={submeterReporSenha} className="space-y-3">
               <input type="password" placeholder="Nova palavra-passe" value={senhaNova} onChange={(e) => setSenhaNova(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              {erroSenhaFraca && <p className="text-xs text-red-500">{erroSenhaFraca}</p>}
               <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-lg text-sm">
                 <KeyRound size={16} /> Repor palavra-passe
               </button>
@@ -5714,6 +5720,7 @@ function Utilizadores({ contas, trainers, onAdd, onRemove, onCancelar, onReativa
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Palavra-passe</label>
                 <input type="password" value={novo.senha} onChange={(e) => setNovo({ ...novo, senha: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                {erroSenhaFraca && <p className="text-xs text-red-500 mt-1">{erroSenhaFraca}</p>}
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Perfil</label>
@@ -8934,8 +8941,8 @@ function FormMudarSenha({ onMudar }) {
   const submeter = (e) => {
     e.preventDefault();
     setSucesso(false);
-    if (novaSenha.length < 6) {
-      setErro("A nova palavra-passe deve ter pelo menos 6 caracteres.");
+    if (mensagemSenhaFraca(novaSenha)) {
+      setErro(mensagemSenhaFraca(novaSenha));
       return;
     }
     if (novaSenha !== confirmar) {
@@ -14136,8 +14143,8 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
       setErroInscricao("Já existe uma conta com este e-mail. Tenta entrar ou recuperar a palavra-passe.");
       return;
     }
-    if (inscSenha.length < 6) {
-      setErroInscricao("A palavra-passe deve ter pelo menos 6 caracteres.");
+    if (mensagemSenhaFraca(inscSenha)) {
+      setErroInscricao(mensagemSenhaFraca(inscSenha));
       return;
     }
     if (inscSenha !== inscConfirmarSenha) {
@@ -14160,13 +14167,13 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
     // Aceita entrar tanto com e-mail como com número de telefone. O telefone só
     // existe no registo do membro (não na conta), por isso: se não parecer um
     // e-mail, procura o membro com esse telefone e usa a conta ligada a ele.
-    let conta = contas.find((c) => c.email.toLowerCase() === valorDigitado.toLowerCase() && c.senha === senha);
+    let conta = contas.find((c) => c.email.toLowerCase() === valorDigitado.toLowerCase() && senhaConfere(c.senha, senha));
     if (!conta) {
       const digitosDigitados = valorDigitado.replace(/\D/g, "");
       if (digitosDigitados.length >= 6) {
         const membroCorrespondente = membros.find((m) => (m.telefone || "").replace(/\D/g, "") === digitosDigitados);
         if (membroCorrespondente) {
-          conta = contas.find((c) => c.perfil === "membro" && c.membroId === membroCorrespondente.id && c.senha === senha);
+          conta = contas.find((c) => c.perfil === "membro" && c.membroId === membroCorrespondente.id && senhaConfere(c.senha, senha));
         }
       }
     }
@@ -14188,8 +14195,8 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
       setErroAdmin("Preenche todos os campos.");
       return;
     }
-    if (senhaAdmin.length < 6) {
-      setErroAdmin("A palavra-passe deve ter pelo menos 6 caracteres.");
+    if (mensagemSenhaFraca(senhaAdmin)) {
+      setErroAdmin(mensagemSenhaFraca(senhaAdmin));
       return;
     }
     if (senhaAdmin !== confirmarSenhaAdmin) {
@@ -15187,7 +15194,7 @@ export default function CatumbelaGymApp() {
   };
 
   const criarContaAdmin = ({ nome, email, senha }) => {
-    const conta = { id: 1, nome, email, senha, perfil: "administrador" };
+    const conta = { id: 1, nome, email, senha: protegerSenha(senha), perfil: "administrador" };
     setContas([conta]);
     const token = gerarTokenSessao();
     setMeuTokenSessao(token);
@@ -15206,6 +15213,12 @@ export default function CatumbelaGymApp() {
     setMeuTokenSessao(token);
     setSessoesAtivas((atual) => ({ ...atual, [conta.id]: { token, data: new Date().toISOString() } }));
     setAvisoSessaoEncerrada(false);
+    // Contas antigas (palavra-passe em texto simples) ficam protegidas ao entrar.
+    if (!estaProtegida(conta.senha)) {
+      const protegida = protegerSenha(conta.senha);
+      setContas((atual) => atual.map((c) => (c.id === conta.id ? { ...c, senha: protegida } : c)));
+      conta = { ...conta, senha: protegida };
+    }
     setPerfil(conta.perfil);
     setContaAtual(conta);
     setTela(conta.perfil === "personal_trainer" ? "meus-alunos" : "dashboard");
@@ -15214,16 +15227,17 @@ export default function CatumbelaGymApp() {
 
   const redefinirSenha = (email, novaSenha) => {
     setContas((atual) =>
-      atual.map((c) => (c.email.toLowerCase() === email.toLowerCase() ? { ...c, senha: novaSenha } : c))
+      atual.map((c) => (c.email.toLowerCase() === email.toLowerCase() ? { ...c, senha: protegerSenha(novaSenha) } : c))
     );
   };
 
   // O próprio utilizador muda a sua palavra-passe — precisa de saber a atual.
   // Nem o administrador consegue fazer isto por outra pessoa.
   const alterarPropriaSenha = (senhaAtual, novaSenha) => {
-    if (!contaAtual || contaAtual.senha !== senhaAtual) return false;
-    setContas((atual) => atual.map((c) => (c.id === contaAtual.id ? { ...c, senha: novaSenha } : c)));
-    setContaAtual((atual) => ({ ...atual, senha: novaSenha }));
+    if (!contaAtual || !senhaConfere(contaAtual.senha, senhaAtual)) return false;
+    const guardada = protegerSenha(novaSenha);
+    setContas((atual) => atual.map((c) => (c.id === contaAtual.id ? { ...c, senha: guardada } : c)));
+    setContaAtual((atual) => ({ ...atual, senha: guardada }));
     registarAuditoria("Alterou a própria palavra-passe", contaAtual.nome);
     return true;
   };
@@ -15232,7 +15246,7 @@ export default function CatumbelaGymApp() {
   // (recepcionista/personal trainer) — nunca vê a antiga, só define uma nova.
   const reporSenhaConta = (contaId, novaSenha) => {
     const conta = contas.find((c) => c.id === contaId);
-    setContas((atual) => atual.map((c) => (c.id === contaId ? { ...c, senha: novaSenha } : c)));
+    setContas((atual) => atual.map((c) => (c.id === contaId ? { ...c, senha: protegerSenha(novaSenha) } : c)));
     registarAuditoria("Repôs palavra-passe de utilizador", conta?.nome || "—");
   };
 
@@ -15278,7 +15292,7 @@ export default function CatumbelaGymApp() {
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
     };
-    const novaConta = { id: gerarIdUnico(), nome, email, senha, perfil: "membro", membroId: novoIdMembro };
+    const novaConta = { id: gerarIdUnico(), nome, email, senha: protegerSenha(senha), perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
     setContas((atual) => [...atual, novaConta]);
     registarAuditoria("Novo membro inscreveu-se sozinho", `${nome} — ${numero}${planoEscolhido ? ` · escolheu o plano ${planoEscolhido.nome}` : ""}${taxaInscricaoPendente ? ` · taxa de inscrição pendente: ${kz(taxaInscricaoPendente)}` : ""}`);
@@ -15508,14 +15522,14 @@ export default function CatumbelaGymApp() {
         if (contaExistente) {
           return atual.map((c) =>
             c.id === contaExistente.id
-              ? { ...c, nome: dados.nome, email: dados.email, senha: dados.senha ? dados.senha : c.senha }
+              ? { ...c, nome: dados.nome, email: dados.email, senha: dados.senha ? protegerSenha(dados.senha) : c.senha }
               : c
           );
         }
         if (!dados.senha) return atual; // precisa de senha para criar acesso novo
         return [
           ...atual,
-          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: dados.senha, perfil: "membro", membroId: id },
+          { id: gerarIdUnico(), nome: dados.nome, email: dados.email, senha: protegerSenha(dados.senha), perfil: "membro", membroId: id },
         ];
       });
     } else if (contaExistente) {
@@ -15781,7 +15795,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarConta = (nova) => {
-    setContas((atual) => [...atual, { ...nova, id: gerarIdUnico() }]);
+    setContas((atual) => [...atual, { ...nova, senha: protegerSenha(nova.senha), id: gerarIdUnico() }]);
     registarAuditoria("Criou conta de acesso", `${nova.nome} — ${ROTULO_PERFIL[nova.perfil]}`);
   };
 
