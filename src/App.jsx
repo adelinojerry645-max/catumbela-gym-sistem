@@ -9471,6 +9471,174 @@ function reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, filtroDataISO
 }
 
 // ---------------------------------------------------------------------
+// PRODUTOS ATENDIDOS NO DIA ANTERIOR — para a recepcionista que entra
+// saber o que a colega vendeu em produtos (POS) ontem: quem atendeu, o que
+// vendeu, quanto e como pagaram. A fonte são os RECIBOS de venda, porque
+// são eles que guardam quem registou a venda.
+// ---------------------------------------------------------------------
+function ProdutosAtendidosOntem({ faturas, nomeAtual }) {
+  const ontem = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 1); return dataLocalISO(d); }, []);
+  const [dia, setDia] = useState(ontem);
+  const rotuloMetodo = { dinheiro: "Dinheiro", tpa: "TPA", express: "Express", referencia: "Referência", transferencia: "Transferência" };
+
+  const grupos = useMemo(() => {
+    const [a, m, d] = dia.split("-");
+    const dataPT = `${d}/${m}/${a}`;
+    const porPessoa = {};
+    (faturas || []).forEach((f) => {
+      if (f.tipo !== "RECIBO" || f.data !== dataPT) return;
+      const ref = f.itens?.[0]?.referencia || "";
+      const eVenda = f.tipoReceita ? f.tipoReceita === "venda"
+        : !(f.planoSubscricao || ref.startsWith("PLANO-") || ref === "TAXA-INSCRICAO" || ref === "AVULSO");
+      if (!eVenda) return;
+      const quem = f.registadoPor || "Sem registo";
+      const g = (porPessoa[quem] ||= { quem, total: 0, vendas: [], produtos: {} });
+      g.total += Number(f.valor) || 0;
+      g.vendas.push(f);
+      (f.itens || []).forEach((i) => {
+        const nome = i.descricao || "Produto";
+        const p = (g.produtos[nome] ||= { nome, qtd: 0, total: 0 });
+        p.qtd += Number(i.qtd ?? i.quantidade ?? 1) || 0;
+        p.total += Number(i.total) || 0;
+      });
+    });
+    // Primeiro as outras pessoas (o que interessa a quem entra), depois eu.
+    return Object.values(porPessoa).sort((x, y) => (x.quem === nomeAtual) - (y.quem === nomeAtual) || y.total - x.total);
+  }, [faturas, dia, nomeAtual]);
+
+  const totalDia = grupos.reduce((s, g) => s + g.total, 0);
+  const rotuloDia = dia === ontem ? "ontem" : dia.split("-").reverse().join("/");
+
+  return (
+    <Card title={`Produtos atendidos ${rotuloDia}`}>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Dia:</label>
+        <input type="date" value={dia} max={dataLocalISO(new Date())} onChange={(e) => e.target.value && setDia(e.target.value)} className="border border-slate-200 dark:border-slate-600 dark:bg-slate-800 rounded-lg px-2 py-1 text-sm" />
+        {dia !== ontem && <button onClick={() => setDia(ontem)} className="text-xs text-teal-700 dark:text-teal-400 underline">Voltar a ontem</button>}
+      </div>
+      {grupos.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Não houve vendas de produtos registadas neste dia.</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">Total vendido em produtos: <strong>{kz(totalDia)}</strong></p>
+          {grupos.map((g) => (
+            <div key={g.quem} className="border border-slate-100 dark:border-slate-700 rounded-lg p-3">
+              <div className="flex justify-between items-center mb-2">
+                <p className="font-semibold text-sm">{g.quem}{g.quem === nomeAtual ? " (tu)" : ""}</p>
+                <p className="text-sm font-semibold">{kz(g.total)} · {g.vendas.length} venda(s)</p>
+              </div>
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-slate-400"><th className="py-1">Produto</th><th>Qtd</th><th className="text-right">Valor</th></tr></thead>
+                <tbody>
+                  {Object.values(g.produtos).sort((x, y) => y.total - x.total).map((p) => (
+                    <tr key={p.nome} className="border-t border-slate-50 dark:border-slate-700"><td className="py-1">{p.nome}</td><td>{p.qtd}</td><td className="text-right">{kz(p.total)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-[11px] text-slate-400 mt-2">
+                {g.vendas.map((v) => `${v.hora || ""} ${v.membro?.nome && v.membro.nome !== "—" ? "· " + v.membro.nome : ""} (${rotuloMetodo[v.metodo] || v.metodo || "—"})`.trim()).join("  |  ")}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------
+// RELATÓRIO DE INSCRIÇÕES — pessoas novas num dia, mês ou período.
+// ---------------------------------------------------------------------
+function RelatorioInscricoes({ membros, faturas, planos }) {
+  const hoje = dataLocalISO(new Date());
+  const [modo, setModo] = useState("mes");
+  const [mes, setMes] = useState(hoje.slice(0, 7));
+  const [de, setDe] = useState(hoje);
+  const [ate, setAte] = useState(hoje);
+
+  const [inicio, fim] = modo === "mes" ? [`${mes}-01`, `${mes}-31`] : modo === "dia" ? [de, de] : [de, ate];
+
+  const novos = useMemo(() => {
+    return (membros || [])
+      .filter((m) => m.dataInscricao && m.dataInscricao >= inicio && m.dataInscricao <= fim)
+      .map((m) => {
+        const rec = (faturas || []).find((f) => f.tipo === "RECIBO" && f.membro?.id === m.id && f.itens?.[0]?.referencia === "TAXA-INSCRICAO");
+        const plano = (planos || []).find((p) => p.nome === m.plano);
+        return { ...m, taxa: rec ? Number(rec.valor) : 0, registadoPor: rec?.registadoPor || "—", precoPlano: plano?.preco || 0 };
+      })
+      .sort((a, b) => b.dataInscricao.localeCompare(a.dataInscricao) || String(b.numero).localeCompare(String(a.numero)));
+  }, [membros, faturas, planos, inicio, fim]);
+
+  const porDia = useMemo(() => {
+    const t = {};
+    novos.forEach((m) => { t[m.dataInscricao] = (t[m.dataInscricao] || 0) + 1; });
+    return Object.entries(t).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [novos]);
+  const porPlano = useMemo(() => {
+    const t = {};
+    novos.forEach((m) => { const k = m.plano || "Sem plano"; t[k] = (t[k] || 0) + 1; });
+    return Object.entries(t).sort((a, b) => b[1] - a[1]);
+  }, [novos]);
+  const totalTaxas = novos.reduce((s, m) => s + m.taxa, 0);
+  const fData = (iso) => iso.split("-").reverse().join("/");
+
+  const exportar = () => {
+    const linhas = novos.map((m) => ({
+      "Data de inscrição": fData(m.dataInscricao), "Nº": m.numero, Nome: m.nome, Telefone: m.telefone || "",
+      Plano: m.plano || "—", Estado: m.estado || "", "Taxa de inscrição (Kz)": m.taxa, "Registado por": m.registadoPor,
+    }));
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, criarFolhaOrganizada(linhas, "Inscrições"), "Inscrições");
+    XLSX.writeFile(livro, `Catumbela-Gym-Inscricoes-${inicio}_a_${fim}.xlsx`);
+  };
+
+  const campo = "border border-slate-200 dark:border-slate-600 dark:bg-slate-800 rounded-lg px-2 py-1 text-sm";
+  return (
+    <div className="space-y-4">
+      <Card title="Relatório de Inscrições — pessoas novas" action={<button onClick={exportar} disabled={novos.length === 0} className="text-xs font-semibold text-teal-700 dark:text-teal-400 underline disabled:opacity-40">Baixar Excel</button>}>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {[["dia", "Um dia"], ["mes", "Um mês"], ["periodo", "Período"]].map(([v, r]) => (
+            <button key={v} onClick={() => setModo(v)} className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${modo === v ? "bg-teal-700 text-white" : "bg-slate-100 dark:bg-slate-700"}`}>{r}</button>
+          ))}
+          {modo === "mes" && <input type="month" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} className={campo} />}
+          {modo === "dia" && <input type="date" value={de} onChange={(e) => e.target.value && setDe(e.target.value)} className={campo} />}
+          {modo === "periodo" && (<><input type="date" value={de} onChange={(e) => e.target.value && setDe(e.target.value)} className={campo} /><span className="text-sm">até</span><input type="date" value={ate} onChange={(e) => e.target.value && setAte(e.target.value)} className={campo} /></>)}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3"><p className="text-xs text-slate-500">Pessoas novas</p><p className="text-2xl font-bold">{novos.length}</p></div>
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3"><p className="text-xs text-slate-500">Taxas de inscrição</p><p className="text-lg font-bold">{kz(totalTaxas)}</p></div>
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 col-span-2 sm:col-span-1"><p className="text-xs text-slate-500">Por plano</p><p className="text-xs">{porPlano.map(([p, n]) => `${p}: ${n}`).join(" · ") || "—"}</p></div>
+        </div>
+        {novos.length === 0 ? (
+          <p className="text-sm text-slate-500">Ninguém se inscreveu neste período.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-left text-xs text-slate-400"><th className="py-1">Data</th><th>Nº</th><th>Nome</th><th>Telefone</th><th>Plano</th><th>Taxa</th><th>Registado por</th></tr></thead>
+              <tbody>
+                {novos.map((m) => (
+                  <tr key={m.id} className="border-t border-slate-100 dark:border-slate-700">
+                    <td className="py-1.5 whitespace-nowrap">{fData(m.dataInscricao)}</td><td>{m.numero}</td><td className="font-medium">{m.nome}</td>
+                    <td>{m.telefone || "—"}</td><td>{m.plano || "—"}</td><td>{m.taxa ? kz(m.taxa) : "—"}</td><td>{m.registadoPor}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      {porDia.length > 1 && (
+        <Card title="Inscrições por dia">
+          <div className="flex flex-wrap gap-2">
+            {porDia.map(([d, n]) => <span key={d} className="text-xs bg-slate-100 dark:bg-slate-700 rounded-full px-3 py-1">{fData(d)}: <strong>{n}</strong></span>)}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
 // RELATÓRIO DIÁRIO — vendas POS e subscrições de um dia à escolha, para
 // controlo (confirmar que o dinheiro registado bate certo com o que
 // realmente entrou). Separado do relatório mensal, que é mais para
@@ -13627,6 +13795,7 @@ const MENU_ADMIN = [
       { id: "sem-recibo", label: "Subscrições sem Recibo", icon: AlertTriangle },
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
+      { id: "relatorio-inscricoes", label: "Relatório de Inscrições", icon: Users },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
       { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
@@ -13659,6 +13828,7 @@ const MENU_RECEPCAO = [
       { id: "stock", label: "Stock / Produtos", icon: Package },
       { id: "acessos", label: "Controlo de Acessos", icon: DoorOpen },
       { id: "caixa", label: "O meu turno", icon: Wallet },
+      { id: "relatorio-inscricoes", label: "Inscrições (novos)", icon: Users },
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
       { id: "meu-perfil", label: "Meu Perfil", icon: UserIcon },
     ],
@@ -17062,6 +17232,9 @@ export default function CatumbelaGymApp() {
               equipamentos={equipamentos}
             />
           )}
+          {telaAtual === "dashboard" && perfil === "recepcionista" && (
+            <div className="mb-4"><ProdutosAtendidosOntem faturas={faturas} nomeAtual={contaAtual?.nome} /></div>
+          )}
           {telaAtual === "dashboard" && (
             <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} faturas={faturas} planos={planos} />
           )}
@@ -17169,6 +17342,9 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
+          {telaAtual === "relatorio-inscricoes" && (perfil === "administrador" || perfil === "recepcionista") && (
+            <RelatorioInscricoes membros={membros} faturas={faturas} planos={planos} />
+          )}
           {telaAtual === "relatorio-diario" && perfil === "administrador" && (
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
@@ -17201,7 +17377,12 @@ export default function CatumbelaGymApp() {
               onMarcarLidas={marcarMensagensLidas}
             />
           )}
-          {telaAtual === "caixa" && perfil === "recepcionista" && <TurnoCaixa pagamentosFeitos={pagamentosFeitos} nomeAtual={contaAtual?.nome} onFecharTurno={registarFechoTurno} />}
+          {telaAtual === "caixa" && perfil === "recepcionista" && (
+            <div className="space-y-4">
+              <ProdutosAtendidosOntem faturas={faturas} nomeAtual={contaAtual?.nome} />
+              <TurnoCaixa pagamentosFeitos={pagamentosFeitos} nomeAtual={contaAtual?.nome} onFecharTurno={registarFechoTurno} />
+            </div>
+          )}
           {telaAtual === "ponto" && (
             <RegistoPonto contas={contas} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} onRegistarFalta={registarFalta} onRemoverRegistoPonto={removerRegistoPonto} onDefinirHorario={definirHorarioTrabalho} />
           )}
