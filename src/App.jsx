@@ -4182,6 +4182,57 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   const streamRef = React.useRef(null);
   const rafRef = React.useRef(null);
 
+  // MODO AUTOMÁTICO: com a câmara ligada, cada QR lido regista a entrada
+  // sozinho (se a mensalidade estiver em dia) e mostra uma faixa verde/vermelha
+  // grande, sem ninguém ter de tocar em nada. A câmara fica sempre ligada.
+  const [modoAuto, setModoAuto] = useState(false);
+  const [aviso, setAviso] = useState(null); // { tipo: "ok" | "erro" | "info", texto }
+  const autoRef = React.useRef(false);
+  const ultimoLidoRef = React.useRef({ texto: "", t: 0 });
+  const dadosRef = React.useRef({});
+  dadosRef.current = { membros, acessos, onRegistarEntrada };
+  autoRef.current = modoAuto;
+
+  const apitar = (grave) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      o.frequency.value = grave ? 220 : 880;
+      o.connect(ctx.destination);
+      o.start();
+      setTimeout(() => { o.stop(); ctx.close(); }, grave ? 450 : 150);
+    } catch { /* sem som, tudo bem */ }
+  };
+  const mostrarAviso = (tipo, texto) => {
+    setAviso({ tipo, texto });
+    apitar(tipo === "erro");
+    setTimeout(() => setAviso((a) => (a && a.texto === texto ? null : a)), 4000);
+  };
+  const processarAutomatico = (texto) => {
+    const agora = Date.now();
+    // Ignora o mesmo QR lido várias vezes seguidas (o telemóvel do atleta fica à frente da câmara)
+    if (ultimoLidoRef.current.texto === texto && agora - ultimoLidoRef.current.t < 6000) return;
+    ultimoLidoRef.current = { texto, t: agora };
+    const { membros: ms, acessos: ac, onRegistarEntrada: registar } = dadosRef.current;
+    const alvo = texto.trim().toLowerCase();
+    const alvoNum = parseInt(alvo.replace(/\D/g, ""), 10);
+    const m = (ms || []).find((x) => {
+      const n = (x.numero || "").toLowerCase();
+      return n === alvo || (!isNaN(alvoNum) && parseInt(n.replace(/\D/g, ""), 10) === alvoNum);
+    });
+    if (!m) return mostrarAviso("erro", "QR não reconhecido");
+    const hoje = dataLocalISO(new Date());
+    const aberta = (ac || []).find((a) => a.numero === m.numero && !a.saida);
+    if (aberta) {
+      return mostrarAviso("info", aberta.data === hoje
+        ? `${m.nome} já está no ginásio desde as ${aberta.entrada}`
+        : `${m.nome}: ficou uma entrada por fechar de ${aberta.data}. Regista a saída à mão.`);
+    }
+    if (m.estado !== "ativo") return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (vence ${m.vencimento || "—"})`);
+    registar(m);
+    mostrarAviso("ok", `Entrada registada: ${m.nome}`);
+  };
+
   // Quem ainda está dentro do ginásio (sem saída registada) aparece sempre
   // primeiro — sem isto, uma entrada de há dias sem saída ficava perdida
   // no meio de saídas mais recentes, e a receção nem dava por ela.
@@ -4282,7 +4333,10 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
     import("jsqr")
       .then(({ default: jsQR }) => {
         const codigo = jsQR(imageData.data, imageData.width, imageData.height);
-        if (codigo && codigo.data) {
+        if (codigo && codigo.data && autoRef.current) {
+          processarAutomatico(codigo.data.trim());
+          rafRef.current = requestAnimationFrame(ler); // continua a ler o próximo atleta
+        } else if (codigo && codigo.data) {
           setQuery(codigo.data.trim()); // preenche o campo "Member ID" visivelmente, como pedido
           localizar(codigo.data.trim());
           pararCamara();
@@ -4307,6 +4361,11 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           Utilize a câmara para preencher automaticamente o número do membro.
         </p>
 
+        {aviso && (
+          <div className={`mb-3 rounded-xl px-4 py-3 text-center text-base font-bold text-white ${aviso.tipo === "ok" ? "bg-emerald-600" : aviso.tipo === "erro" ? "bg-red-600" : "bg-amber-500"}`}>
+            {aviso.tipo === "ok" ? "✅ " : aviso.tipo === "erro" ? "⛔ " : "ℹ️ "}{aviso.texto}
+          </div>
+        )}
         <div className="relative rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-900 aspect-square mb-3">
           {camaraAtiva ? (
             <>
@@ -4337,6 +4396,10 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           </button>
         </div>
 
+        <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300 mt-3 p-2.5 bg-[#EAF5F4] dark:bg-slate-800 rounded-lg cursor-pointer">
+          <input type="checkbox" checked={modoAuto} onChange={(e) => setModoAuto(e.target.checked)} className="mt-0.5" />
+          <span><strong>Registar a entrada sozinho</strong> ao ler o QR (se a mensalidade estiver em dia). A câmara fica ligada e mostra verde ou vermelho. A saída continua a ser registada à mão.</span>
+        </label>
         {erroCamara && <p className="text-xs text-red-500 mt-2">{erroCamara}</p>}
         <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-2">
           Aponta a câmara ao QR Code do cartão do membro (ver "Meu cartão" na área do membro).
