@@ -9548,6 +9548,179 @@ function ProdutosAtendidosOntem({ faturas, nomeAtual }) {
 }
 
 // ---------------------------------------------------------------------
+// CENTRO DE AUTOMAÇÃO — o que merece a tua atenção HOJE, calculado sozinho
+// a partir dos dados do ginásio: aniversários, boas-vindas, atletas em
+// risco de sair, stock a repor, produtos parados, revisões de equipamentos,
+// diferenças de caixa e horas de maior movimento. Cada pessoa tem o botão
+// de WhatsApp com a mensagem já escrita.
+// ---------------------------------------------------------------------
+function CentroAutomacao({ membros, acessos, produtos, vendasProdutos, equipamentos, fechosTurno, dadosGinasio }) {
+  const hojeISO = dataLocalISO(new Date());
+  const somar = (iso, n) => { const d = new Date(iso + "T12:00:00"); d.setDate(d.getDate() + n); return dataLocalISO(d); };
+  const ptParaISO = (s) => { const [d, m, a] = (s || "").split("/"); return d && m && a ? `${a}-${m.padStart(2, "0")}-${d.padStart(2, "0")}` : ""; };
+  const ginasio = dadosGinasio?.nome || "Catumbela Gym";
+  const primeiroNome = (n) => (n || "").trim().split(/\s+/)[0] || "";
+
+  const aniversarios = useMemo(() => {
+    const lista = [];
+    (membros || []).forEach((m) => {
+      const n = m.dataNascimento;
+      if (!n || !/^\d{4}-\d{2}-\d{2}$/.test(n) || m.estado === "cancelado") return;
+      for (let i = 0; i <= 7; i++) {
+        const dia = somar(hojeISO, i);
+        if (dia.slice(5) === n.slice(5)) { lista.push({ m, em: i, idade: Number(dia.slice(0, 4)) - Number(n.slice(0, 4)) }); break; }
+      }
+    });
+    return lista.sort((a, b) => a.em - b.em);
+  }, [membros, hojeISO]);
+
+  const novos = useMemo(
+    () => (membros || []).filter((m) => m.dataInscricao && m.dataInscricao >= somar(hojeISO, -3) && m.estado !== "cancelado"),
+    [membros, hojeISO]
+  );
+
+  const emRisco = useMemo(() => {
+    const porNumero = {};
+    (acessos || []).forEach((a) => { if (a.numero && a.data) (porNumero[a.numero] ||= []).push(a.data); });
+    const f14 = somar(hojeISO, -14), f42 = somar(hojeISO, -42);
+    return (membros || [])
+      .filter((m) => m.estado === "ativo")
+      .map((m) => {
+        const datas = porNumero[m.numero] || [];
+        const recentes = datas.filter((d) => d > f14).length;
+        const antes = datas.filter((d) => d > f42 && d <= f14).length; // 28 dias anteriores
+        return { m, recentes, antesPorSemana: antes / 4, recentesPorSemana: recentes / 2 };
+      })
+      .filter((x) => x.antesPorSemana >= 2 && x.recentesPorSemana <= x.antesPorSemana * 0.5)
+      .sort((a, b) => (b.antesPorSemana - b.recentesPorSemana) - (a.antesPorSemana - a.recentesPorSemana));
+  }, [membros, acessos, hojeISO]);
+
+  const { reposicao, parados } = useMemo(() => {
+    const f30 = somar(hojeISO, -30);
+    const vendidos = {};
+    (vendasProdutos || []).forEach((v) => {
+      const iso = ptParaISO(v.data);
+      if (iso >= f30) vendidos[v.produtoId] = (vendidos[v.produtoId] || 0) + (Number(v.quantidade) || 0);
+    });
+    const rep = [], par = [];
+    (produtos || []).forEach((p) => {
+      const stock = Number(p.stock) || 0, minimo = Number(p.minimo) || 0, v30 = vendidos[p.id] || 0;
+      if (minimo > 0 && stock <= minimo) rep.push({ p, stock, minimo, sugerido: Math.max(minimo * 2 - stock, v30 - stock, 1), v30 });
+      if (v30 === 0 && stock > 0) par.push({ p, stock });
+    });
+    return { reposicao: rep.sort((a, b) => a.stock - b.stock), parados: par };
+  }, [produtos, vendasProdutos, hojeISO]);
+
+  const revisoes = useMemo(() => (equipamentos || [])
+    .map((e) => ({ e, proxima: e.dataUltimaManutencao ? somar(e.dataUltimaManutencao, Number(e.intervaloDias) || 90) : null }))
+    .filter((x) => x.proxima && x.proxima <= somar(hojeISO, 7))
+    .sort((a, b) => a.proxima.localeCompare(b.proxima)), [equipamentos, hojeISO]);
+
+  const diferencasCaixa = useMemo(() => (fechosTurno || [])
+    .filter((f) => Number(f.diferenca) !== 0 && ptParaISO(f.data) >= somar(hojeISO, -30))
+    .sort((a, b) => ptParaISO(b.data).localeCompare(ptParaISO(a.data))), [fechosTurno, hojeISO]);
+
+  const picos = useMemo(() => {
+    const f30 = somar(hojeISO, -30), dias = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+    const cont = {};
+    (acessos || []).forEach((a) => {
+      if (!a.data || a.data < f30 || !a.entrada) return;
+      const h = parseInt(String(a.entrada).slice(0, 2), 10);
+      if (Number.isNaN(h)) return;
+      const k = `${dias[new Date(a.data + "T12:00:00").getDay()]} ${String(h).padStart(2, "0")}h`;
+      cont[k] = (cont[k] || 0) + 1;
+    });
+    return Object.entries(cont).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  }, [acessos, hojeISO]);
+
+  const Zap = ({ m, texto }) => (
+    <a href={linkWhatsApp(m.telefone, texto)} target="_blank" rel="noreferrer" className="text-emerald-600 hover:text-emerald-700 shrink-0" title="Abrir WhatsApp com a mensagem pronta">
+      <MessageCircle size={16} />
+    </a>
+  );
+  const Linha = ({ children, direita }) => (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-slate-50 dark:border-slate-700 last:border-0 text-sm">
+      <div className="min-w-0">{children}</div><div className="shrink-0 flex items-center gap-2">{direita}</div>
+    </div>
+  );
+  const Vazio = ({ t }) => <p className="text-sm text-slate-400 dark:text-slate-500">{t}</p>;
+  const fData = (iso) => (iso || "").split("-").reverse().join("/");
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-[#EAF5F4] dark:bg-slate-800 ring-1 ring-[#BFE4E1] dark:ring-slate-700 rounded-xl p-4 text-sm text-slate-600 dark:text-slate-300">
+        Isto é calculado sozinho todos os dias a partir dos teus dados. Toca no ícone verde para abrir o WhatsApp com a mensagem já escrita.
+      </div>
+
+      <Card title={`Aniversários (hoje e próximos 7 dias) · ${aniversarios.length}`}>
+        {aniversarios.length === 0 ? <Vazio t="Nenhum aniversário nesta semana. (Só aparecem atletas com data de nascimento preenchida.)" /> : aniversarios.map(({ m, em, idade }) => (
+          <Linha key={m.id} direita={<Zap m={m} texto={`Parabéns, ${primeiroNome(m.nome)}! 🎉 A equipa do ${ginasio} deseja-te um feliz aniversário, muita saúde e muitos treinos fortes. Um abraço!`} />}>
+            <p className="font-medium">{m.nome} <span className="text-xs text-slate-400">· {idade} anos</span></p>
+            <p className="text-xs text-slate-400">{em === 0 ? "É hoje 🎂" : em === 1 ? "Amanhã" : `Daqui a ${em} dias`}</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title={`Boas-vindas (inscritos nos últimos 3 dias) · ${novos.length}`}>
+        {novos.length === 0 ? <Vazio t="Sem inscrições novas nos últimos 3 dias." /> : novos.map((m) => (
+          <Linha key={m.id} direita={<Zap m={m} texto={`Olá ${primeiroNome(m.nome)}! Bem-vindo(a) ao ${ginasio} 💪 O teu plano é o ${m.plano || "—"}. Qualquer dúvida estamos à tua disposição. Bons treinos!`} />}>
+            <p className="font-medium">{m.nome} <span className="text-xs text-slate-400">· {m.numero}</span></p>
+            <p className="text-xs text-slate-400">{m.plano || "—"} · inscrito a {fData(m.dataInscricao)}</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title={`Atletas em risco de sair · ${emRisco.length}`}>
+        <p className="text-xs text-slate-400 mb-2">Vinham regularmente e nas últimas 2 semanas vieram metade ou menos. É a altura certa para os contactar.</p>
+        {emRisco.length === 0 ? <Vazio t="Nenhum atleta com quebra grande de frequência." /> : emRisco.slice(0, 40).map(({ m, recentesPorSemana, antesPorSemana }) => (
+          <Linha key={m.id} direita={<Zap m={m} texto={`Olá ${primeiroNome(m.nome)}! Notámos a tua falta no ${ginasio}. Está tudo bem? Estamos aqui para te ajudar a retomar o ritmo 💪`} />}>
+            <p className="font-medium">{m.nome}</p>
+            <p className="text-xs text-slate-400">Antes: {antesPorSemana.toFixed(1)} visitas/semana → agora: {recentesPorSemana.toFixed(1)}</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title={`Stock a repor · ${reposicao.length}`}>
+        {reposicao.length === 0 ? <Vazio t="Nenhum produto abaixo do mínimo." /> : reposicao.map(({ p, stock, minimo, sugerido }) => (
+          <Linha key={p.id} direita={<span className="text-xs font-semibold text-amber-600">Comprar ~{sugerido}</span>}>
+            <p className="font-medium">{p.nome}</p><p className="text-xs text-slate-400">Em stock: {stock} · mínimo: {minimo}</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title={`Produtos parados (sem vendas há 30 dias) · ${parados.length}`}>
+        {parados.length === 0 ? <Vazio t="Todos os produtos venderam nos últimos 30 dias." /> : parados.map(({ p, stock }) => (
+          <Linha key={p.id} direita={<span className="text-xs text-slate-400">{stock} em stock</span>}><p className="font-medium">{p.nome}</p></Linha>
+        ))}
+      </Card>
+
+      <Card title={`Equipamentos com revisão em atraso ou nos próximos 7 dias · ${revisoes.length}`}>
+        {revisoes.length === 0 ? <Vazio t="Nenhuma revisão a vencer." /> : revisoes.map(({ e, proxima }) => (
+          <Linha key={e.id} direita={<span className={`text-xs font-semibold ${proxima < hojeISO ? "text-red-600" : "text-amber-600"}`}>{proxima < hojeISO ? "Em atraso desde " : "Até "}{fData(proxima)}</span>}>
+            <p className="font-medium">{e.nome}</p><p className="text-xs text-slate-400">Última manutenção: {fData(e.dataUltimaManutencao)} · a cada {e.intervaloDias} dias</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title={`Diferenças de caixa (últimos 30 dias) · ${diferencasCaixa.length}`}>
+        {diferencasCaixa.length === 0 ? <Vazio t="Todos os fechos de turno bateram certo. ✅" /> : diferencasCaixa.map((f) => (
+          <Linha key={f.id} direita={<span className={`text-sm font-semibold ${Number(f.diferenca) < 0 ? "text-red-600" : "text-amber-600"}`}>{Number(f.diferenca) > 0 ? "+" : ""}{kz(Number(f.diferenca))}</span>}>
+            <p className="font-medium">{f.nomeFuncionario}</p>
+            <p className="text-xs text-slate-400">{f.data} {f.hora || ""} · contado {kz(Number(f.totalContado) || 0)} · sistema {kz(Number(f.totalSistema) || 0)}</p>
+          </Linha>
+        ))}
+      </Card>
+
+      <Card title="Horas de maior movimento (últimos 30 dias)">
+        {picos.length === 0 ? <Vazio t="Ainda sem entradas suficientes." /> : picos.map(([k, n]) => (
+          <Linha key={k} direita={<span className="text-sm font-semibold">{n} entradas</span>}><p className="font-medium">{k}</p></Linha>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
 // RELATÓRIO DE INSCRIÇÕES — pessoas novas num dia, mês ou período.
 // ---------------------------------------------------------------------
 function RelatorioInscricoes({ membros, faturas, planos }) {
@@ -13797,6 +13970,7 @@ const MENU_ADMIN = [
       { id: "horas-mensais", label: "Horas Mensais dos Atletas", icon: Clock },
       { id: "relatorio-diario", label: "Relatório Diário", icon: Calendar },
       { id: "relatorio-inscricoes", label: "Relatório de Inscrições", icon: Users },
+      { id: "automacao", label: "Centro de Automação", icon: Target },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
       { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
@@ -17349,6 +17523,9 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "horas-mensais" && perfil === "administrador" && <RelatorioHorasMensal membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} />}
+          {telaAtual === "automacao" && perfil === "administrador" && (
+            <CentroAutomacao membros={membros} acessos={acessos} produtos={produtos} vendasProdutos={vendasProdutos} equipamentos={equipamentos} fechosTurno={fechosTurno} dadosGinasio={dadosGinasio} />
+          )}
           {telaAtual === "relatorio-inscricoes" && (perfil === "administrador" || perfil === "recepcionista") && (
             <RelatorioInscricoes membros={membros} faturas={faturas} planos={planos} />
           )}
