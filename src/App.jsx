@@ -15275,6 +15275,20 @@ export default function CatumbelaGymApp() {
     registarAuditoria("Repôs palavra-passe de utilizador", conta?.nome || "—");
   };
 
+  // Próximo número de atleta. Olha para os atletas, mas TAMBÉM para os recibos e
+  // os acessos já emitidos: se a lista de atletas perder os mais recentes (como
+  // aconteceu por problemas de sincronização), "o maior número + 1" voltava a dar
+  // números que já tinham sido entregues a outras pessoas (recibos e cartões QR
+  // com o mesmo número). Assim um número já usado nunca é reutilizado.
+  const proximoNumeroMembro = () => {
+    let maior = 0;
+    const ver = (n) => { const v = parseInt(String(n || "").replace("CG-", ""), 10); if (v > maior) maior = v; };
+    membros.forEach((m) => ver(m.numero));
+    faturas.forEach((f) => ver(f.membro?.numero));
+    acessos.forEach((a) => ver(a.numero));
+    return "CG-" + String(maior + 1).padStart(6, "0");
+  };
+
   // Inscrição/subscrição direta feita pelo próprio visitante no ecrã de
   // login — sem precisar de vir presencialmente à receção. Cria a conta de
   // acesso e o registo de membro (ainda "sem-subscrição" até o pagamento do
@@ -15283,11 +15297,7 @@ export default function CatumbelaGymApp() {
   // pagamento em "Pagar mensalidade".
   const autoInscrever = ({ nome, telefone, email, senha, planoId }) => {
     const planoEscolhido = planos.find((p) => p.id === planoId);
-    const maiorNumero = membros.reduce((max, m) => {
-      const n = parseInt((m.numero || "").replace("CG-", ""), 10);
-      return n > max ? n : max;
-    }, 0);
-    const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const numero = proximoNumeroMembro();
     // ID único global (não sequencial) — dois dispositivos podem inscrever
     // membros diferentes quase ao mesmo tempo (ex.: um atleta a auto-inscrever-se
     // pelo telemóvel enquanto a receção inscreve outro pessoalmente). Com
@@ -15353,11 +15363,7 @@ export default function CatumbelaGymApp() {
 
   const adicionarMembro = async (novo) => {
     // Numeração sequencial: pega o maior número de membro já existente e soma 1 (começa em CG-000001)
-    const maiorNumero = membros.reduce((max, m) => {
-      const n = parseInt(m.numero.replace("CG-", ""), 10);
-      return n > max ? n : max;
-    }, 0);
-    const numero = "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const numero = proximoNumeroMembro();
     // Um atleta inscrito de novo NÃO fica "Ativo" automaticamente — só ativa
     // depois de subscrever e pagar um plano, em Subscrições. A única exceção
     // é quando explicitamente indicas um vencimento (membro já existente
@@ -15436,16 +15442,12 @@ export default function CatumbelaGymApp() {
   // próximo render), por isso "não encontrava" o membro recém-criado e
   // não fazia nada, silenciosamente.
   const recriarMembroComSubscricao = (novo, planoNome, vencimento) => {
-    const maiorNumero = membros.reduce((max, m) => {
-      const n = parseInt(m.numero.replace("CG-", ""), 10);
-      return n > max ? n : max;
-    }, 0);
     // Se o membro vem de um recibo (tem número e id originais) e eles ainda
     // estão livres, volta com eles — assim os recibos, acessos e a conta de
     // login dele voltam a ficar ligados. Caso contrário, número e id novos.
     const numeroOriginalLivre = novo.numero && /^CG-\d+$/.test(novo.numero) && !membros.some((m) => m.numero === novo.numero);
     const idOriginalLivre = novo.id && !membros.some((m) => m.id === novo.id);
-    const numero = numeroOriginalLivre ? novo.numero : "CG-" + String(maiorNumero + 1).padStart(6, "0");
+    const numero = numeroOriginalLivre ? novo.numero : proximoNumeroMembro();
     const novoId = idOriginalLivre ? novo.id : gerarIdUnico(); // ver nota em "autoInscrever" sobre colisão de ids entre dispositivos
     const membroNovo = {
       id: novoId,
