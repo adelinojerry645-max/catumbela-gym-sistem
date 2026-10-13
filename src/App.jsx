@@ -15289,6 +15289,33 @@ export default function CatumbelaGymApp() {
     return "CG-" + String(maior + 1).padStart(6, "0");
   };
 
+  // Auto-reparação de números repetidos. Se um aparelho com a lista desatualizada
+  // inscrever alguém, pode dar o mesmo número a duas pessoas — e aí a pesquisa, o
+  // cartão QR e os recibos misturam as duas. Quando isto acontece, o atleta mais
+  // recente fica com um número novo (o mais antigo mantém o seu). O resultado é
+  // determinístico (ordenado por data e id), para dois aparelhos chegarem ao mesmo.
+  useEffect(() => {
+    if (!Array.isArray(membros) || membros.length < 2) return;
+    const porNumero = {};
+    membros.forEach((m) => { if (m?.numero) (porNumero[m.numero] = porNumero[m.numero] || []).push(m); });
+    const grupos = Object.values(porNumero).filter((g) => g.length > 1);
+    if (grupos.length === 0) return;
+    let maior = 0;
+    const ver = (n) => { const v = parseInt(String(n || "").replace("CG-", ""), 10); if (v > maior) maior = v; };
+    membros.forEach((m) => ver(m.numero));
+    faturas.forEach((f) => ver(f.membro?.numero));
+    acessos.forEach((a) => ver(a.numero));
+    const novos = {};
+    grupos.sort((a, b) => String(a[0].numero).localeCompare(String(b[0].numero))).forEach((g) => {
+      const ordenado = [...g].sort((a, b) => String(a.dataInscricao || "").localeCompare(String(b.dataInscricao || "")) || String(a.id).localeCompare(String(b.id)));
+      ordenado.slice(1).forEach((m) => { maior += 1; novos[String(m.id)] = "CG-" + String(maior).padStart(6, "0"); });
+    });
+    setMembros((atual) => atual.map((m) => (novos[String(m.id)] ? { ...m, numero: novos[String(m.id)] } : m)));
+    setFaturas((atual) => atual.map((f) => (f.membro && novos[String(f.membro.id)] ? { ...f, membro: { ...f.membro, numero: novos[String(f.membro.id)] } } : f)));
+    registarAuditoria("Números de atleta repetidos corrigidos", Object.entries(novos).map(([id, n]) => `${id} → ${n}`).join("; "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membros]);
+
   // Inscrição/subscrição direta feita pelo próprio visitante no ecrã de
   // login — sem precisar de vir presencialmente à receção. Cria a conta de
   // acesso e o registo de membro (ainda "sem-subscrição" até o pagamento do
