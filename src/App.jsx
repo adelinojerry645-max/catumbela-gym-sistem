@@ -454,6 +454,13 @@ function carregarBaseSincronizada() {
   }
 }
 
+// Atletas que a pessoa MANDOU eliminar de propósito neste aparelho. Serve para
+// o escudo de gravação (ver usePersistente): qualquer outro atleta que exista
+// no servidor mas falte na lista que vamos gravar é reposto, porque quase de
+// certeza é uma lista incompleta (aparelho desatualizado), não uma eliminação.
+const ELIMINACOES_INTENCIONAIS = new Set();
+function marcarEliminacaoIntencional(id) { ELIMINACOES_INTENCIONAIS.add(String(id)); }
+
 function guardarBaseSincronizada(chave, valor) {
   try {
     const atual = carregarBaseSincronizada();
@@ -878,6 +885,20 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             window.dispatchEvent(new CustomEvent("catumbela:conflito-sincronizacao", { detail: { chave } }));
           }
           let paraGravar = houveConflito ? fundirPorId(Array.isArray(baseParaFusao.current) || !Array.isArray(remoto) ? baseParaFusao.current : [], valor, remoto) : valor;
+          // ESCUDO DOS ATLETAS: nunca grava uma lista de atletas que deixe cair
+          // quem está no servidor, a não ser que a pessoa o tenha eliminado de
+          // propósito aqui. Foi assim que atletas inscritos há pouco
+          // desapareciam: um aparelho com a lista incompleta gravava-a por cima.
+          let repostoPeloEscudo = false;
+          if (chave === "membros" && Array.isArray(paraGravar) && Array.isArray(remoto)) {
+            const idsAGravar = new Set(paraGravar.map((i) => String(i?.id)));
+            const emFalta = remoto.filter((i) => i && i.id !== null && i.id !== undefined && !idsAGravar.has(String(i.id)) && !ELIMINACOES_INTENCIONAIS.has(String(i.id)));
+            if (emFalta.length > 0) {
+              paraGravar = [...paraGravar, ...emFalta];
+              repostoPeloEscudo = true;
+              console.warn(`Escudo dos atletas: repostos ${emFalta.length} atleta(s) que faltavam na lista deste aparelho.`);
+            }
+          }
           if (arrayVazioSuspeito && Array.isArray(remoto) && remoto.length > 0) {
             if (jaBloqueouVazioAntes.current) {
               // Já bloqueámos esta mesma situação uma vez antes, e a
@@ -894,7 +915,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
           } else if (!arrayVazioSuspeito) {
             jaBloqueouVazioAntes.current = false;
           }
-          return { paraGravar, houveConflito: houveConflito || (arrayVazioSuspeito && paraGravar === remoto) };
+          return { paraGravar, houveConflito: houveConflito || repostoPeloEscudo || (arrayVazioSuspeito && paraGravar === remoto) };
         })
         .catch(() => ({ paraGravar: valor, houveConflito: false }))
         .then(({ paraGravar, houveConflito }) => {
@@ -15573,6 +15594,7 @@ export default function CatumbelaGymApp() {
     setPagamentosFeitos((atual) => atual.filter((p) => !numerosDocumentos.includes(p.numero)));
     setMovimentosCaixa((atual) => atual.filter((m) => !numerosDocumentos.includes(m.origemNumero)));
     setMovimentosBancarios((atual) => atual.filter((m) => !numerosDocumentos.includes(m.origemNumero)));
+    marcarEliminacaoIntencional(id);
     setMembros((atual) => atual.filter((m) => m.id !== id));
     setContas((atual) => atual.filter((c) => !(c.perfil === "membro" && c.membroId === id)));
     setComprasMembros((atual) => atual.filter((c) => c.membroId !== id));
