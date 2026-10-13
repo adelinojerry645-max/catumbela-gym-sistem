@@ -471,7 +471,15 @@ function marcarEliminacaoIntencional(id) { ELIMINACOES_INTENCIONAIS.add(String(i
 function guardarBaseSincronizada(chave, valor) {
   try {
     const atual = carregarBaseSincronizada();
-    atual[chave] = valor;
+    // A base serve para detetar eliminações ao fundir dados. Guardá-la TODA
+    // duplicava o tamanho dos dados no aparelho e enchia o espaço do navegador
+    // (telemóveis têm só ~5 MB). Só guardamos a dos atletas e das listas
+    // pequenas; as listas grandes (recibos, auditoria, acessos...) só vão
+    // crescendo, e sem base fundem-se na mesma por união.
+    let texto = null;
+    try { texto = JSON.stringify(valor); } catch { texto = null; }
+    if (texto !== null && (chave === "membros" || texto.length <= 100000)) atual[chave] = valor;
+    else delete atual[chave];
     window.localStorage.setItem(CHAVE_BASE_SINCRONIZADA, JSON.stringify(atual));
   } catch {
     // se não conseguir guardar a base, a próxima sincronização continua a
@@ -836,7 +844,15 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     try {
       const atual = carregarEstadoGuardado();
       atual[chave] = valor;
-      window.localStorage.setItem(CHAVE_ARMAZENAMENTO_ATUAL, JSON.stringify(atual));
+      const texto = JSON.stringify(atual);
+      try {
+        window.localStorage.setItem(CHAVE_ARMAZENAMENTO_ATUAL, texto);
+      } catch (e1) {
+        // Espaço cheio: liberta primeiro a cópia auxiliar (a base de fusão), que
+        // se pode refazer, e tenta de novo antes de avisar.
+        window.localStorage.removeItem(CHAVE_BASE_SINCRONIZADA);
+        window.localStorage.setItem(CHAVE_ARMAZENAMENTO_ATUAL, texto);
+      }
     } catch (e) {
       console.warn("Não foi possível guardar os dados localmente:", e);
       window.dispatchEvent(new CustomEvent("catumbela:erro-armazenamento", { detail: e }));
@@ -14749,7 +14765,11 @@ export default function CatumbelaGymApp() {
   // computadores a mexer nos mesmos dados quase ao mesmo tempo). A deteção
   // já existia mas nunca mostrava nada — agora avisa mesmo.
   useEffect(() => {
-    const aoDetetarConflito = (e) => setAvisoConflito(e.detail?.chave || "dados");
+    const aoDetetarConflito = (e) => {
+      // A auditoria só acrescenta linhas e junta-se sozinha — não vale a pena assustar.
+      if (e.detail?.chave === "auditLog") return;
+      setAvisoConflito(e.detail?.chave || "dados");
+    };
     window.addEventListener("catumbela:conflito-sincronizacao", aoDetetarConflito);
     return () => window.removeEventListener("catumbela:conflito-sincronizacao", aoDetetarConflito);
   }, []);
