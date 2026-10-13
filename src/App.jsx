@@ -458,6 +458,13 @@ function carregarBaseSincronizada() {
 // o escudo de gravação (ver usePersistente): qualquer outro atleta que exista
 // no servidor mas falte na lista que vamos gravar é reposto, porque quase de
 // certeza é uma lista incompleta (aparelho desatualizado), não uma eliminação.
+// Coleções cujos dados do servidor já chegaram a este aparelho (para o ecrã
+// inicial não mostrar números provisórios que depois "saltam").
+const COLECOES_CARREGADAS = new Set();
+function marcarColecaoCarregada(chave) {
+  COLECOES_CARREGADAS.add(chave);
+  try { window.dispatchEvent(new Event("catumbela-colecao-carregada")); } catch { /* ignora */ }
+}
 const ELIMINACOES_INTENCIONAIS = new Set();
 function marcarEliminacaoIntencional(id) { ELIMINACOES_INTENCIONAIS.add(String(id)); }
 
@@ -750,6 +757,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             }
           }
           if (!cancelado) setStatusSync?.("ligado");
+          if (!cancelado) marcarColecaoCarregada(chave);
         })
         .catch(() => {
           // sem rede, tabela ainda não criada, ou Supabase por configurar.
@@ -1436,7 +1444,7 @@ function Card({ title, action, children, className = "" }) {
 // ---------------------------------------------------------------------
 // TELAS
 // ---------------------------------------------------------------------
-function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos, avisosEnviados, onMarcarEnviado, faturas, planos }) {
+function Dashboard({ aSincronizar: aLigar, membros, produtos, pagamentosFeitos, acessos, custos, perfil, dadosGinasio, movimentosCaixa, movimentosBancarios, equipamentos, avisosEnviados, onMarcarEnviado, faturas, planos }) {
   const [aEnviarEmMassaVencidos, setAEnviarEmMassaVencidos] = useState(false);
   const mensagemVencido = (m) =>
     `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym está vencida desde ${m.vencimento}. Pode regularizar quando puder 💪`;
@@ -1446,8 +1454,25 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
     .map((m) => ({ membro: m }));
 
   const total = membros.length;
-  const ativos = membros.filter((m) => m.estado === "ativo").length;
-  const vencidos = membros.filter((m) => m.estado === "vencido").length;
+  const [membrosChegaram, setMembrosChegaram] = useState(() => COLECOES_CARREGADAS.has("membros"));
+  useEffect(() => {
+    const ver = () => setMembrosChegaram(COLECOES_CARREGADAS.has("membros"));
+    window.addEventListener("catumbela-colecao-carregada", ver);
+    ver();
+    const limite = setTimeout(() => setMembrosChegaram(true), 6000); // nunca fica preso
+    return () => { clearTimeout(limite); window.removeEventListener("catumbela-colecao-carregada", ver); };
+  }, []);
+  // "…" só enquanto a ligar; sem rede mostra logo os dados deste aparelho.
+  const aSincronizar = aLigar && !membrosChegaram;
+  // Estado calculado pela data de hoje (não depende do campo guardado), para o
+  // número estar certo logo ao abrir, sem "saltar" até a app acertar os estados.
+  const hojeContagem = dataLocalISO(new Date());
+  const estadoReal = (m) =>
+    m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado" || !m.vencimento
+      ? m.estado
+      : (m.vencimento <= hojeContagem ? "vencido" : "ativo");
+  const ativos = membros.filter((m) => estadoReal(m) === "ativo").length;
+  const vencidos = membros.filter((m) => estadoReal(m) === "vencido").length;
   const stockBaixo = produtos.filter((p) => p.stock <= p.minimo).length;
 
   const receitaMensalidades = pagamentosFeitos.filter((p) => p.tipo === "mensalidade").reduce((s, p) => s + p.valor, 0);
@@ -1552,9 +1577,9 @@ function Dashboard({ membros, produtos, pagamentosFeitos, acessos, custos, perfi
     <div className="space-y-5">
       {/* Cartões principais — estilo grande, empilhado */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${perfil === "administrador" ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
-        <CartaoDashboard icon={Users} tone="violet" titulo="Total de Membros" subtitulo="Total de membros cadastrados" valor={total} />
-        <CartaoDashboard icon={UserCog} tone="emerald" titulo="Membros Ativos" subtitulo="Total de membros com assinatura ativa" valor={ativos} />
-        <CartaoDashboard icon={AlertTriangle} tone="red" titulo="Membros Expirados" subtitulo="Total de membros com assinatura expirada" valor={vencidos} />
+        <CartaoDashboard icon={Users} tone="violet" titulo="Total de Membros" subtitulo="Total de membros cadastrados" valor={aSincronizar ? "…" : total} />
+        <CartaoDashboard icon={UserCog} tone="emerald" titulo="Membros Ativos" subtitulo="Total de membros com assinatura ativa" valor={aSincronizar ? "…" : ativos} />
+        <CartaoDashboard icon={AlertTriangle} tone="red" titulo="Membros Expirados" subtitulo="Total de membros com assinatura expirada" valor={aSincronizar ? "…" : vencidos} />
         <CartaoDashboard icon={CheckCircle2} tone="amber" titulo="Check-ins Hoje" subtitulo="Total de check-ins registados hoje" valor={checkinsHoje.length} />
         {perfil === "administrador" && (
           <CartaoDashboard icon={TrendingUp} tone={lucro >= 0 ? "emerald" : "red"} titulo="Lucro Líquido" subtitulo="Receitas menos custos registados" valor={kz(lucro)} />
@@ -17569,7 +17594,7 @@ export default function CatumbelaGymApp() {
             <div className="mb-4"><ProdutosAtendidosOntem faturas={faturas} nomeAtual={contaAtual?.nome} /></div>
           )}
           {telaAtual === "dashboard" && (
-            <Dashboard membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} faturas={faturas} planos={planos} />
+            <Dashboard aSincronizar={statusSync !== "offline" && !!import.meta.env?.VITE_SUPABASE_URL} membros={membros} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} custos={custos} perfil={perfil} dadosGinasio={dadosGinasio} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} equipamentos={equipamentos} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} faturas={faturas} planos={planos} />
           )}
           {telaAtual === "membros" && (
             <Membros
