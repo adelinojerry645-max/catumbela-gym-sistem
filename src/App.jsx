@@ -11280,7 +11280,7 @@ function vencimentoEfetivoDoMembro(membro, faturas, planos) {
   return {
     plano: maisRecente.planoSubscricao,
     vencimento: maisRecente.vencimentoSubscricao,
-    estado: maisRecente.vencimentoSubscricao < hojeStr ? "vencido" : "ativo",
+    estado: maisRecente.vencimentoSubscricao <= hojeStr ? "vencido" : "ativo",
     temRecibo: true,
   };
 }
@@ -14799,7 +14799,7 @@ export default function CatumbelaGymApp() {
         let mudouAlgumaCoisa = false;
         const novo = atual.map((m) => {
           if (m.estado === "suspenso" || m.estado === "pausada" || m.estado === "cancelado" || !m.vencimento) return m;
-          const novoEstado = m.vencimento < hojeStr ? "vencido" : "ativo";
+          const novoEstado = m.vencimento <= hojeStr ? "vencido" : "ativo";
           if (m.estado === novoEstado) return m;
           mudouAlgumaCoisa = true;
           return { ...m, estado: novoEstado };
@@ -15092,7 +15092,7 @@ export default function CatumbelaGymApp() {
         if (!d) return m;
         const plano = d.ultimo.planoNovo;
         const vencimento = d.ultimo.vencimentoNovo;
-        return { ...m, plano, vencimento, estado: vencimento ? (vencimento < hojeStr ? "vencido" : "ativo") : "sem-subscricao" };
+        return { ...m, plano, vencimento, estado: vencimento ? (vencimento <= hojeStr ? "vencido" : "ativo") : "sem-subscricao" };
       })
     );
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
@@ -15433,7 +15433,7 @@ export default function CatumbelaGymApp() {
       dataInscricao: novo.dataInscricao || dataLocalISO(new Date()),
       dataNascimento: novo.dataNascimento || null,
       vencimento: vencimento || null,
-      estado: vencimento ? (vencimento < dataLocalISO(new Date()) ? "vencido" : "ativo") : "sem-subscricao",
+      estado: vencimento ? (vencimento <= dataLocalISO(new Date()) ? "vencido" : "ativo") : "sem-subscricao",
       assinaturaContrato: null,
       dataAssinaturaContrato: null,
     };
@@ -15476,7 +15476,7 @@ export default function CatumbelaGymApp() {
     setMembros((atual) =>
       atual.map((m) =>
         m.id === membroId
-          ? { ...m, plano, vencimento, estado: vencimento ? (vencimento < hojeStr ? "vencido" : "ativo") : "sem-subscricao" }
+          ? { ...m, plano, vencimento, estado: vencimento ? (vencimento <= hojeStr ? "vencido" : "ativo") : "sem-subscricao" }
           : m
       )
     );
@@ -15497,7 +15497,7 @@ export default function CatumbelaGymApp() {
             ? m.estado
             : !vencimento
             ? "sem-subscricao"
-            : vencimento < hojeStr
+            : vencimento <= hojeStr
             ? "vencido"
             : "ativo";
         return {
@@ -15613,7 +15613,7 @@ export default function CatumbelaGymApp() {
         if (m.id !== id) return m;
         const hojeStr = dataLocalISO(new Date());
         const { estadoAntesCancelar, ...resto } = m;
-        const estadoRestaurado = estadoAntesCancelar || (!m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo");
+        const estadoRestaurado = estadoAntesCancelar || (!m.vencimento ? "sem-subscricao" : m.vencimento <= hojeStr ? "vencido" : "ativo");
         return { ...resto, estado: estadoRestaurado };
       })
     );
@@ -15638,7 +15638,7 @@ export default function CatumbelaGymApp() {
         }
         const hojeStr = dataLocalISO(new Date());
         const { estadoAntesSuspender, ...resto } = m;
-        const estadoRestaurado = !m.vencimento ? "sem-subscricao" : m.vencimento < hojeStr ? "vencido" : "ativo";
+        const estadoRestaurado = !m.vencimento ? "sem-subscricao" : m.vencimento <= hojeStr ? "vencido" : "ativo";
         return { ...resto, estado: estadoRestaurado };
       })
     );
@@ -16084,7 +16084,7 @@ export default function CatumbelaGymApp() {
           const { vencimentoAnterior, planoAnterior, ultimoReciboNumero, ...resto } = m;
           const novoVencimento = vencimentoAnterior || null;
           const novoPlano = planoAnterior || null;
-          const novoEstado = !novoVencimento ? "sem-subscricao" : novoVencimento < hojeStr ? "vencido" : "ativo";
+          const novoEstado = !novoVencimento ? "sem-subscricao" : novoVencimento <= hojeStr ? "vencido" : "ativo";
           return { ...resto, plano: novoPlano, vencimento: novoVencimento, estado: novoEstado };
         })
       );
@@ -16200,7 +16200,7 @@ export default function CatumbelaGymApp() {
           vencimentoAnterior: m.vencimento,
           ultimoReciboNumero: documento.numero,
           plano: pendente.planoNome || m.plano,
-          estado: novoVencimento < hojeStr ? "vencido" : "ativo",
+          estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
           vencimento: novoVencimento,
           ...(valorTaxa > 0 ? { taxaInscricaoPaga: true, taxaInscricaoPendente: 0 } : {}),
         };
@@ -16284,7 +16284,7 @@ export default function CatumbelaGymApp() {
           ultimoReciboNumero: documento?.numero || null,
           plano: novoPlanoNome,
           vencimento: novoVencimento,
-          estado: novoVencimento < hojeStr ? "vencido" : "ativo",
+          estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
         };
       })
     );
@@ -16329,7 +16329,7 @@ export default function CatumbelaGymApp() {
           ultimoReciboNumero: numeroRecibo || null,
           plano: nomePlanoPago,
           vencimento: novoVencimento,
-          estado: novoVencimento < hojeStr ? "vencido" : "ativo",
+          estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
         };
       })
     );
@@ -16359,7 +16359,7 @@ export default function CatumbelaGymApp() {
             ...resto,
             plano: planoAnterior || m.plano,
             vencimento: vencimentoAnterior,
-            estado: vencimentoAnterior < hojeStr ? "vencido" : "ativo",
+            estado: vencimentoAnterior <= hojeStr ? "vencido" : "ativo",
           };
         })
       );
@@ -16407,7 +16407,7 @@ export default function CatumbelaGymApp() {
       atual.map((m) => {
         if (m.id !== membroId) return m;
         const recalcula = m.estado === "ativo" || m.estado === "vencido";
-        return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois < hojeStr ? "vencido" : "ativo") : m.estado };
+        return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois <= hojeStr ? "vencido" : "ativo") : m.estado };
       })
     );
     const agora = new Date();
@@ -16449,7 +16449,7 @@ export default function CatumbelaGymApp() {
         atual.map((m) => {
           if (m.id !== membro.id) return m;
           const recalcula = m.estado === "ativo" || m.estado === "vencido";
-          return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois < hojeStr ? "vencido" : "ativo") : m.estado };
+          return { ...m, vencimento: vencimentoDepois, estado: recalcula ? (vencimentoDepois <= hojeStr ? "vencido" : "ativo") : m.estado };
         })
       );
       registarHistoricoSubscricao(membro, {
@@ -16527,7 +16527,7 @@ export default function CatumbelaGymApp() {
       atual.map((m) => {
         if (m.id !== membroId) return m;
         const { dataPausa, estadoAntesPausa, ...resto } = m;
-        return { ...resto, vencimento: novoVencStr, estado: novoVencStr < hojeStr ? "vencido" : "ativo" };
+        return { ...resto, vencimento: novoVencStr, estado: novoVencStr <= hojeStr ? "vencido" : "ativo" };
       })
     );
     registarAuditoria(
