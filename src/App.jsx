@@ -542,6 +542,48 @@ function useLocalOnly(chave, valorInicial) {
   return [valor, setValor];
 }
 
+// ---------------------------------------------------------------------
+// ORDEM DAS LISTAS: mais recente primeiro, sempre.
+// A ordem em que os registos ficam guardados pode misturar dias quando vários
+// aparelhos gravam. Em vez de cada ecrã ordenar à sua maneira, as listas com
+// data aparecem sempre ordenadas pela data (e hora) do próprio registo.
+// ---------------------------------------------------------------------
+function normalizarDataHora(texto, hora) {
+  const t = String(texto || "");
+  let dia = "";
+  let h = hora ? String(hora) : "";
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (m) dia = `${m[1]}-${m[2]}-${m[3]}`;
+  else if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(t))) dia = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (!h) { const mh = /[ T](\d{1,2}):(\d{2})/.exec(t); if (mh) h = `${mh[1]}:${mh[2]}`; }
+  const hm = /^(\d{1,2}):(\d{2})/.exec(h);
+  return dia ? `${dia} ${hm ? hm[1].padStart(2, "0") + ":" + hm[2] : "00:00"}` : "";
+}
+const CHAVE_DE_ORDEM = {
+  faturas: (f) => normalizarDataHora(f.data, f.hora),
+  movimentosCaixa: (m) => normalizarDataHora(m.data),
+  movimentosBancarios: (m) => normalizarDataHora(m.data),
+  custos: (c) => normalizarDataHora(c.data),
+  acessos: (a) => normalizarDataHora(a.data, a.entrada),
+  pagamentosFeitos: (p) => normalizarDataHora(p.data),
+  auditLog: (a) => normalizarDataHora(a.data, a.hora),
+  historicoSubscricoes: (h) => normalizarDataHora(h.data, h.hora),
+  vendasProdutos: (v) => normalizarDataHora(v.data),
+  comprasMembros: (c) => normalizarDataHora(c.data),
+  fechosTurno: (f) => normalizarDataHora(f.data, f.hora),
+  avisosEnviados: (a) => normalizarDataHora(a.data, a.hora),
+  ajustesDias: (a) => normalizarDataHora(a.data, a.hora),
+};
+function ordenarPorData(chave, lista) {
+  const chaveDe = CHAVE_DE_ORDEM[chave];
+  if (!chaveDe || !Array.isArray(lista) || lista.length < 2) return lista;
+  const k = lista.map((i) => { try { return chaveDe(i || {}); } catch { return ""; } });
+  let jaOrdenada = true;
+  for (let i = 1; i < k.length; i++) if (k[i - 1] < k[i]) { jaOrdenada = false; break; }
+  if (jaOrdenada) return lista; // mesma referência: nada muda
+  return lista.map((item, i) => ({ item, k: k[i] })).sort((a, b) => (a.k < b.k ? 1 : a.k > b.k ? -1 : 0)).map((x) => x.item);
+}
+
 // Guarda localmente E sincroniza com a tabela `estado_app` no Supabase —
 // usado para os dados reais do ginásio (membros, planos, pagamentos, etc.)
 function usePersistente(chave, valorInicial, setStatusSync) {
@@ -1010,7 +1052,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     setValor(atualizador);
   };
 
-  return [valor, setValor, adicionarItemSeguro, definirSemGravar];
+  const valorOrdenado = useMemo(() => ordenarPorData(chave, valor), [chave, valor]);
+  return [valorOrdenado, setValor, adicionarItemSeguro, definirSemGravar];
 }
 
 // Gera um identificador único para esta sessão/dispositivo — usado para
