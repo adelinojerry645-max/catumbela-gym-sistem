@@ -2825,14 +2825,16 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       .catch(() => alert("Não foi possível processar esta imagem. Tenta outra."));
   };
 
-  const confirmar = () => {
+  const confirmar = async () => {
     if (!nome || !valor || Number(valor) <= 0) return;
     // Proteção contra duplo clique. NÃO repõe a trava no final (só ao
     // reiniciar o formulário) — ver a explicação detalhada no mesmo padrão
     // em "criarMembroRapido" (Balcão).
     if (aConfirmarRef.current) return;
     aConfirmarRef.current = true;
-    const documento = onRegistarAvulso({
+    let documento;
+    try {
+      documento = await onRegistarAvulso({
       nome,
       telefone,
       descricao: descricao || "Entrada avulsa",
@@ -2841,6 +2843,11 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       contaBancariaId: (metodo === "transferencia" || metodo === "express" || metodo === "tpa") ? contaBancariaId : undefined,
       comprovativo,
     });
+    } catch (erro) {
+      aConfirmarRef.current = false; // deixa tentar de novo
+      alert("Não foi possível registar o pagamento. Tente outra vez.");
+      return;
+    }
     setRecibo(documento);
   };
 
