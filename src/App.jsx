@@ -7208,12 +7208,18 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   // administrador vê o histórico completo.
   const faturasVisiveis = perfil === "administrador" ? faturas : faturas.filter((f) => f.registadoPor === nomeAtual);
 
+  // Mais recentes primeiro, sempre — pela data e hora do documento (a ordem em
+  // que ficaram guardados pode misturar dias quando vários aparelhos gravam).
+  const chaveOrdem = (f) => {
+    const [d, m, a] = String(f.data || "").split("/");
+    return `${a || "0000"}${(m || "00").padStart(2, "0")}${(d || "00").padStart(2, "0")} ${f.hora || "00:00"}`;
+  };
   const filtrados = faturasVisiveis.filter((f) => {
     const bateTipo = filtroTipo === "TODOS" || f.tipo === filtroTipo;
     const q = pesquisa.trim().toLowerCase();
     const bateTexto = !q || f.membro.nome.toLowerCase().includes(q) || f.numero.toLowerCase().includes(q);
     return bateTipo && bateTexto;
-  });
+  }).sort((a, b) => chaveOrdem(b).localeCompare(chaveOrdem(a)) || String(b.numero).localeCompare(String(a.numero)));
 
   return (
     <Card title={`Histórico de documentos (${faturasVisiveis.length})`}>
@@ -7655,7 +7661,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
           <div className="mt-5">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Documentos emitidos recentemente</p>
             <div className="divide-y divide-slate-50 dark:divide-slate-700">
-              {faturas.slice(0, 6).map((f) => (
+              {[...faturas].sort((a, b) => { const k = (f) => { const [d, m, y] = String(f.data || "").split("/"); return `${y || "0000"}${(m || "00").padStart(2, "0")}${(d || "00").padStart(2, "0")} ${f.hora || "00:00"}`; }; return k(b).localeCompare(k(a)) || String(b.numero).localeCompare(String(a.numero)); }).slice(0, 6).map((f) => (
                 <div key={f.numero} className="flex items-center justify-between py-2 text-sm">
                   <div>
                     <span className="text-slate-600 dark:text-slate-300">{f.numero} · {f.membro.nome}</span>
