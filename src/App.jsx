@@ -4560,8 +4560,12 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                 ) : (
                   <button
                     onClick={() => {
-                      const membroDoAcesso = membros.find((m) => m.numero === a.numero);
-                      if (membroDoAcesso) onRegistarSaida(membroDoAcesso);
+                      // Se a ficha do atleta não estiver na lista (ex.: desapareceu por
+                      // um problema de sincronização), fecha a entrada na mesma —
+                      // antes este botão não fazia nada e a pessoa ficava "dentro".
+                      const membroDoAcesso = membros.find((m) => m.numero === a.numero)
+                        || { id: null, numero: a.numero, nome: a.membro, _semFicha: true };
+                      onRegistarSaida(membroDoAcesso);
                     }}
                     title="Clica para registar a saída agora"
                     className="text-xs text-amber-600 dark:text-amber-400 font-medium hover:underline hover:text-amber-700 dark:hover:text-amber-300"
@@ -17150,7 +17154,7 @@ export default function CatumbelaGymApp() {
     // cobrar uma taxa a partir desse número errado seria pior do que não
     // cobrar nada.
     const limiteHoras = Number(dadosGinasio.limiteHorasSessao) || 2;
-    const valorTaxa = Number(dadosGinasio.taxaSessaoLonga) || 0;
+    const valorTaxa = membro._semFicha ? 0 : (Number(dadosGinasio.taxaSessaoLonga) || 0);
     const horasSessao = aberta.data === hojeStr ? calcularHorasEntreHorarios(aberta.entrada, horaSaida) : 0;
     let numeroFaturaTaxa = null;
 
