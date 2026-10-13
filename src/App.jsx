@@ -10483,6 +10483,7 @@ function useAtualizacaoAutomatica() {
     const minha = versaoDoSite();
     if (minha === "dev") return undefined;
     let aviso = null;
+    let adiadoAte = 0;
     let escondidoDesde = null;
     const recarregarSePermitido = () => {
       try {
@@ -10495,16 +10496,28 @@ function useAtualizacaoAutomatica() {
     };
     const mostrarAviso = () => {
       if (aviso) return;
+      // Ecrã bem visível a pedir para atualizar (a pessoa pode adiar 2 minutos).
       aviso = document.createElement("div");
       aviso.style.cssText =
-        "position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#0f766e;color:#fff;padding:12px 14px;border-radius:12px;font:600 14px system-ui,sans-serif;display:flex;gap:10px;align-items:center;justify-content:space-between;box-shadow:0 6px 24px rgba(0,0,0,.3)";
-      const texto = document.createElement("span");
-      texto.textContent = "Há uma versão nova do sistema. Atualize para não perder dados.";
+        "position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.75);display:flex;align-items:center;justify-content:center;padding:16px;font-family:system-ui,sans-serif";
+      const caixa = document.createElement("div");
+      caixa.style.cssText = "background:#fff;color:#0f172a;border-radius:16px;padding:24px;max-width:380px;width:100%;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.4)";
+      const titulo = document.createElement("div");
+      titulo.textContent = "Atualização disponível";
+      titulo.style.cssText = "font-size:20px;font-weight:800;margin-bottom:8px";
+      const texto = document.createElement("div");
+      texto.textContent = "Há uma versão nova do sistema. Carregue em “Atualizar agora” para não perder dados.";
+      texto.style.cssText = "font-size:15px;margin-bottom:18px;line-height:1.4";
       const botao = document.createElement("button");
       botao.textContent = "Atualizar agora";
-      botao.style.cssText = "background:#fff;color:#0f766e;border:0;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;white-space:nowrap";
+      botao.style.cssText = "background:#0f766e;color:#fff;border:0;border-radius:10px;padding:14px 18px;font-size:16px;font-weight:700;cursor:pointer;width:100%";
       botao.onclick = () => window.location.reload();
-      aviso.append(texto, botao);
+      const depois = document.createElement("button");
+      depois.textContent = "Mais tarde";
+      depois.style.cssText = "background:transparent;color:#64748b;border:0;margin-top:10px;padding:8px;font-size:13px;cursor:pointer";
+      depois.onclick = () => { aviso.remove(); aviso = null; adiadoAte = Date.now() + 2 * 60 * 1000; };
+      caixa.append(titulo, texto, botao, depois);
+      aviso.appendChild(caixa);
       document.body.appendChild(aviso);
     };
     const verificar = async () => {
@@ -10515,7 +10528,7 @@ function useAtualizacaoAutomatica() {
         if (!m || m[1] === minha) return;
         const ficouFora = escondidoDesde && Date.now() - escondidoDesde > 30 * 1000;
         if (ficouFora && recarregarSePermitido()) return;
-        mostrarAviso();
+        if (Date.now() >= adiadoAte) mostrarAviso();
       } catch { /* sem rede: tenta mais tarde */ }
     };
     const aoMudarVisibilidade = () => {
@@ -10523,7 +10536,7 @@ function useAtualizacaoAutomatica() {
       else { verificar(); escondidoDesde = null; }
     };
     const primeira = setTimeout(verificar, 8000);
-    const intervalo = setInterval(verificar, 5 * 60 * 1000);
+    const intervalo = setInterval(verificar, 60 * 1000);
     document.addEventListener("visibilitychange", aoMudarVisibilidade);
     return () => {
       clearTimeout(primeira);
