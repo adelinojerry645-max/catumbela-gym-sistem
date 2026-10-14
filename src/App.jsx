@@ -2231,7 +2231,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   const [aCancelar, setACancelar] = useState(null);
   const [advertindoMembro, setAdvertindoMembro] = useState(null);
   const [definindoMetaDe, setDefinindoMetaDe] = useState(null);
-  const vazio = { nome: "", telefone: "", plano: planos[0]?.nome || "", foto: null, email: "", senha: "", dataInscricao: "", vencimento: "", taxaInscricao: "", metodoTaxaInscricao: "dinheiro", dataNascimento: "", assinaturaContrato: null };
+  const vazio = { nome: "", telefone: "", plano: planos[0]?.nome || "", foto: null, email: "", senha: "", dataInscricao: "", vencimento: "", taxaInscricao: "", metodoTaxaInscricao: "dinheiro", dataNascimento: "", sexo: "", assinaturaContrato: null };
   const [novo, setNovo] = useState(vazio);
   const aSubmeterRef = useRef(false); // trava de duplo-clique ao gravar novo membro
 
@@ -2267,7 +2267,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
       nome: m.nome, telefone: m.telefone, plano: m.plano, foto: m.foto || null,
       email: contaLigada?.email || "", senha: "",
       dataInscricao: m.dataInscricao || "", vencimento: m.vencimento || "",
-      dataNascimento: m.dataNascimento || "", assinaturaContrato: m.assinaturaContrato || null,
+      dataNascimento: m.dataNascimento || "", sexo: m.sexo || "", assinaturaContrato: m.assinaturaContrato || null,
     });
     setShowForm(true);
   };
@@ -2462,6 +2462,15 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Telefone</label>
                 <input value={novo.telefone} onChange={(e) => setNovo({ ...novo, telefone: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Sexo (para o Melhor Atleta de homens e de mulheres)</label>
+                <select value={novo.sexo || ""} onChange={(e) => setNovo({ ...novo, sexo: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                  <option value="">Não definido</option>
+                  <option value="M">Homem</option>
+                  <option value="F">Mulher</option>
+                </select>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Data de nascimento (opcional)</label>
@@ -3715,6 +3724,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
   const [aCriarNovo, setACriarNovo] = useState(false);
   const [novoNome, setNovoNome] = useState("");
   const [novoTelefone, setNovoTelefone] = useState("");
+  const [novoSexo, setNovoSexo] = useState("");
   const [taxaInscricaoValor, setTaxaInscricaoValor] = useState(dadosGinasio?.taxaInscricaoPadrao ? String(dadosGinasio.taxaInscricaoPadrao) : "");
   const [taxaInscricaoMetodo, setTaxaInscricaoMetodo] = useState("dinheiro");
   const [taxaInscricaoContaId, setTaxaInscricaoContaId] = useState("");
@@ -3814,11 +3824,12 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     aCriarRapidoRef.current = true;
     try {
       const resultado = await onCriarMembro({
-        nome: novoNome.trim(), telefone: novoTelefone.trim(),
+        nome: novoNome.trim(), telefone: novoTelefone.trim(), sexo: novoSexo,
         taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
       });
       setNovoNome("");
       setNovoTelefone("");
+      setNovoSexo("");
       if (resultado?.membro) selecionar(resultado.membro);
     } catch (erro) {
       aCriarRapidoRef.current = false;
@@ -4070,6 +4081,15 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Telefone</label>
               <input value={novoTelefone} onChange={(e) => setNovoTelefone(e.target.value)}
                 className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Sexo</label>
+              <select value={novoSexo} onChange={(e) => setNovoSexo(e.target.value)}
+                className="w-full mt-1 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]">
+                <option value="">Não definido</option>
+                <option value="M">Homem</option>
+                <option value="F">Mulher</option>
+              </select>
             </div>
             <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Taxa de inscrição (matrícula)</p>
@@ -4958,7 +4978,7 @@ function MeusAlunos({ trainer, membros, avaliacoesFisicas, planosTreino, onAdici
 
 const CARGOS_FUNCIONARIO_GERAL = ["Limpeza", "Segurança", "Manutenção", "Cozinha/Bar", "Outro"];
 
-function Funcionarios({ contas, funcionariosGerais, onAdicionarFuncionario, onEditarFuncionario, onRemoverFuncionario, onPagarSalario, contasBancarias, podeGerir }) {
+function Funcionarios({ contas, funcionariosGerais, salariosContas, onDefinirSalarioConta, onAdicionarFuncionario, onEditarFuncionario, onRemoverFuncionario, onPagarSalario, contasBancarias, podeGerir }) {
   const funcionarios = contas.filter((c) => c.perfil === "recepcionista" || c.perfil === "personal_trainer");
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -4968,6 +4988,9 @@ function Funcionarios({ contas, funcionariosGerais, onAdicionarFuncionario, onEd
   const [aPagar, setAPagar] = useState(null); // funcionário selecionado
   const [pagoDe, setPagoDe] = useState("caixa");
   const [contaBancariaId, setContaBancariaId] = useState("");
+  const [aDefinirSalario, setADefinirSalario] = useState(null); // { id, nome }
+  const [valorSalario, setValorSalario] = useState("");
+  const salarioDaConta = (id) => (salariosContas || []).find((x) => x.id === id) || null;
 
   const abrirNovo = () => { setNovo(vazio); setEditandoId(null); setShowForm(true); };
   const abrirEdicao = (f) => {
@@ -5011,18 +5034,46 @@ function Funcionarios({ contas, funcionariosGerais, onAdicionarFuncionario, onEd
                 <th className="pb-2 font-medium">Nome</th>
                 <th className="pb-2 font-medium">E-mail</th>
                 <th className="pb-2 font-medium">Cargo</th>
+                <th className="pb-2 font-medium text-right">Salário</th>
+                <th className="pb-2 font-medium">Último pagamento</th>
+                {podeGerir && <th className="pb-2 font-medium"></th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-              {funcionarios.map((f) => (
+              {funcionarios.map((f) => {
+                const sal = salarioDaConta(f.id);
+                const salario = Number(sal?.salario) || 0;
+                return (
                 <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
                   <td className="py-2.5 font-medium text-slate-900 dark:text-slate-100">{f.nome}</td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{f.email}</td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{ROTULO_PERFIL[f.perfil]}</td>
+                  <td className="py-2.5 text-right text-slate-600 dark:text-slate-300">{salario > 0 ? kz(salario) : "—"}</td>
+                  <td className="py-2.5">
+                    {sal?.ultimoPagamento === mesAtual ? (
+                      <span className="text-xs font-semibold text-emerald-600">Pago este mês</span>
+                    ) : (
+                      <span className="text-xs text-slate-400 dark:text-slate-500">{sal?.ultimoPagamento ? `Último: ${sal.ultimoPagamento}` : "Ainda não pago"}</span>
+                    )}
+                  </td>
+                  {podeGerir && (
+                    <td className="py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {salario > 0 && sal?.ultimoPagamento !== mesAtual && (
+                          <button onClick={() => abrirPagar({ id: f.id, nome: f.nome, salario })} className="text-[11px] font-semibold text-white bg-[#3F8F87] hover:bg-[#357A73] px-2.5 py-1 rounded-full">
+                            Pagar salário
+                          </button>
+                        )}
+                        <button onClick={() => { setADefinirSalario({ id: f.id, nome: f.nome }); setValorSalario(salario > 0 ? String(salario) : ""); }}
+                          className="text-slate-400 hover:text-[#3F8F87]" title="Definir salário"><Pencil size={14} /></button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              ))}
+                );
+              })}
               {funcionarios.length === 0 && (
-                <tr><td colSpan={3} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há funcionários inscritos. Cria contas em Configurações → Utilizadores.</td></tr>
+                <tr><td colSpan={podeGerir ? 6 : 5} className="py-6 text-center text-slate-400 dark:text-slate-500">Ainda não há funcionários inscritos. Cria contas em Configurações → Utilizadores.</td></tr>
               )}
             </tbody>
           </table>
@@ -5123,6 +5174,24 @@ function Funcionarios({ contas, funcionariosGerais, onAdicionarFuncionario, onEd
             <button type="submit" className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">
               {editandoId ? "Guardar alterações" : "Adicionar colaborador"}
             </button>
+          </form>
+        </div>
+      )}
+
+      {aDefinirSalario && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <form onSubmit={(e) => { e.preventDefault(); const v = Number(valorSalario); if (!(v > 0)) return; onDefinirSalarioConta(aDefinirSalario.id, v); setADefinirSalario(null); }}
+            className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-sm space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">Salário — {aDefinirSalario.nome}</h3>
+              <button type="button" onClick={() => setADefinirSalario(null)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Salário mensal (Kz)</label>
+              <input type="number" min="0" value={valorSalario} onChange={(e) => setValorSalario(e.target.value)} required autoFocus
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+            </div>
+            <button type="submit" className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">Guardar salário</button>
           </form>
         </div>
       )}
@@ -11797,10 +11866,13 @@ function RelatorioHorarioColaboradores({ contas, registosPonto, dadosGinasio, on
   );
 }
 
-function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar }) {
+function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, onDefinirSexo }) {
   const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
+  // Homens e mulheres têm cada um o seu melhor atleta (os homens costumam treinar
+  // mais, por isso competir todos juntos não era justo).
+  const [categoriaEscolhida, setCategoria] = useState(null); // "M" | "F" | "sem" (null = automático)
 
-  const ranking = useMemo(() => {
+  const rankingTodos = useMemo(() => {
     const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
     return membros
       .map((m) => {
@@ -11863,6 +11935,12 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       });
   }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, dadosGinasio]);
 
+  const contagemCategoria = { M: 0, F: 0, sem: 0 };
+  rankingTodos.forEach((r) => { contagemCategoria[r.membro.sexo === "M" || r.membro.sexo === "F" ? r.membro.sexo : "sem"] += 1; });
+  // Enquanto ninguém tem o sexo definido, abre logo em "Sem sexo definido" para o poder preencher.
+  const categoria = categoriaEscolhida || (contagemCategoria.M + contagemCategoria.F === 0 && contagemCategoria.sem > 0 ? "sem" : "M");
+  const ranking = rankingTodos.filter((r) => (categoria === "sem" ? r.membro.sexo !== "M" && r.membro.sexo !== "F" : r.membro.sexo === categoria));
+  const rotuloCat = categoria === "F" ? "Mulheres" : categoria === "M" ? "Homens" : "Sem sexo definido";
   const vencedor = ranking[0];
   const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
   const [aVerCartaz, setAVerCartaz] = useState(false);
@@ -11880,7 +11958,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       ...(vencedor.reducaoGordura > 0 ? [{ label: "Redução de gordura", valor: `-${vencedor.reducaoGordura.toFixed(1)}%` }] : []),
     ];
     const iniciais = vencedor.membro.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
-    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
+    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
     return (
       <div className="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
         <div className="flex items-center justify-center gap-2 py-4 print:hidden flex-wrap">
@@ -11968,7 +12046,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             )}
             {ranking.length > 0 && vencedor.membro.telefone && (
               <a
-                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2"
               >
@@ -11986,7 +12064,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Melhor atleta de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Melhor atleta ({rotuloCat}) de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
           </div>
         </div>
 
@@ -11995,6 +12073,28 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
           <input type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
         </div>
 
+        <div className="print:hidden flex flex-wrap gap-2 mb-4">
+          {[["M", "Homens"], ["F", "Mulheres"], ...(contagemCategoria.sem > 0 ? [["sem", "Sem sexo definido"]] : [])].map(([id, rotulo]) => (
+            <button key={id} onClick={() => setCategoria(id)}
+              className={`text-sm font-semibold rounded-full px-4 py-1.5 ${categoria === id ? "bg-[#3F8F87] text-white" : "ring-1 ring-slate-200 text-slate-600"}`}>
+              {rotulo} ({contagemCategoria[id]})
+            </button>
+          ))}
+        </div>
+        {categoria === "sem" && ranking.length > 0 && (
+          <div className="print:hidden bg-slate-50 rounded-xl p-3 mb-4 text-sm">
+            <p className="text-xs text-slate-500 mb-2">Escolha o sexo de cada atleta. Fica guardado na ficha e só precisa de fazer isto uma vez.</p>
+            {ranking.map((r) => (
+              <div key={r.membro.id} className="flex items-center justify-between py-1">
+                <span>{r.membro.nome}</span>
+                <span className="flex gap-1.5">
+                  <button onClick={() => onDefinirSexo?.(r.membro.id, "M")} className="text-xs font-semibold rounded-full px-3 py-1 bg-sky-600 text-white">Homem</button>
+                  <button onClick={() => onDefinirSexo?.(r.membro.id, "F")} className="text-xs font-semibold rounded-full px-3 py-1 bg-pink-600 text-white">Mulher</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         {ranking.length === 0 ? (
           <p className="text-sm text-slate-400">
             Ainda não há dados suficientes neste mês — precisa de haver check-ins com entrada <strong>e</strong> saída
@@ -12005,7 +12105,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             <div className="bg-amber-50 ring-1 ring-amber-200 rounded-xl p-4 mb-5 flex items-center gap-4">
               <Award size={36} className="text-amber-500 shrink-0" />
               <div>
-                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta de {nomeMes}</p>
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta ({rotuloCat}) de {nomeMes}</p>
                 <p className="text-lg font-extrabold text-slate-900">{vencedor.membro.nome}</p>
                 <p className="text-sm text-slate-600">
                   {vencedor.diasTreinados} dia{vencedor.diasTreinados === 1 ? "" : "s"} treinados · {vencedor.horasTreino.toFixed(1)}h no total
@@ -12129,7 +12229,7 @@ function RelatorioMensalEvolucao({ mesEscolhido, resumoMensal, membros, dadosGin
   );
 }
 
-function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas, registosPonto, onReporPagamentos }) {
+function Relatorios({ membros, planos, produtos, pagamentosFeitos, acessos, contas, custos, vendasProdutos, movimentosCaixa, movimentosBancarios, dadosGinasio, historicoCargas, avaliacoesFisicas, faturas, registosPonto, onReporPagamentos, onDefinirSexo }) {
   // "Saldo inicial" é dinheiro que o ginásio já tinha antes de começar a
   // usar o sistema — conta como receita/lucro já feita.
   const saldoInicialTotal = [...movimentosCaixa, ...movimentosBancarios]
@@ -12665,6 +12765,7 @@ const exportarMembros = () => {
       {aVerMelhorAtleta && (
         <MelhorAtleta
           membros={membros} acessos={acessos} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
+          onDefinirSexo={onDefinirSexo}
           onFechar={() => setAVerMelhorAtleta(false)}
         />
       )}
@@ -14967,6 +15068,9 @@ export default function CatumbelaGymApp() {
   // — só para teres o salário deles como custo fixo no Centro de Custos,
   // sem precisarem de fazer login em lado nenhum.
   const [funcionariosGerais, setFuncionariosGerais] = usePersistente("funcionariosGerais", [], setStatusSync);
+  // Salário de quem TEM conta de acesso (recepcionista, personal trainer): fica
+  // à parte, ligado à conta pelo id — assim nunca se mexe na lista de contas.
+  const [salariosContas, setSalariosContas] = usePersistente("salariosContas", [], setStatusSync);
   const [dadosGinasio, setDadosGinasio] = usePersistente("dadosGinasio", {
     nome: "Catumbela Gym",
     morada: "",
@@ -15534,6 +15638,7 @@ export default function CatumbelaGymApp() {
       email: novo.email || null,
       dataInscricao: dataInscricaoFinal,
       dataNascimento: novo.dataNascimento || null,
+      sexo: novo.sexo || null,
       vencimento: vencimentoFinal,
       estado: estadoFinal,
       assinaturaContrato: novo.assinaturaContrato || null,
@@ -15684,6 +15789,7 @@ export default function CatumbelaGymApp() {
           foto: dados.foto || null,
           dataInscricao: dados.dataInscricao || m.dataInscricao,
           dataNascimento: dados.dataNascimento || m.dataNascimento || null,
+          sexo: dados.sexo || m.sexo || null,
           vencimento,
           estado: novoEstado,
         };
@@ -16822,8 +16928,25 @@ export default function CatumbelaGymApp() {
   // "Salários"), já ligado ao Caixa/Banco tal como qualquer outro custo, e
   // marca o mês como pago nesse colaborador, para não haver pagamentos
   // duplicados por engano no mesmo mês.
+  const definirSalarioConta = (contaId, salario) => {
+    const conta = contas.find((c) => c.id === contaId);
+    setSalariosContas((atual) => (atual.some((s) => s.id === contaId)
+      ? atual.map((s) => (s.id === contaId ? { ...s, salario } : s))
+      : [...atual, { id: contaId, salario, ultimoPagamento: null }]));
+    registarAuditoria("Definiu salário de funcionário", `${conta?.nome || contaId} — ${kz(salario)}`);
+  };
+
   const pagarSalarioFuncionario = (id, { pagoDe, contaBancariaId }) => {
-    const funcionario = funcionariosGerais.find((f) => f.id === id);
+    let funcionario = funcionariosGerais.find((f) => f.id === id);
+    let daConta = false;
+    if (!funcionario) {
+      const conta = contas.find((c) => c.id === id);
+      const sal = salariosContas.find((x) => x.id === id);
+      if (conta && sal && Number(sal.salario) > 0) {
+        funcionario = { nome: conta.nome, cargo: ROTULO_PERFIL[conta.perfil] || "Funcionário", salario: Number(sal.salario) };
+        daConta = true;
+      }
+    }
     if (!funcionario) return;
     const mesAtual = mesLocalISO(new Date());
     adicionarCusto({
@@ -16833,7 +16956,8 @@ export default function CatumbelaGymApp() {
       pagoDe,
       contaBancariaId,
     });
-    setFuncionariosGerais((atual) => atual.map((f) => (f.id === id ? { ...f, ultimoPagamento: mesAtual } : f)));
+    if (daConta) setSalariosContas((atual) => atual.map((x) => (x.id === id ? { ...x, ultimoPagamento: mesAtual } : x)));
+    else setFuncionariosGerais((atual) => atual.map((f) => (f.id === id ? { ...f, ultimoPagamento: mesAtual } : f)));
   };
 
   // ORÇAMENTO (plano de compras)
@@ -17763,6 +17887,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "funcionarios" && perfil === "administrador" && (
             <Funcionarios
               contas={contas} funcionariosGerais={funcionariosGerais}
+              salariosContas={salariosContas} onDefinirSalarioConta={definirSalarioConta}
               onAdicionarFuncionario={adicionarFuncionarioGeral} onEditarFuncionario={editarFuncionarioGeral}
               onRemoverFuncionario={removerFuncionarioGeral} onPagarSalario={pagarSalarioFuncionario}
               contasBancarias={obterContasBancarias(dadosGinasio)} podeGerir={perfil === "administrador"}
@@ -17787,7 +17912,7 @@ export default function CatumbelaGymApp() {
             <RelatorioDiario pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} />
           )}
           {telaAtual === "relatorios" && perfil === "administrador" && (
-            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} onReporPagamentos={reporPagamentosPerdidos} />
+            <Relatorios membros={membros} planos={planos} produtos={produtos} pagamentosFeitos={pagamentosFeitos} acessos={acessos} contas={contas} custos={custos} vendasProdutos={vendasProdutos} movimentosCaixa={movimentosCaixa} movimentosBancarios={movimentosBancarios} dadosGinasio={dadosGinasio} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} faturas={faturas} registosPonto={registosPonto} onReporPagamentos={reporPagamentosPerdidos} onDefinirSexo={(id, sexo) => setMembros((atual) => atual.map((m) => (m.id === id ? { ...m, sexo } : m)))} />
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />}
           {telaAtual === "atletas-em-falta" && (perfil === "administrador" || perfil === "recepcionista") && (
