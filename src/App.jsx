@@ -65,6 +65,14 @@ const timestampDeRegisto = (m) => {
 // com .setDate(), podendo até fazer um vencimento DIMINUIR em vez de
 // aumentar ao recalcular. Usa sempre esta função depois de .setDate().
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// O "vencimento" guardado é o dia em que a subscrição JÁ acabou (conta-se o dia do
+// pagamento: 7 dias = 7 dias de treino). O último dia de treino é o dia anterior.
+const ultimoDiaDeTreino = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if (!m) return iso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) - 1);
+  return dataLocalISO(d);
+};
 
 // Mesmo raciocínio de "dataLocalISO", mas só "AAAA-MM" — para os seletores
 // de mês dos relatórios mensais, que por defeito devem começar no mês
@@ -1827,10 +1835,10 @@ function Dashboard({ aSincronizar: aLigar, membros, produtos, pagamentosFeitos, 
               <div key={m.id} className="flex items-center justify-between py-2.5">
                 <div>
                   <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{m.nome}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{m.numero} · vence em {m.vencimento}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{m.numero} · último dia de treino: {ultimoDiaDeTreino(m.vencimento)}</p>
                 </div>
                 <a
-                  href={linkWhatsApp(m.telefone, `Olá ${m.nome.split(" ")[0]}! A tua mensalidade da Catumbela Gym vence em ${m.vencimento}. Passa por cá para renovar sem interromper o teu treino 💪`)}
+                  href={linkWhatsApp(m.telefone, `Olá ${m.nome.split(" ")[0]}! O teu último dia de treino é ${ultimoDiaDeTreino(m.vencimento)}. Passa por cá para renovar sem interromper o teu treino 💪`)}
                   target="_blank" rel="noreferrer"
                   title="Lembrar por WhatsApp"
                   className="text-emerald-600 hover:text-emerald-700"
@@ -3940,7 +3948,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
         </button>
         <button onClick={() => setCategoriaAberta(categoriaAberta === "vencemHoje" ? null : "vencemHoje")} className="text-left">
           <Card className={categoriaAberta === "vencemHoje" ? "ring-2 ring-[#3F8F87]" : ""}>
-            <p className="text-xs text-slate-400 dark:text-slate-500">Vencem hoje</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Vencidos hoje</p>
             <p className={`text-2xl font-extrabold ${listaVencemHoje.length > 0 ? "text-amber-600" : "text-slate-900 dark:text-slate-100"}`}>{listaVencemHoje.length}</p>
           </Card>
         </button>
@@ -3959,7 +3967,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
       {categoriaAberta && (
         <Card>
           <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">
-            {{ entradas: "Entradas de hoje", dentro: "Ainda no ginásio", vencemHoje: "Vencem hoje", semSubscricao: "Sem subscrição" }[categoriaAberta]}
+            {{ entradas: "Entradas de hoje", dentro: "Ainda no ginásio", vencemHoje: "Vencidos hoje", semSubscricao: "Sem subscrição" }[categoriaAberta]}
           </p>
           <div className="divide-y divide-slate-50 dark:divide-slate-700">
             {(categoriaAberta === "entradas" ? listaEntradasHoje
@@ -4131,7 +4139,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
 
           {diasParaVencer !== null && diasParaVencer >= 0 && diasParaVencer <= 5 && (
             <div className="bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-lg p-3 mb-4 text-sm text-amber-700 dark:text-amber-400">
-              ⚠ {diasParaVencer === 0 ? "Vence hoje" : `Vence daqui a ${diasParaVencer} dia${diasParaVencer > 1 ? "s" : ""}`} — vale a pena avisar já.
+              ⚠ {diasParaVencer === 0 ? "Venceu hoje (o último dia de treino foi ontem)" : diasParaVencer === 1 ? "Hoje é o último dia de treino" : `O último dia de treino é daqui a ${diasParaVencer - 1} dias`} — vale a pena avisar já.
             </div>
           )}
 
@@ -4341,7 +4349,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
         ? `${m.nome} já está no ginásio desde as ${aberta.entrada}`
         : `${m.nome}: ficou uma entrada por fechar de ${aberta.data}. Regista a saída à mão.`);
     }
-    if (m.estado !== "ativo") return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (vence ${m.vencimento || "—"})`);
+    if (m.estado !== "ativo") return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (último dia de treino: ${m.vencimento ? ultimoDiaDeTreino(m.vencimento) : "—"})`);
     registar(m);
     mostrarAviso("ok", `Entrada registada: ${m.nome}`);
   };
@@ -6819,7 +6827,7 @@ function HistoricoSubscricaoMembro({ membro, historico, onFechar }) {
                     <p className="text-xs text-slate-400 dark:text-slate-500">{h.data} · {h.hora}</p>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {h.planoNovo && `${h.planoNovo} · vence ${h.vencimentoNovo}`}
+                    {h.planoNovo && `${h.planoNovo} · último dia de treino ${ultimoDiaDeTreino(h.vencimentoNovo)}`}
                   </p>
                   <p className="text-xs mt-0.5">
                     {h.temRecibo ? (
@@ -7900,10 +7908,10 @@ function calcularNotificacoes(membros, planos) {
       let mensagem = "";
       if (dias === diasAviso) {
         tipo = "aviso";
-        mensagem = `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym vence em ${diasAviso} dia${diasAviso > 1 ? "s" : ""} (${m.vencimento}).`;
+        mensagem = `Olá ${m.nome.split(" ")[0]}, a sua mensalidade da Catumbela Gym termina em breve: o último dia de treino é ${ultimoDiaDeTreino(m.vencimento)}.`;
       } else if (dias === 0) {
         tipo = "hoje";
-        mensagem = `Olá ${m.nome.split(" ")[0]}, a sua mensalidade vence hoje. Regularize para continuar ativo.`;
+        mensagem = `Olá ${m.nome.split(" ")[0]}, a sua mensalidade terminou e venceu hoje. Renove para continuar a treinar.`;
       } else if (dias < 0) {
         tipo = "vencido";
         mensagem = `Olá ${m.nome.split(" ")[0]}, a sua mensalidade está vencida desde ${m.vencimento}. Regularize o pagamento para continuar a utilizar o ginásio.`;
@@ -7915,7 +7923,7 @@ function calcularNotificacoes(membros, planos) {
 
 const ESTILO_NOTIFICACAO = {
   aviso: { cor: "text-amber-600 bg-amber-50 dark:bg-amber-900/20", rotulo: "Vence em breve" },
-  hoje: { cor: "text-[#3F8F87] bg-[#EAF5F4] dark:bg-slate-700", rotulo: "Vence hoje" },
+  hoje: { cor: "text-[#3F8F87] bg-[#EAF5F4] dark:bg-slate-700", rotulo: "Vencido hoje" },
   vencido: { cor: "text-red-600 bg-red-50 dark:bg-red-900/20", rotulo: "Vencido" },
 };
 
@@ -9520,7 +9528,7 @@ function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, o
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{m.nome} <span className="text-xs font-normal text-slate-400">{m.numero}</span></p>
                   <p className="text-xs text-slate-400 dark:text-slate-500">
-                    {visita ? `Última visita: ${visita}` : "Nunca registou entrada"}{repos ? ` · último reposto: ${repos}` : ""} · <span className="text-red-500 font-medium">{dias} dia(s) em falta</span> · vence {m.vencimento}
+                    {visita ? `Última visita: ${visita}` : "Nunca registou entrada"}{repos ? ` · último reposto: ${repos}` : ""} · <span className="text-red-500 font-medium">{dias} dia(s) em falta</span> · último dia de treino {ultimoDiaDeTreino(m.vencimento)}
                   </p>
                 </div>
                 <button onClick={() => setAReporId(aReporId === m.id ? null : m.id)} className="shrink-0 text-xs font-semibold text-white bg-[#3F8F87] px-3 py-1.5 rounded-lg">Repor {dias} dia(s)</button>
