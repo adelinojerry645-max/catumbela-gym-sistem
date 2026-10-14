@@ -43,6 +43,24 @@ const PERSONAL_TRAINERS_INICIAIS = [];
 // e Membro a partir do sistema.
 const CONTAS_INICIAIS = [];
 
+// Lê um valor em Kz escrito à mão. Em Angola o ponto separa milhares
+// ("17.500" = 17 500). "17.5" ou "35.65" (pontos com 1-2 casas) quando o
+// esperado é bem maior também são milhares — antes liam-se como 17,5 Kz e
+// geravam diferenças enormes no Caixa.
+function lerValorKz(texto, esperado) {
+  const t = String(texto ?? "").replace(/Kz|\s/gi, "");
+  if (!t) return NaN;
+  if (/^\d{1,3}([.,]\d{3})+$/.test(t)) return Number(t.replace(/[.,]/g, ""));
+  if (/^\d+[.,]\d{1,2}$/.test(t)) {
+    const v = Number(t.replace(",", "."));
+    if (esperado >= 1000 && v < 1000) return Math.round(v * 1000);
+    return v;
+  }
+  return Number(t.replace(/[.,]/g, ""));
+}
+const METODOS_COM_BANCO = ["transferencia", "express", "tpa"];
+const faltaContaBancaria = (metodo, contaId) => METODOS_COM_BANCO.includes(metodo) && (contaId === undefined || contaId === null || contaId === "");
+const MSG_FALTA_CONTA = "Escolhe o banco/conta onde o dinheiro entrou (TPA, Express ou transferência). Não pode ficar sem conta.";
 const kz = (n) => n.toLocaleString("pt-PT") + " Kz";
 
 // Devolve um número comparável (epoch em ms) a partir dos campos "data"
@@ -2928,6 +2946,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
 
   const confirmar = async () => {
     if (!nome || !valor || Number(valor) <= 0) return;
+    if (faltaContaBancaria(metodo, contaBancariaId)) { alert(MSG_FALTA_CONTA); return; }
     // Proteção contra duplo clique. NÃO repõe a trava no final (só ao
     // reiniciar o formulário) — ver a explicação detalhada no mesmo padrão
     // em "criarMembroRapido" (Balcão).
@@ -3222,6 +3241,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
 
   const finalizar = async () => {
     if (itensCarrinho.length === 0) return;
+    if (faltaContaBancaria(metodo, contaBancariaId)) { alert(MSG_FALTA_CONTA); return; }
     // Proteção contra duplo clique. NÃO repõe a trava no final com sucesso
     // (só quando se começa um carrinho novo, em "adicionar") — ver a
     // explicação detalhada no mesmo padrão em "criarMembroRapido". Em caso
@@ -7022,6 +7042,12 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
   };
 
   const confirmarMudanca = async (membro) => {
+    if (!semPagamentoAgora) {
+      const semConta = pagamentoDividido
+        ? faltaContaBancaria(metodoPagamento, contaBancariaId) || faltaContaBancaria(metodoParte2, contaBancariaIdParte2)
+        : faltaContaBancaria(metodoPagamento, contaBancariaId);
+      if (semConta) { alert(MSG_FALTA_CONTA); return; }
+    }
     if (aConfirmarMudancaRef.current) return;
     aConfirmarMudancaRef.current = true;
     try {
@@ -7542,6 +7568,12 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
     // render — por isso é a única forma fiável de bloquear a SEGUNDA
     // chamada ainda dentro do mesmo instante da primeira.
     if (aGerarRef.current) return;
+    if (tipo === "RECIBO") {
+      const semConta = pagamentoDividido
+        ? faltaContaBancaria(metodoPagamento, contaBancariaId) || faltaContaBancaria(metodoParte2, contaBancariaIdParte2)
+        : faltaContaBancaria(metodoPagamento, contaBancariaId);
+      if (semConta) { alert(MSG_FALTA_CONTA); return; }
+    }
     aGerarRef.current = true;
     // Pagamento dividido — uma parte em dinheiro/em mão, outra noutro
     // método, tudo no mesmo recibo (ver DocumentoFinanceiro e
@@ -12947,7 +12979,10 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 
   const confirmarContagem = () => {
     if (valorContado === "") return;
-    const contado = Number(valorContado);
+    const contado = lerValorKz(valorContado, totais.dinheiro);
+    if (!(contado >= 0)) { alert("Valor contado inválido."); return; }
+    if (totais.dinheiro >= 1000 && contado < totais.dinheiro * 0.2 &&
+        !window.confirm(`Escreveste ${kz(contado)}, mas o sistema espera ${kz(totais.dinheiro)}. Tens a certeza? (Para 17.500 Kz escreve 17500 ou 17.500)`)) return;
     const diferenca = contado - totais.dinheiro;
     onFecharTurno({ nomeFuncionario: nomeAtual, totalSistema: totais.dinheiro, totalContado: contado, diferenca, observacoes });
     // Congela os totais vistos NESTE momento (contagem física feita, turno
@@ -13032,8 +13067,9 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
           </p>
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Quanto contaste (Kz)?</label>
-            <input type="number" min={0} value={valorContado} onChange={(e) => setValorContado(e.target.value)} autoFocus
+            <input type="text" inputMode="decimal" placeholder="ex.: 17500" value={valorContado} onChange={(e) => setValorContado(e.target.value)} autoFocus
               className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+            {valorContado !== "" && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Vou registar: <strong>{kz(lerValorKz(valorContado, totais.dinheiro) || 0)}</strong></p>}
           </div>
           <div>
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Observações (opcional)</label>
@@ -15155,6 +15191,23 @@ export default function CatumbelaGymApp() {
   const [pagamentosFeitos, setPagamentosFeitos] = usePersistente("pagamentosFeitos", [], setStatusSync);
   const [movimentosBancarios, setMovimentosBancarios] = usePersistente("movimentosBancarios", [], setStatusSync);
   const [movimentosCaixa, setMovimentosCaixa] = usePersistente("movimentosCaixa", [], setStatusSync);
+  // REGRAS DE DINHEIRO: (1) o Caixa nunca pode ficar negativo; (2) todo o
+  // movimento do banco tem de ter uma conta bancária escolhida.
+  const saldoCaixaAtual = movimentosCaixa.reduce((t, m) => t + (m.direcao === "saida" ? -1 : 1) * (Number(m.valor) || 0), 0);
+  const podeSair = (pagoDe, valor, contaBancariaId) => {
+    const v = Number(valor) || 0;
+    if (pagoDe === "banco") {
+      const existe = obterContasBancarias(dadosGinasio).some((c) => String(c.id) === String(contaBancariaId));
+      if (!existe) { alert("Escolhe a conta bancária de onde saiu o dinheiro. Não pode ficar sem conta."); return false; }
+      return true;
+    }
+    if (v > saldoCaixaAtual + 0.001) {
+      alert(`O Caixa não pode ficar negativo. Só há ${kz(Math.max(0, saldoCaixaAtual))} em dinheiro no Caixa e esta saída é de ${kz(v)}. Regista primeiro a entrada do dinheiro (ou escolhe pagar pelo Banco).`);
+      return false;
+    }
+    return true;
+  };
+
   const [comprasMembros, setComprasMembros] = usePersistente("comprasMembros", [], setStatusSync); // histórico de compras por membro (POS)
   const [vendasProdutos, setVendasProdutos] = usePersistente("vendasProdutos", [], setStatusSync); // histórico de vendas por produto (todas as vendas POS)
   const [auditLog, setAuditLog] = usePersistente("auditLog", [], setStatusSync);
@@ -16092,6 +16145,7 @@ export default function CatumbelaGymApp() {
   const entradaStock = (id, quantidade, novoPrecoCusto, novoPrecoVenda, pagoDe, contaBancariaId) => {
     const produto = produtos.find((p) => p.id === id);
     if (!produto) return;
+    if (novoPrecoCusto && !podeSair(pagoDe === "banco" ? "banco" : "caixa", quantidade * novoPrecoCusto, contaBancariaId)) return;
     setProdutos((atual) =>
       atual.map((p) =>
         p.id === id
@@ -16863,6 +16917,7 @@ export default function CatumbelaGymApp() {
   };
 
   const adicionarCusto = (custo) => {
+    if (!podeSair(custo.pagoDe === "banco" ? "banco" : "caixa", custo.valor, custo.contaBancariaId)) return false;
     // Gera o id do custo ANTES de criar o movimento financeiro, para poder
     // marcar o movimento com "custoId" — é essa marca que permite depois,
     // ao apagar o custo, encontrar e apagar também o movimento ligado a ele
@@ -16894,6 +16949,7 @@ export default function CatumbelaGymApp() {
       "Registou custo",
       `${custo.categoria} — ${kz(custo.valor)}${dataCusto !== dataLocalISO(new Date()) ? ` (data: ${dataCusto})` : ""}`
     );
+    return true;
   };
 
   // Corrigir ("reparar") um custo já registado — categoria, tipo, descrição,
@@ -16986,6 +17042,7 @@ export default function CatumbelaGymApp() {
     }
     if (!funcionario) return;
     const mesAtual = mesLocalISO(new Date());
+    if (!podeSair(pagoDe === "banco" ? "banco" : "caixa", funcionario.salario, contaBancariaId)) return;
     adicionarCusto({
       categoria: "Salários",
       descricao: `Salário — ${funcionario.nome} (${funcionario.cargo}) · ${mesAtual}`,
@@ -17017,6 +17074,7 @@ export default function CatumbelaGymApp() {
   const marcarItemComprado = (id, { valorReal, pagoDe, contaBancariaId }) => {
     const item = orcamento.find((i) => i.id === id);
     if (!item) return;
+    if (!podeSair(pagoDe === "banco" ? "banco" : "caixa", valorReal, contaBancariaId)) return;
     setOrcamento((atual) => atual.map((i) => (i.id === id ? { ...i, estado: "comprado", valorReal, dataCompra: dataLocalISO(new Date()) } : i)));
     adicionarCusto({ categoria: item.categoria, descricao: `Compra: ${item.nome}`, valor: valorReal, pagoDe, contaBancariaId });
   };
@@ -17028,6 +17086,7 @@ export default function CatumbelaGymApp() {
   const registarPagamentoOrcamento = (id, { valor, pagoDe, contaBancariaId }) => {
     const item = orcamento.find((i) => i.id === id);
     if (!item) return;
+    if (!podeSair(pagoDe === "banco" ? "banco" : "caixa", valor, contaBancariaId)) return;
     const jaPago = (item.valorPago || 0) + valor;
     const totalmentePago = jaPago >= (item.valorEstimado || 0);
     setOrcamento((atual) =>
@@ -17169,12 +17228,15 @@ export default function CatumbelaGymApp() {
     // real do Caixa — senão a diferença ficava só num aviso, sem nunca entrar
     // no saldo nem nos relatórios de lucro.
     if (dados.diferenca !== 0) {
+      // O Caixa nunca fica negativo: uma diferença para baixo nunca tira mais do que há.
+      const valorAjuste = dados.diferenca < 0 ? Math.min(Math.abs(dados.diferenca), Math.max(0, saldoCaixaAtual)) : Math.abs(dados.diferenca);
+      if (valorAjuste > 0)
       setMovimentosCaixa((atual) => [
         {
           id: Date.now(),
           direcao: dados.diferenca > 0 ? "entrada" : "saida",
           subtipo: "Ajuste de caixa (fecho de turno)",
-          valor: Math.abs(dados.diferenca),
+          valor: valorAjuste,
           descricao: `Contagem de ${dados.nomeFuncionario}${dados.observacoes ? ` — ${dados.observacoes}` : ""}`,
           data: new Date().toLocaleDateString("pt-PT") + " " + new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
           registadoPor: dados.nomeFuncionario,
@@ -17310,6 +17372,9 @@ export default function CatumbelaGymApp() {
   // nome de quem registou, data, e — se for movimento bancário — o nome da
   // conta escolhida (das que existem em Configurações).
   const adicionarMovimento = (ledger, movimento) => {
+    if (movimento.direcao === "saida" || ledger === "banco") {
+      if (!podeSair(ledger === "banco" ? "banco" : "caixa", movimento.direcao === "saida" ? movimento.valor : 0, movimento.contaBancariaId)) return;
+    }
     // "dataISO" (YYYY-MM-DD) é um campo auxiliar só usado para backdatar o
     // movimento quando vem ligado a um custo registado numa data anterior
     // (ver adicionarCusto) — a hora fica sempre a de agora, só o dia muda.
@@ -17344,6 +17409,8 @@ export default function CatumbelaGymApp() {
     const tipo = TIPOS_MOVIMENTO.find((t) => t.rotulo === subtipo);
     if (!tipo) return;
     const conta = obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(contaBancariaId));
+    if (!conta) { alert("Escolhe a conta bancária. Não pode ficar sem conta."); return; }
+    if (tipo.direcaoCaixa === "saida" && !podeSair("caixa", Number(valor), null)) return;
     const agora = new Date();
     const dataHora = agora.toLocaleDateString("pt-PT") + " " + agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
     const idPartilhado = `TRF-${Date.now()}`;
@@ -17370,6 +17437,14 @@ export default function CatumbelaGymApp() {
     const lista = ledger === "banco" ? movimentosBancarios : movimentosCaixa;
     const movimento = lista.find((m) => m.id === id);
     if (!movimento) return;
+    if (ledger !== "banco" || movimento.origemTransferencia) {
+      // Eliminar uma ENTRADA do Caixa tira dinheiro dele — não pode deixá-lo negativo.
+      const linhaCaixa = ledger !== "banco" ? movimento : movimentosCaixa.find((m) => m.origemTransferencia === movimento.origemTransferencia);
+      if (linhaCaixa && linhaCaixa.direcao !== "saida" && saldoCaixaAtual - (Number(linhaCaixa.valor) || 0) < -0.001) {
+        alert(`Não é possível eliminar: o Caixa ficaria negativo (hoje tem ${kz(Math.max(0, saldoCaixaAtual))}).`);
+        return;
+      }
+    }
     if (movimento.origemTransferencia) {
       setMovimentosCaixa((atual) => atual.filter((m) => m.origemTransferencia !== movimento.origemTransferencia));
       setMovimentosBancarios((atual) => atual.filter((m) => m.origemTransferencia !== movimento.origemTransferencia));
