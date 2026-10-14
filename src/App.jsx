@@ -6636,14 +6636,34 @@ function CentroCustos({ custos, onAdicionar, onEditar, onRemover, dadosGinasio }
     setEditado(null);
   };
 
-  const totalGeral = custos.reduce((s, c) => s + c.valor, 0);
-  const totalFixo = custos.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
-  const totalVariavel = custos.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
+  // Filtro por mês + pesquisa, para chegar facilmente aos custos mais antigos.
+  const [mesFiltro, setMesFiltro] = useState("todos");
+  const [buscaCusto, setBuscaCusto] = useState("");
+  const mesesDisponiveis = useMemo(() => {
+    const set = new Set(custos.map((c) => String(c.data || "").slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)));
+    return [...set].sort().reverse();
+  }, [custos]);
+  const nomeMes = (ym) => {
+    const nomes = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+    const [y, m] = ym.split("-");
+    return `${nomes[Number(m) - 1]} ${y}`;
+  };
+  const custosVisiveis = useMemo(() => {
+    const q = buscaCusto.trim().toLowerCase();
+    return custos.filter((c) => {
+      if (mesFiltro !== "todos" && String(c.data || "").slice(0, 7) !== mesFiltro) return false;
+      if (!q) return true;
+      return `${c.categoria || ""} ${c.descricao || ""} ${c.valor || ""} ${c.data || ""}`.toLowerCase().includes(q);
+    });
+  }, [custos, mesFiltro, buscaCusto]);
+  const totalGeral = custosVisiveis.reduce((s, c) => s + c.valor, 0);
+  const totalFixo = custosVisiveis.filter((c) => c.tipo !== "variavel").reduce((s, c) => s + c.valor, 0);
+  const totalVariavel = custosVisiveis.filter((c) => c.tipo === "variavel").reduce((s, c) => s + c.valor, 0);
   const porCategoria = useMemo(() => {
     const mapa = {};
-    custos.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
+    custosVisiveis.forEach((c) => { mapa[c.categoria] = (mapa[c.categoria] || 0) + c.valor; });
     return Object.entries(mapa).sort((a, b) => b[1] - a[1]);
-  }, [custos]);
+  }, [custosVisiveis]);
 
   return (
     <div className="space-y-4">
@@ -6654,6 +6674,17 @@ function CentroCustos({ custos, onAdicionar, onEditar, onRemover, dadosGinasio }
         >
           <Plus size={16} /> Novo custo
         </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <select value={mesFiltro} onChange={(e) => setMesFiltro(e.target.value)}
+          className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm">
+          <option value="todos">Todos os meses</option>
+          {mesesDisponiveis.map((m) => <option key={m} value={m}>{nomeMes(m)}</option>)}
+        </select>
+        <input value={buscaCusto} onChange={(e) => setBuscaCusto(e.target.value)} placeholder="Pesquisar custo (renda, luz, valor...)"
+          className="flex-1 min-w-[180px] px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm" />
+        <span className="text-xs text-slate-500 dark:text-slate-400">{custosVisiveis.length} de {custos.length} custos</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -6683,7 +6714,7 @@ function CentroCustos({ custos, onAdicionar, onEditar, onRemover, dadosGinasio }
       </Card>
 
       <Card title="Todos os custos">
-        {custos.length === 0 ? (
+        {custosVisiveis.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há custos registados.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -6699,7 +6730,7 @@ function CentroCustos({ custos, onAdicionar, onEditar, onRemover, dadosGinasio }
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-700">
-                {custos.map((c) => (
+                {custosVisiveis.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-700">
                     <td className="py-2 text-slate-500 dark:text-slate-400">{c.data}</td>
                     <td className="py-2">
@@ -13036,6 +13067,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
 // ---------------------------------------------------------------------
 function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio, onAdicionarMovimento, onAdicionarTransferencia, onRemoverMovimento, onAtribuirConta, fechosTurno, pagamentosFeitos, focoNavegacao, onFocoConsumido }) {
   const [aba, setAba] = useState(focoNavegacao?.aba || "resumo"); // "resumo" | "fecho" | "banco" | "caixa"
+  const [verTodosFechos, setVerTodosFechos] = useState(false);
 
   // Se a Auditoria mandar "Ver" um movimento enquanto este ecrã já está
   // montado (ex.: já estavas em Caixa e clicaste noutro "Ver"), muda de
@@ -13197,7 +13229,7 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
           {fechosTurno && fechosTurno.length > 0 && (
             <Card title="Fechos de turno recentes (contagem física)">
               <div className="divide-y divide-slate-50 dark:divide-slate-700">
-                {fechosTurno.slice(0, 10).map((f) => (
+                {(verTodosFechos ? fechosTurno : fechosTurno.slice(0, 10)).map((f) => (
                   <div key={f.id} className="py-2.5 flex items-center justify-between text-sm">
                     <div>
                       <p className="font-medium text-slate-900 dark:text-slate-100">{f.nomeFuncionario}</p>
@@ -13213,6 +13245,11 @@ function CaixaEFuncionarios({ movimentosBancarios, movimentosCaixa, dadosGinasio
                   </div>
                 ))}
               </div>
+              {fechosTurno.length > 10 && (
+                <button onClick={() => setVerTodosFechos(!verTodosFechos)} className="mt-3 text-sm font-medium text-[#3F8F87] hover:underline">
+                  {verTodosFechos ? "Mostrar só os 10 mais recentes" : `Ver todos os ${fechosTurno.length} fechos`}
+                </button>
+              )}
             </Card>
           )}
         </div>
