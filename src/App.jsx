@@ -9,7 +9,7 @@ import {
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
   PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
 } from "lucide-react";
-import { lerColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
+import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
@@ -612,6 +612,8 @@ function ordenarPorData(chave, lista) {
 
 // Guarda localmente E sincroniza com a tabela `estado_app` no Supabase —
 // usado para os dados reais do ginásio (membros, planos, pagamentos, etc.)
+const COLECOES_SEM_TEMPO_REAL = new Set(["auditLog", "comprasMembros"]);
+
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
@@ -635,6 +637,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // que eram diferentes do que já estava lá.
   const baseParaFusao = useRef(carregarBaseSincronizada()[chave] ?? null);
   const timeoutRef = useRef(null);
+  const ultimaDataRemota = useRef(null); // data (ms) da última alteração que conhecemos no Supabase
   const jaBloqueouVazioAntes = useRef(false); // evita prender a pessoa num ciclo sem conseguir esvaziar de vez
 
   // Combina o que está no Supabase (mudado por outro dispositivo) com o que
@@ -777,8 +780,10 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     let tentativas = 0;
     const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
     const tentarLer = () => {
-      lerColecao(PREFIXO_COLECAO_TESTE + chave)
-        .then((dados) => {
+      lerColecaoComData(PREFIXO_COLECAO_TESTE + chave)
+        .then((res) => {
+          const dados = res ? res.valor : null;
+          if (res && res.atualizado_em) ultimaDataRemota.current = Date.parse(res.atualizado_em);
           if (!cancelado && dados !== null) {
             // A base para comparações futuras segue SEMPRE o valor bruto
             // que veio do Supabase — nunca um resultado já fundido. Uma
@@ -866,13 +871,18 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // recebida — a tua vai substituir na mesma daqui a pouco, e assim evitamos
   // that a tua alteração seja "engolida" por chegar quase ao mesmo tempo.
   useEffect(() => {
-    const canal = subscreverColecao(PREFIXO_COLECAO_TESTE + chave, (novoValor) => {
+    // Registos muito grandes e só consultados pelo administrador não usam
+    // tempo real: cada gravação enviava a lista inteira (200 KB+) a todos os
+    // aparelhos, o que gastava o tráfego do Supabase.
+    if (COLECOES_SEM_TEMPO_REAL.has(chave)) return undefined;
+    const canal = subscreverColecao(PREFIXO_COLECAO_TESTE + chave, (novoValor, atualizadoEm) => {
       const novoTexto = JSON.stringify(novoValor);
       if (novoTexto === ultimoRemotoConhecido.current) return; // é o eco da nossa própria gravação
       if (gravacaoPendente.current) return; // temos uma gravação nossa a caminho — não sobrepor agora
       // Se ainda houver uma alteração local recente por enviar (ainda dentro
       // dos 800ms de espera), fundir em vez de aceitar cegamente o remoto —
       // senão essa alteração local perdia-se sem nunca chegar a ser enviada.
+      if (atualizadoEm) ultimaDataRemota.current = Date.parse(atualizadoEm);
       let fundidoTemAlteracaoLocal = false;
       setValor((valorLocalAtual) => {
         const fundido = fundirPorId(baseParaFusao.current, valorLocalAtual, novoValor);
@@ -959,7 +969,19 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // de fazer), funde os dois primeiro, item a item — preserva as
       // mudanças de cada lado, e só usa a versão remota nos raros casos em
       // que os dois mudaram exatamente o mesmo item ao mesmo tempo.
-      lerColecao(PREFIXO_COLECAO_TESTE + chave)
+      // Só descarrega a coleção inteira se ela mudou desde o que conhecemos
+      // (pergunta primeiro só pela data — pedido minúsculo). Antes, cada
+      // gravação descarregava tudo, o que esgotou o tráfego do Supabase.
+      const lerParaGravar = async () => {
+        if (ultimaDataRemota.current && ultimoRemotoConhecido.current !== null) {
+          const d = await lerDataColecao(PREFIXO_COLECAO_TESTE + chave);
+          if (d && Date.parse(d) === ultimaDataRemota.current) return JSON.parse(ultimoRemotoConhecido.current);
+        }
+        const res = await lerColecaoComData(PREFIXO_COLECAO_TESTE + chave);
+        if (res && res.atualizado_em) ultimaDataRemota.current = Date.parse(res.atualizado_em);
+        return res ? res.valor : null;
+      };
+      lerParaGravar()
         .then((remoto) => {
           const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
           // Sem "ultimoRemotoConhecido" (leitura inicial ainda não chegou ou
@@ -1013,7 +1035,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
         .then(({ paraGravar, houveConflito }) => {
           const textoParaGravar = JSON.stringify(paraGravar);
           gravarColecao(PREFIXO_COLECAO_TESTE + chave, paraGravar)
-            .then(() => {
+            .then((dataGravada) => {
+              if (dataGravada) ultimaDataRemota.current = Date.parse(dataGravada);
               ultimoRemotoConhecido.current = textoParaGravar;
               baseParaFusao.current = paraGravar;
               guardarBaseSincronizada(chave, paraGravar);
@@ -1060,6 +1083,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       const baseAtualizada = Array.isArray(baseParaFusao.current) ? [item, ...baseParaFusao.current] : [item];
       ultimoRemotoConhecido.current = JSON.stringify(baseAtualizada);
       baseParaFusao.current = baseAtualizada;
+      ultimaDataRemota.current = null; // o servidor mudou a data — a próxima gravação confere o conteúdo
       guardarBaseSincronizada(chave, baseAtualizada);
       ignorarProximoEnvio.current = true; // não reenviar isto de volta — já está gravado
       setValor((atual) => [item, ...atual]);
@@ -15210,7 +15234,7 @@ export default function CatumbelaGymApp() {
 
   const [comprasMembros, setComprasMembros] = usePersistente("comprasMembros", [], setStatusSync); // histórico de compras por membro (POS)
   const [vendasProdutos, setVendasProdutos] = usePersistente("vendasProdutos", [], setStatusSync); // histórico de vendas por produto (todas as vendas POS)
-  const [auditLog, setAuditLog] = usePersistente("auditLog", [], setStatusSync);
+  const [auditLog, setAuditLog, adicionarAuditoriaSegura, definirAuditoriaSemGravar] = usePersistente("auditLog", [], setStatusSync);
   const [pagamentosPendentes, setPagamentosPendentes, adicionarPagamentoPendenteSeguro] = usePersistente("pagamentosPendentes", [], setStatusSync);
   const [custos, setCustos] = usePersistente("custos", [], setStatusSync);
   const [faturas, setFaturas] = usePersistente("faturas", [], setStatusSync);
@@ -15510,14 +15534,28 @@ export default function CatumbelaGymApp() {
   const registarAuditoria = (acao, detalhe, destino) => {
     const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
     const agora = new Date();
-    setAuditLog((atual) => [
-      // O "id" aqui não tem outro propósito — é só para a fusão entre
-      // dispositivos conseguir tratar cada registo individualmente em vez
-      // de em bloco, tal como já acontece com as outras coleções.
-      { id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`, utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) },
-      ...atual,
-    ]);
+    // Grava só este registo (operação atómica, sem descarregar o registo todo):
+    // poupa muito tráfego do Supabase e nunca perde entradas de outros aparelhos.
+    adicionarAuditoriaSegura(
+      { id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`, utilizador: nomeAtor, acao, detalhe, destino, data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) }
+    );
   };
+
+  // O registo de auditoria não usa tempo real (ver COLECOES_SEM_TEMPO_REAL):
+  // ao abrir o ecrã, vai buscar as entradas feitas noutros aparelhos.
+  useEffect(() => {
+    if (tela !== "auditoria") return;
+    lerColecaoComData(PREFIXO_COLECAO_TESTE + "auditLog")
+      .then((res) => {
+        if (!res || !Array.isArray(res.valor)) return;
+        definirAuditoriaSemGravar((atual) => {
+          const ids = new Set(atual.map((x) => x && x.id));
+          const novos = res.valor.filter((x) => x && !ids.has(x.id));
+          return novos.length ? [...novos, ...atual] : atual;
+        });
+      })
+      .catch(() => {});
+  }, [tela]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", escuro);

@@ -13,11 +13,37 @@ export async function lerColecao(chave) {
   return data ? data.valor : null;
 }
 
+// Versão que devolve também a data da última alteração — serve para, antes
+// de gravar, perguntar só "mudou desde a última vez?" (um pedido minúsculo)
+// em vez de descarregar a coleção inteira todas as vezes (poupa muito
+// tráfego do Supabase, que tem limite no plano grátis).
+export async function lerColecaoComData(chave) {
+  const { data, error } = await supabase
+    .from("estado_app")
+    .select("valor, atualizado_em")
+    .eq("chave", chave)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? { valor: data.valor, atualizado_em: data.atualizado_em } : null;
+}
+
+export async function lerDataColecao(chave) {
+  const { data, error } = await supabase
+    .from("estado_app")
+    .select("atualizado_em")
+    .eq("chave", chave)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? data.atualizado_em : null;
+}
+
 export async function gravarColecao(chave, valor) {
+  const agora = new Date().toISOString();
   const { error } = await supabase
     .from("estado_app")
-    .upsert({ chave, valor, atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+    .upsert({ chave, valor, atualizado_em: agora }, { onConflict: "chave" });
   if (error) throw error;
+  return agora;
 }
 
 // Sincronização em tempo real — fica "à escuta" de alterações a uma coleção
@@ -34,7 +60,7 @@ export function subscreverColecao(chave, aoAlterar) {
       (payload) => {
         const novoRegisto = payload.new;
         if (novoRegisto && "valor" in novoRegisto) {
-          aoAlterar(novoRegisto.valor);
+          aoAlterar(novoRegisto.valor, novoRegisto.atualizado_em);
         }
       }
     )
