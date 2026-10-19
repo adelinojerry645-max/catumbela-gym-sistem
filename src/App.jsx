@@ -614,6 +614,18 @@ function ordenarPorData(chave, lista) {
 // usado para os dados reais do ginásio (membros, planos, pagamentos, etc.)
 const COLECOES_SEM_TEMPO_REAL = new Set(["auditLog", "comprasMembros"]);
 
+// Texto "canónico" (chaves por ordem alfabética, a todos os níveis). O Postgres
+// guarda o JSON com as chaves reordenadas, por isso comparar com JSON.stringify
+// direto dava "diferenças" falsas entre o que gravámos e o que voltava do
+// servidor — e isso fazia as fusões acharem que registos iguais tinham mudado.
+function canonico(v) {
+  return JSON.stringify(v, (_k, val) =>
+    val && typeof val === "object" && !Array.isArray(val)
+      ? Object.keys(val).sort().reduce((o, key) => { o[key] = val[key]; return o; }, {})
+      : val
+  );
+}
+
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
@@ -627,6 +639,13 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   // no primeiro carregamento, em vez de o saltar como de costume.
   const primeiraVez = useRef(!carregarEstadoGuardado().__forcarSyncAposRestauro);
   const ignorarProximoEnvio = useRef(false);
+  // Sempre o valor mais recente desta lista (atualizado a cada render): o envio
+  // para o servidor usa ISTO, e não o valor de quando foi agendado.
+  const valorRef = useRef(valor);
+  valorRef.current = valor;
+  // Atualização em tempo real que chegou enquanto uma gravação nossa estava a
+  // caminho — guardada para ser aplicada logo a seguir, em vez de deitada fora.
+  const eventoAdiado = useRef(null);
   const mudouLocalmente = useRef(false); // true assim que a pessoa altera algo (só protege a busca inicial)
   const gravacaoPendente = useRef(false); // true só enquanto há uma gravação nossa a caminho do Supabase
   const ultimoRemotoConhecido = useRef(null); // último valor que sabemos que está no Supabase (texto)
@@ -665,8 +684,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       const valorBase = base ? base[campo] : undefined;
       const valorLocal = local[campo];
       const valorRemoto = remoto[campo];
-      const campoLocalMudou = JSON.stringify(valorLocal) !== JSON.stringify(valorBase);
-      const campoRemotoMudou = JSON.stringify(valorRemoto) !== JSON.stringify(valorBase);
+      const campoLocalMudou = canonico(valorLocal) !== canonico(valorBase);
+      const campoRemotoMudou = canonico(valorRemoto) !== canonico(valorBase);
       if (campoLocalMudou && !campoRemotoMudou) fundido[campo] = valorLocal;
       else if (campoRemotoMudou && !campoLocalMudou) fundido[campo] = valorRemoto;
       else if (!campoLocalMudou && !campoRemotoMudou) fundido[campo] = valorLocal;
@@ -743,8 +762,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       const emBase = baseMapa.get(id);
       const emLocal = localMapa.get(id);
       const emRemoto = remotoMapa.get(id);
-      const localMudou = JSON.stringify(emLocal) !== JSON.stringify(emBase);
-      const remotoMudou = JSON.stringify(emRemoto) !== JSON.stringify(emBase);
+      const localMudou = canonico(emLocal) !== canonico(emBase);
+      const remotoMudou = canonico(emRemoto) !== canonico(emBase);
 
       if (!emLocal && !emRemoto) return; // removido dos dois lados
       if (localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // só eu mudei (inclui criar/remover)
@@ -795,7 +814,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             // propósito, quando só ainda não tinha chegado à vez dele.
             // Isto foi o que fazia subscrições recém-pagas por vezes
             // voltarem a aparecer como vencidas horas depois.
-            ultimoRemotoConhecido.current = JSON.stringify(dados);
+            ultimoRemotoConhecido.current = canonico(dados);
             baseParaFusao.current = dados;
             guardarBaseSincronizada(chave, dados);
             if (mudouLocalmente.current) {
@@ -817,24 +836,16 @@ function usePersistente(chave, valorInicial, setStatusSync) {
               // local conhecida (primeiro acesso deste dispositivo), não
               // há nada fidedigno para preservar, por isso aceita o
               // servidor diretamente, como sempre fez.
-              let fundidoTrouxeAlgoLocal = false;
+              // Se a fusão trouxer de volta algo que só existia aqui (alterações
+              // offline por enviar), o resultado fica diferente do servidor e é
+              // gravado a sério; se ficar igual, o envio é dispensado sozinho
+              // (ver a comparação com "ultimoRemotoConhecido" mais abaixo).
               setValor((valorLocalAtual) => {
-                if (baseAoIniciar && JSON.stringify(valorLocalAtual) !== JSON.stringify(baseAoIniciar)) {
-                  const fundido = fundirPorId(baseAoIniciar, valorLocalAtual, dados);
-                  fundidoTrouxeAlgoLocal = JSON.stringify(fundido) !== JSON.stringify(dados);
-                  return fundido;
+                if (baseAoIniciar && canonico(valorLocalAtual) !== canonico(baseAoIniciar)) {
+                  return fundirPorId(baseAoIniciar, valorLocalAtual, dados);
                 }
                 return dados;
               });
-              // Só marca para ignorar o próximo envio se aceitámos o
-              // servidor tal e qual — se a fusão trouxe de volta algo que
-              // só existia aqui (alterações offline por enviar), esse
-              // resultado ainda tem de ser gravado no Supabase a sério,
-              // senão essas alterações ficavam para sempre só neste
-              // dispositivo.
-              if (!fundidoTrouxeAlgoLocal) {
-                ignorarProximoEnvio.current = true;
-              }
             }
           }
           if (!cancelado) setStatusSync?.("ligado");
@@ -864,6 +875,32 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Aplica ao ecrã uma alteração vinda de OUTRO aparelho, fundindo-a com o que
+  // mudou aqui (nunca a substituir às cegas).
+  // IMPORTANTE: a "base" tem de ser capturada AGORA. O React pode executar a
+  // função do "setValor" mais tarde (quando o sistema está ocupado), e nessa
+  // altura a base já seria o valor novo — e então os registos acabados de
+  // chegar dos outros aparelhos pareciam ter sido APAGADOS aqui (e eram mesmo
+  // apagados do servidor a seguir). Foi isto que fazia entradas desaparecerem
+  // no Controlo de Acessos quando havia muito movimento.
+  const aplicarRemoto = (novoValor, atualizadoEm) => {
+    const novoTexto = canonico(novoValor);
+    if (novoTexto === ultimoRemotoConhecido.current) return;
+    if (atualizadoEm) ultimaDataRemota.current = Date.parse(atualizadoEm);
+    const baseCapturada = baseParaFusao.current;
+    const baseParaEste = Array.isArray(baseCapturada) || !Array.isArray(novoValor) ? baseCapturada : [];
+    setValor((valorLocalAtual) => fundirPorId(baseParaEste, valorLocalAtual, novoValor));
+    // A base para comparações futuras segue SEMPRE o valor bruto que veio do
+    // outro dispositivo — nunca o resultado já fundido (evita que uma
+    // alteração local ainda por confirmar pareça uma reversão deliberada).
+    ultimoRemotoConhecido.current = novoTexto;
+    baseParaFusao.current = novoValor;
+    guardarBaseSincronizada(chave, novoValor);
+    window.dispatchEvent(new CustomEvent("catumbela:atualizado-tempo-real", { detail: { chave } }));
+  };
+  const aplicarRemotoRef = useRef(aplicarRemoto);
+  aplicarRemotoRef.current = aplicarRemoto;
+
   // Sincronização em TEMPO REAL — fica à escuta de alterações feitas por
   // OUTROS dispositivos a esta mesma coleção, e aplica-as assim que chegam,
   // sem precisares de recarregar a página. Se tu próprio tiveres uma
@@ -876,40 +913,16 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     // aparelhos, o que gastava o tráfego do Supabase.
     if (COLECOES_SEM_TEMPO_REAL.has(chave)) return undefined;
     const canal = subscreverColecao(PREFIXO_COLECAO_TESTE + chave, (novoValor, atualizadoEm) => {
-      const novoTexto = JSON.stringify(novoValor);
-      if (novoTexto === ultimoRemotoConhecido.current) return; // é o eco da nossa própria gravação
-      if (gravacaoPendente.current) return; // temos uma gravação nossa a caminho — não sobrepor agora
-      // Se ainda houver uma alteração local recente por enviar (ainda dentro
-      // dos 800ms de espera), fundir em vez de aceitar cegamente o remoto —
-      // senão essa alteração local perdia-se sem nunca chegar a ser enviada.
-      if (atualizadoEm) ultimaDataRemota.current = Date.parse(atualizadoEm);
-      let fundidoTemAlteracaoLocal = false;
-      setValor((valorLocalAtual) => {
-        const fundido = fundirPorId(baseParaFusao.current, valorLocalAtual, novoValor);
-        fundidoTemAlteracaoLocal = JSON.stringify(fundido) !== novoTexto;
-        return fundido;
-      });
-      // A base para comparações futuras segue SEMPRE o valor bruto que
-      // veio do outro dispositivo — nunca o resultado já fundido. Se a
-      // base "absorvesse" cedo demais uma alteração local ainda por
-      // confirmar, o PRÓXIMO evento em tempo real (de um terceiro
-      // dispositivo que também ainda não sabe dessa alteração) passava a
-      // parecer estar a "reverter" essa alteração de propósito — quando
-      // só ainda não tinha chegado a vez de ele saber dela. Foi isto que
-      // fazia subscrições recém-pagas voltarem a aparecer como vencidas
-      // horas depois, sempre que mais outro dispositivo mexia em
-      // qualquer coisa por perto.
-      ultimoRemotoConhecido.current = novoTexto;
-      baseParaFusao.current = novoValor;
-      guardarBaseSincronizada(chave, novoValor);
-      // Só marca para "ignorar o próximo envio" se a fusão ficou igual ao
-      // remoto (nada local a preservar) — se a fusão TROUXE de volta algo
-      // que só existia aqui, isso ainda precisa de ser enviado a sério,
-      // senão essa parte local perdia-se na mesma, só que mais tarde.
-      if (!fundidoTemAlteracaoLocal) {
-        ignorarProximoEnvio.current = true;
+      if (canonico(novoValor) === ultimoRemotoConhecido.current) return; // é o eco da nossa própria gravação
+      if (gravacaoPendente.current) {
+        // Temos uma gravação nossa agendada ou a caminho: não mexer na lista
+        // agora, mas GUARDAR esta novidade para a aplicar logo que a gravação
+        // acabe (antes era deitada fora, e quem tinha entrado noutro aparelho
+        // só aparecia aqui muito mais tarde).
+        eventoAdiado.current = { novoValor, atualizadoEm };
+        return;
       }
-      window.dispatchEvent(new CustomEvent("catumbela:atualizado-tempo-real", { detail: { chave } }));
+      aplicarRemotoRef.current(novoValor, atualizadoEm);
     });
     return () => desligarCanal(canal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -944,12 +957,35 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       ignorarProximoEnvio.current = false;
       return;
     }
+    // Já é igual ao que sabemos estar no servidor (ex.: acabámos de receber esta
+    // lista de outro aparelho): não há nada para enviar.
+    if (!gravacaoPendente.current && canonico(valor) === ultimoRemotoConhecido.current) return;
     mudouLocalmente.current = true;
     gravacaoPendente.current = true;
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      const valorTexto = JSON.stringify(valor);
+      // Usa SEMPRE o valor mais recente (e não o do momento em que isto foi
+      // agendado), e este agendamento nunca é cancelado por outra mudança
+      // que chegue logo a seguir — antes, uma "saída" registada mesmo antes
+      // de outra entrada podia nunca chegar ao servidor (e a pessoa
+      // "voltava" a aparecer dentro do ginásio).
+      const valor = valorRef.current;
+      const valorTexto = canonico(valor);
+      // Terminar: liberta a trava e aplica a novidade de outro aparelho que
+      // tenha chegado enquanto gravávamos (se for mais recente que a nossa).
+      const terminarEnvio = () => {
+        gravacaoPendente.current = false;
+        const ev = eventoAdiado.current;
+        eventoAdiado.current = null;
+        if (ev) {
+          const dataEv = ev.atualizadoEm ? Date.parse(ev.atualizadoEm) : null;
+          if (!dataEv || !ultimaDataRemota.current || dataEv > ultimaDataRemota.current) {
+            aplicarRemotoRef.current(ev.novoValor, ev.atualizadoEm);
+          }
+        }
+      };
+      if (valorTexto === ultimoRemotoConhecido.current) { terminarEnvio(); return; } // nada de novo para enviar
       // Proteção extra, mesmo sem conflito detetado: se este dispositivo
       // está prestes a apagar de repente uma coleção que tinha VÁRIOS
       // itens, isso é suspeito demais para confiar às cegas — em vez de
@@ -983,7 +1019,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       };
       lerParaGravar()
         .then((remoto) => {
-          const remotoTexto = remoto !== null ? JSON.stringify(remoto) : null;
+          const remotoTexto = remoto !== null ? canonico(remoto) : null;
           // Sem "ultimoRemotoConhecido" (leitura inicial ainda não chegou ou
           // falhou) e com listas dos dois lados, também se funde — antes,
           // nesse caso gravava-se a lista deste dispositivo às cegas por cima
@@ -1033,7 +1069,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
         })
         .catch(() => ({ paraGravar: valor, houveConflito: false }))
         .then(({ paraGravar, houveConflito }) => {
-          const textoParaGravar = JSON.stringify(paraGravar);
+          const textoParaGravar = canonico(paraGravar);
           gravarColecao(PREFIXO_COLECAO_TESTE + chave, paraGravar)
             .then((dataGravada) => {
               if (dataGravada) ultimaDataRemota.current = Date.parse(dataGravada);
@@ -1043,9 +1079,10 @@ function usePersistente(chave, valorInicial, setStatusSync) {
               if (houveConflito) {
                 // A fusão pode ter trazido de volta algo que só existia
                 // neste dispositivo, ou combinado com o que veio do outro —
-                // atualiza o ecrã para refletir o resultado fundido.
-                ignorarProximoEnvio.current = true;
-                setValor(paraGravar);
+                // atualiza o ecrã para refletir o resultado fundido. Se entretanto
+                // a pessoa fez mais alguma alteração aqui, essa não se perde:
+                // funde-se por cima (a base é o que tínhamos ao enviar).
+                setValor((atual) => (canonico(atual) === valorTexto ? paraGravar : fundirPorId(valor, atual, paraGravar)));
               }
               setStatusSync?.("ligado");
             })
@@ -1054,12 +1091,11 @@ function usePersistente(chave, valorInicial, setStatusSync) {
               setStatusSync?.("offline");
             })
             .finally(() => {
-              gravacaoPendente.current = false;
+              terminarEnvio();
             });
         });
     }, 800);
-
-    return () => clearTimeout(timeoutRef.current);
+    // (sem "limpeza" do agendamento de propósito — ver o comentário acima)
   }, [chave, valor]);
 
   // Adiciona um item de forma segura, mesmo que várias pessoas diferentes o
@@ -1081,7 +1117,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // criados no Balcão (que usa esta via atómica) por vezes
       // desaparecerem depois de outro dispositivo sincronizar.
       const baseAtualizada = Array.isArray(baseParaFusao.current) ? [item, ...baseParaFusao.current] : [item];
-      ultimoRemotoConhecido.current = JSON.stringify(baseAtualizada);
+      ultimoRemotoConhecido.current = canonico(baseAtualizada);
       baseParaFusao.current = baseAtualizada;
       ultimaDataRemota.current = null; // o servidor mudou a data — a próxima gravação confere o conteúdo
       guardarBaseSincronizada(chave, baseAtualizada);
