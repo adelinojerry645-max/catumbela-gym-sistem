@@ -5509,7 +5509,7 @@ const formatarHorarioTrabalho = (horario) => {
   return partes.length > 0 ? partes.join(", ") : null;
 };
 
-function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPonto, onRegistarFalta, onRemoverRegistoPonto, onDefinirHorario }) {
+function RegistoPonto({ contas, funcionariosGerais, contaAtual, perfil, registosPonto, onRegistarPonto, onRegistarFalta, onRemoverRegistoPonto, onDefinirHorario }) {
   const [aRegistar, setARegistar] = useState(null); // conta selecionada, ou null
   const [aMarcarFalta, setAMarcarFalta] = useState(null); // conta selecionada, ou null
   const [dataFalta, setDataFalta] = useState("");
@@ -5527,6 +5527,9 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
   const podeGerirPonto = perfil === "administrador" || perfil === "recepcionista";
   const todosFuncionarios = contas.filter((c) => ["recepcionista", "personal_trainer", "administrador"].includes(c.perfil));
   const funcionarios = podeGerirPonto ? todosFuncionarios : todosFuncionarios.filter((c) => c.id === contaAtual?.id);
+  // Colaboradores SEM conta (limpeza, segurança...): não marcam entrada/saída
+  // (não têm login), mas a receção/administrador pode marcar-lhes FALTA.
+  const funcionariosSemConta = podeGerirPonto ? (funcionariosGerais || []) : [];
   const hojeStr = new Date().toLocaleDateString("pt-PT");
   const hojeISO = dataLocalISO(new Date());
   // registarPonto já grava os registos mais recentes no início da lista —
@@ -5543,7 +5546,11 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
   const faltasRecentes = registosPonto
     .filter((r) => r.tipo === "falta")
     .filter((r) => {
-      const dias = Math.round((new Date(hojeISO) - new Date(r.data)) / (1000 * 60 * 60 * 24));
+      // A data da falta fica guardada como "dd/mm/aaaa" — não dá para a
+      // passar direto a new Date() (dava "data inválida" e a falta nunca aparecia).
+      const partes = String(r.data || "").split("/");
+      const dataISO = partes.length === 3 ? `${partes[2]}-${partes[1].padStart(2, "0")}-${partes[0].padStart(2, "0")}` : String(r.data || "");
+      const dias = Math.round((new Date(hojeISO) - new Date(dataISO)) / (1000 * 60 * 60 * 24));
       return dias >= 0 && dias <= 30;
     });
 
@@ -5651,6 +5658,33 @@ function RegistoPonto({ contas, contaAtual, perfil, registosPonto, onRegistarPon
           })}
         </div>
       </Card>
+
+      {funcionariosSemConta.length > 0 && (
+        <Card title="Outros funcionários (sem conta no sistema)">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {funcionariosSemConta.map((f) => {
+              const faltasDele = faltasRecentes.filter((r) => String(r.funcionarioId) === String(f.id)).length;
+              return (
+                <div key={f.id} className="flex items-center justify-between p-3 rounded-lg ring-1 ring-slate-200 dark:ring-slate-600">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.nome}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500">
+                      {f.cargo || "Funcionário"}{faltasDele > 0 ? ` · ${faltasDele} falta(s) nos últimos 30 dias` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => abrirMarcarFalta({ id: f.id, nome: f.nome })}
+                    title="Marcar falta"
+                    className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 px-2 py-1 rounded-full hover:bg-red-100 shrink-0"
+                  >
+                    Falta
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <Card title={`Histórico de hoje (${hojeStr})`}>
         {registosHoje.length === 0 ? (
@@ -17309,12 +17343,13 @@ export default function CatumbelaGymApp() {
     registarAuditoria(dados.tipo === "entrada" ? "Registou entrada (ponto)" : "Registou saída (ponto)", `${dados.funcionarioNome} — ${dados.hora}`);
   };
 
-  // Marcar falta de um colaborador — só o administrador pode fazer isto, e
-  // pode fazê-lo por QUALQUER colaborador (ao contrário de entrada/saída,
+  // Marcar falta de um colaborador — o administrador e a receção (balcão)
+  // podem fazer isto, por QUALQUER colaborador, com ou sem conta (ao contrário de entrada/saída,
   // que cada um só regista de si próprio). Fica na mesma coleção do ponto
   // (registosPonto), só com tipo "falta" — assim entra na mesma linha do
   // tempo e no mesmo relatório de horário, sem precisar de outra coleção.
   const registarFalta = ({ funcionarioId, funcionarioNome, data, motivo }) => {
+    if (perfil !== "administrador" && perfil !== "recepcionista") return;
     setRegistosPonto((atual) => [
       { id: gerarIdUnico(), funcionarioId, funcionarioNome, tipo: "falta", data, motivo: motivo || null, registadoPor: contaAtual?.nome || "—" },
       ...atual,
@@ -18112,7 +18147,7 @@ export default function CatumbelaGymApp() {
             </div>
           )}
           {telaAtual === "ponto" && (
-            <RegistoPonto contas={contas} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} onRegistarFalta={registarFalta} onRemoverRegistoPonto={removerRegistoPonto} onDefinirHorario={definirHorarioTrabalho} />
+            <RegistoPonto contas={contas} funcionariosGerais={funcionariosGerais} contaAtual={contaAtual} perfil={perfil} registosPonto={registosPonto} onRegistarPonto={registarPonto} onRegistarFalta={registarFalta} onRemoverRegistoPonto={removerRegistoPonto} onDefinirHorario={definirHorarioTrabalho} />
           )}
           {telaAtual === "equipamentos" && perfil === "administrador" && (
             <Equipamentos equipamentos={equipamentos} onAdd={adicionarEquipamento} onUpdate={atualizarEquipamento} onRemove={removerEquipamento} />
