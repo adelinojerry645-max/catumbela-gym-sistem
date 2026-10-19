@@ -7572,7 +7572,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 
   const total = itensSelecionados.reduce((s, i) => s + i.qtd * i.precoUnit, 0);
 
-  const gerar = () => {
+  const gerar = async () => {
     if (!membro || itensSelecionados.length === 0) return;
     if (tipo === "RECIBO" && !metodoPagamento) return;
     if (tipo === "RECIBO" && pagamentoDividido) {
@@ -7618,14 +7618,29 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       divisaoPagamento,
       faturaOrigemNumero: tipo === "RECIBO" ? faturaOrigemNumero : undefined,
     };
-    const gravado = onGerarFatura(documento); // devolve o documento já com número e data reais
+    // IMPORTANTE: esta função é assíncrona (espera pelo servidor para dar o
+    // número do documento) — tem de se ESPERAR por ela. Sem o "await", o que
+    // chegava aqui era uma "promessa" e não o documento, e o ecrã rebentava
+    // ("Ocorreu um erro neste ecrã") ao tentar ler o telefone do cliente.
+    let gravado;
+    try {
+      gravado = await onGerarFatura(documento); // devolve o documento já com número e data reais
+    } catch (erro) {
+      aGerarRef.current = false; // deixa tentar outra vez
+      alert("Não foi possível gerar o documento. Verifica a internet e tenta outra vez.");
+      return;
+    }
+    if (!gravado || !gravado.numero) {
+      aGerarRef.current = false;
+      return;
+    }
     // Se o recibo inclui o item do plano do membro, a subscrição tem de ser
     // estendida — senão o dinheiro fica registado mas o vencimento nunca avança.
     // A quantidade do item (qtd) representa quantos MESES foram pagos de uma
     // vez — sem isto, pagar 3 meses só avançava o vencimento em 1 mês.
     const itemPlano = itensSelecionados.find((i) => i.referencia === `PLANO-${plano?.nome.toUpperCase()}`);
     if (tipo === "RECIBO" && plano && itemPlano) {
-      onEstenderSubscricao(membro.id, plano.nome, gravado?.numero, itemPlano.qtd || 1);
+      onEstenderSubscricao(membro.id, plano.nome, gravado.numero, itemPlano.qtd || 1);
     }
     setGerada(gravado);
   };
@@ -7979,9 +7994,9 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
               </button>
               <a
                 href={linkWhatsApp(
-                  gerada.membro.telefone,
-                  `Olá ${gerada.membro.nome.split(" ")[0]}, segue o resumo do seu documento ${gerada.numero} (${dadosGinasio.nome}):\n\n` +
-                    gerada.itens.map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") +
+                  gerada.membro?.telefone || "",
+                  `Olá ${(gerada.membro?.nome || "").split(" ")[0]}, segue o resumo do seu documento ${gerada.numero} (${dadosGinasio.nome}):\n\n` +
+                    (gerada.itens || []).map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") +
                     `\n\nTotal: ${kz(gerada.valor)}\nObrigado pela preferência!`
                 )}
                 target="_blank" rel="noreferrer"
