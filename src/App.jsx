@@ -9,7 +9,7 @@ import {
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
   PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
 } from "lucide-react";
-import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
+import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
@@ -1008,13 +1008,15 @@ function usePersistente(chave, valorInicial, setStatusSync) {
       // Só descarrega a coleção inteira se ela mudou desde o que conhecemos
       // (pergunta primeiro só pela data — pedido minúsculo). Antes, cada
       // gravação descarregava tudo, o que esgotou o tráfego do Supabase.
+      let dataLida = null; // data (no servidor) da versão em que baseámos esta gravação
       const lerParaGravar = async () => {
         if (ultimaDataRemota.current && ultimoRemotoConhecido.current !== null) {
           const d = await lerDataColecao(PREFIXO_COLECAO_TESTE + chave);
-          if (d && Date.parse(d) === ultimaDataRemota.current) return JSON.parse(ultimoRemotoConhecido.current);
+          if (d && Date.parse(d) === ultimaDataRemota.current) { dataLida = d; return JSON.parse(ultimoRemotoConhecido.current); }
         }
         const res = await lerColecaoComData(PREFIXO_COLECAO_TESTE + chave);
         if (res && res.atualizado_em) ultimaDataRemota.current = Date.parse(res.atualizado_em);
+        dataLida = res ? res.atualizado_em : null;
         return res ? res.valor : null;
       };
       lerParaGravar()
@@ -1065,13 +1067,39 @@ function usePersistente(chave, valorInicial, setStatusSync) {
           } else if (!arrayVazioSuspeito) {
             jaBloqueouVazioAntes.current = false;
           }
-          return { paraGravar, houveConflito: houveConflito || repostoPeloEscudo || (arrayVazioSuspeito && paraGravar === remoto) };
+          return { paraGravar, remoto, dataLida, houveConflito: houveConflito || repostoPeloEscudo || (arrayVazioSuspeito && paraGravar === remoto) };
         })
-        .catch(() => ({ paraGravar: valor, houveConflito: false }))
-        .then(({ paraGravar, houveConflito }) => {
-          const textoParaGravar = canonico(paraGravar);
-          gravarColecao(PREFIXO_COLECAO_TESTE + chave, paraGravar)
-            .then((dataGravada) => {
+        .catch(() => ({ paraGravar: valor, remoto: undefined, dataLida: null, houveConflito: false }))
+        .then(({ paraGravar: paraGravarInicial, remoto: remotoLido, dataLida: dataBase, houveConflito: houveConflitoInicial }) => {
+          // Gravação "só se ninguém mexeu entretanto": se outro aparelho gravou
+          // entre a nossa leitura e a nossa escrita, a gravação é recusada em
+          // vez de apagar o trabalho dele; então lê-se de novo, funde-se e
+          // tenta-se outra vez.
+          const gravarComSeguranca = async () => {
+            const nome = PREFIXO_COLECAO_TESTE + chave;
+            let candidato = paraGravarInicial;
+            let baseRemota = remotoLido;
+            let data = dataBase;
+            let conflitoExtra = false;
+            for (let tentativa = 0; tentativa < 5; tentativa++) {
+              const r = await gravarColecaoSeAtual(nome, candidato, data);
+              if (r.ok) return { candidato, dataGravada: r.atualizado_em, conflitoExtra };
+              const res = await lerColecaoComData(nome);
+              const novoRemoto = res ? res.valor : null;
+              data = res ? res.atualizado_em : null;
+              if (Array.isArray(candidato) && Array.isArray(novoRemoto)) {
+                candidato = fundirPorId(Array.isArray(baseRemota) ? baseRemota : [], candidato, novoRemoto);
+              }
+              baseRemota = novoRemoto;
+              conflitoExtra = true;
+            }
+            const dataGravada = await gravarColecao(nome, candidato);
+            return { candidato, dataGravada, conflitoExtra };
+          };
+          gravarComSeguranca()
+            .then(({ candidato: paraGravar, dataGravada, conflitoExtra }) => {
+              const houveConflito = houveConflitoInicial || conflitoExtra;
+              const textoParaGravar = canonico(paraGravar);
               if (dataGravada) ultimaDataRemota.current = Date.parse(dataGravada);
               ultimoRemotoConhecido.current = textoParaGravar;
               baseParaFusao.current = paraGravar;

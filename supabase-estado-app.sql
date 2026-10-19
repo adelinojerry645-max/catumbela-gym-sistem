@@ -162,3 +162,24 @@ BEGIN
   RETURN documento_completo;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Gravação "só se ninguém mexeu entretanto" (evita que um aparelho apague o
+-- trabalho de outro). Usada pelo site em todas as gravações de coleções.
+create or replace function public.gravar_colecao_se_atual(p_chave text, p_valor jsonb, p_esperado timestamptz, p_agora timestamptz)
+returns jsonb language plpgsql as $$
+declare atual timestamptz; existe boolean;
+begin
+  select atualizado_em into atual from estado_app where chave = p_chave for update;
+  existe := found;
+  if not existe then
+    insert into estado_app (chave, valor, atualizado_em) values (p_chave, p_valor, p_agora) on conflict (chave) do nothing;
+    if found then return jsonb_build_object('ok', true, 'atualizado_em', p_agora); end if;
+    return jsonb_build_object('ok', false);
+  end if;
+  if p_esperado is not null and atual is not null
+     and date_trunc('milliseconds', atual) = date_trunc('milliseconds', p_esperado) then
+    update estado_app set valor = p_valor, atualizado_em = p_agora where chave = p_chave;
+    return jsonb_build_object('ok', true, 'atualizado_em', p_agora);
+  end if;
+  return jsonb_build_object('ok', false);
+end $$;

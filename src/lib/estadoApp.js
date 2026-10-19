@@ -43,6 +43,7 @@ export async function gravarColecao(chave, valor) {
     .from("estado_app")
     .upsert({ chave, valor, atualizado_em: agora }, { onConflict: "chave" });
   if (error) throw error;
+  ultimaGravacaoPropria[chave] = agora;
   return agora;
 }
 
@@ -51,7 +52,53 @@ export async function gravarColecao(chave, valor) {
 // alguém grava, sem precisares de recarregar a página. Usa o Realtime do
 // Supabase (Postgres Changes) — precisa de estar ativado na tabela (ver
 // supabase-estado-app.sql).
+// Grava a coleção SÓ se ninguém a alterou desde a versão que lemos (compara a
+// data). Devolve { ok, atualizado_em }. Se a função ainda não existir no
+// Supabase, volta ao método normal. Ver "gravar_colecao_se_atual" em
+// supabase-estado-app.sql.
+export async function gravarColecaoSeAtual(chave, valor, dataEsperada) {
+  const agora = new Date().toISOString();
+  const { data, error } = await supabase.rpc("gravar_colecao_se_atual", {
+    p_chave: chave,
+    p_valor: valor,
+    p_esperado: dataEsperada ? new Date(dataEsperada).toISOString() : null,
+    p_agora: agora,
+  });
+  if (error) {
+    const texto = `${error.code || ""} ${error.message || ""}`;
+    if (/PGRST202|42883|does not exist|Could not find/i.test(texto)) {
+      const d = await gravarColecao(chave, valor);
+      return { ok: true, atualizado_em: d };
+    }
+    throw error;
+  }
+  if (data && data.ok) ultimaGravacaoPropria[chave] = data.atualizado_em;
+  return { ok: !!(data && data.ok), atualizado_em: data ? data.atualizado_em : null };
+}
+
+// Para poupar tráfego, o Supabase passa a avisar só "esta coleção mudou" (sem
+// enviar a lista inteira a cada aparelho — via websocket isso era enviado sem
+// compressão, centenas de KB por alteração). Quando o aviso chega, o aparelho
+// vai buscar a lista UMA vez (pedido comprimido), e várias alterações seguidas
+// juntam-se num só pedido.
+const ultimaGravacaoPropria = {};
+const ATRASO_BUSCA_MS = 1200;
+
 export function subscreverColecao(chave, aoAlterar) {
+  let temporizador = null;
+  let ultimaDataVista = null;
+  let desligado = false;
+  const buscar = async () => {
+    temporizador = null;
+    if (desligado) return;
+    try {
+      const res = await lerColecaoComData(chave);
+      if (desligado || !res) return;
+      if (res.atualizado_em && Date.parse(res.atualizado_em) === ultimaDataVista) return;
+      ultimaDataVista = res.atualizado_em ? Date.parse(res.atualizado_em) : ultimaDataVista;
+      aoAlterar(res.valor, res.atualizado_em);
+    } catch { /* sem rede: o próximo aviso tenta outra vez */ }
+  };
   const canal = supabase
     .channel(`estado_app_${chave}`)
     .on(
@@ -59,16 +106,25 @@ export function subscreverColecao(chave, aoAlterar) {
       { event: "*", schema: "public", table: "estado_app", filter: `chave=eq.${chave}` },
       (payload) => {
         const novoRegisto = payload.new;
-        if (novoRegisto && "valor" in novoRegisto) {
+        if (!novoRegisto) return;
+        if ("valor" in novoRegisto) {
+          // Formato antigo (com a lista inteira): continua a funcionar.
           aoAlterar(novoRegisto.valor, novoRegisto.atualizado_em);
+          return;
         }
+        // Eco da nossa própria gravação: já sabemos o que lá está.
+        if (novoRegisto.atualizado_em && ultimaGravacaoPropria[chave] === novoRegisto.atualizado_em) return;
+        if (temporizador) return; // já há uma busca marcada: junta-se
+        temporizador = setTimeout(buscar, ATRASO_BUSCA_MS);
       }
     )
     .subscribe();
+  canal.__parar = () => { desligado = true; if (temporizador) clearTimeout(temporizador); };
   return canal;
 }
 
 export function desligarCanal(canal) {
+  if (canal && canal.__parar) canal.__parar();
   if (canal) supabase.removeChannel(canal);
 }
 
