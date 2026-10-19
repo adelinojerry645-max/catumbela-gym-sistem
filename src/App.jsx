@@ -7668,6 +7668,21 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
                   </td>
                   <td className="py-2.5 text-right">
                     <div className="flex items-center justify-end gap-3">
+                      {f.membro.telefone && f.membro.numero !== "AVULSO" && (
+                        <a
+                          href={linkWhatsApp(
+                            f.membro.telefone,
+                            f.tipo === "RECIBO"
+                              ? `Olá ${String(f.membro.nome || "").trim().split(" ")[0]}, segue o teu recibo ${f.numero} — ${kz(f.valor)}. Obrigado! Catumbela Gym 💪`
+                              : `Olá ${String(f.membro.nome || "").trim().split(" ")[0]}, segue o documento ${f.numero} — ${kz(f.valor)}. Catumbela Gym`
+                          )}
+                          target="_blank" rel="noreferrer"
+                          title="Enviar por WhatsApp"
+                          className="text-emerald-600 hover:text-emerald-700"
+                        >
+                          <MessageCircle size={15} />
+                        </a>
+                      )}
                       <button onClick={() => onVer(f)} title="Ver / reimprimir (2ª via)" className="text-slate-400 hover:text-[#3F8F87]">
                         <FileText size={15} />
                       </button>
