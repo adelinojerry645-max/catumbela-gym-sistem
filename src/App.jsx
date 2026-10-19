@@ -1225,6 +1225,53 @@ const linkWhatsApp = (telefone, mensagem) =>
 const linkSMS = (telefone, mensagem) =>
   `sms:${(telefone || "").replace(/\D/g, "")}?body=${encodeURIComponent(mensagem)}`;
 
+// WhatsApp "quase automático" ao gerar um recibo de plano/inscrição: abre o
+// WhatsApp com a mensagem já escrita e o número do atleta — a recepcionista só
+// carrega em Enviar. (Envio 100% sem cliques exige a API oficial do WhatsApp
+// Business, paga.) Cada aparelho pode ligar/desligar em "Meu Perfil".
+const CHAVE_WHATSAPP_AUTO = "catumbela-gym:whatsapp-auto";
+const whatsappAutoAtivo = () => {
+  try { return window.localStorage.getItem(CHAVE_WHATSAPP_AUTO) !== "false"; } catch { return true; }
+};
+const definirWhatsappAuto = (ativo) => {
+  try { window.localStorage.setItem(CHAVE_WHATSAPP_AUTO, ativo ? "true" : "false"); } catch { /* sem armazenamento: ignora */ }
+};
+// Junta recibos do MESMO atleta gerados quase ao mesmo tempo (ex.: inscrição +
+// mensalidade) numa só mensagem, para não abrir duas janelas.
+const filaWhatsAppRecibos = { telefone: null, membro: null, docs: [], timer: null };
+const agendarWhatsAppRecibo = (documento, nomeGinasio) => {
+  try {
+    if (!whatsappAutoAtivo() || typeof window === "undefined") return;
+    if (!documento || documento.tipo !== "RECIBO") return;
+    if (documento.tipoReceita === "venda" || documento.tipoReceita === "avulso") return;
+    const membro = documento.membro;
+    const digitos = String(membro?.telefone || "").replace(/\D/g, "");
+    if (!membro || membro.numero === "AVULSO" || digitos.length < 9) return;
+    if (filaWhatsAppRecibos.timer && filaWhatsAppRecibos.telefone !== digitos) {
+      clearTimeout(filaWhatsAppRecibos.timer); // outro atleta: começa de novo (não mistura pessoas)
+      filaWhatsAppRecibos.docs = [];
+    }
+    filaWhatsAppRecibos.telefone = digitos;
+    filaWhatsAppRecibos.membro = membro;
+    filaWhatsAppRecibos.docs.push(documento);
+    clearTimeout(filaWhatsAppRecibos.timer);
+    filaWhatsAppRecibos.timer = setTimeout(() => {
+      const docs = filaWhatsAppRecibos.docs;
+      const m = filaWhatsAppRecibos.membro;
+      const tel = filaWhatsAppRecibos.telefone;
+      filaWhatsAppRecibos.docs = []; filaWhatsAppRecibos.timer = null;
+      if (!docs.length) return;
+      const total = docs.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+      const numeros = docs.map((d) => d.numero).join(" + ");
+      const primeiro = String(m.nome || "").trim().split(" ")[0];
+      const mensagem =
+        `Olá ${primeiro}, recebemos o teu pagamento. Recibo ${numeros} — ${kz(total)}. ` +
+        `Obrigado! ${nomeGinasio || "Catumbela Gym"} 💪`;
+      window.open(linkWhatsApp(tel, mensagem), "_blank", "noopener");
+    }, 700);
+  } catch { /* nunca deixa isto estragar a geração do recibo */ }
+};
+
 // ---------------------------------------------------------------------
 // GERAR PDF A SÉRIO (ficheiro, não só a janela de impressão) — usa
 // html2canvas + jsPDF, carregadas por CDN no index.html. Devolve um
@@ -9394,8 +9441,27 @@ function FormMudarSenha({ onMudar }) {
 
 // Ecrã "Meu Perfil" — para Administrador, Recepcionista e Personal Trainer
 function MeuPerfil({ contaAtual, onMudarSenha }) {
+  const [whatsappAuto, setWhatsappAuto] = useState(whatsappAutoAtivo());
   return (
     <div className="max-w-md space-y-4">
+      {(contaAtual?.perfil === "administrador" || contaAtual?.perfil === "recepcionista") && (
+        <Card title="WhatsApp ao gerar recibo">
+          <label className="flex items-start gap-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={whatsappAuto}
+              onChange={(e) => { setWhatsappAuto(e.target.checked); definirWhatsappAuto(e.target.checked); }}
+              className="mt-0.5 w-4 h-4"
+            />
+            <span className="text-slate-700 dark:text-slate-200">
+              Abrir o WhatsApp com a mensagem pronta quando gero um recibo de plano ou inscrição
+              <span className="block text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                Só tens de carregar em Enviar. Vale só para este aparelho.
+              </span>
+            </span>
+          </label>
+        </Card>
+      )}
       <Card title="Os meus dados">
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-1.5 border-b border-slate-50 dark:border-slate-700">
@@ -16578,6 +16644,7 @@ export default function CatumbelaGymApp() {
       if (paraBanco.length > 0) setMovimentosBancarios((atual) => [...paraBanco, ...atual]);
     }
     registarAuditoria(`Gerou ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"} ${numero}`, `${membro.nome} — ${kz(valor)}`);
+    agendarWhatsAppRecibo(documento, dadosGinasio?.nome);
     return documento;
   };
 
