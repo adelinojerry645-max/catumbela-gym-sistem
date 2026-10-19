@@ -5516,6 +5516,10 @@ function RegistoPonto({ contas, funcionariosGerais, contaAtual, perfil, registos
   const [motivoFalta, setMotivoFalta] = useState("");
   const [aEditarHorario, setAEditarHorario] = useState(null); // conta selecionada, ou null
   const [horarioEmEdicao, setHorarioEmEdicao] = useState(null);
+  // Entrada/saída de um funcionário SEM conta (limpeza, segurança...), marcada
+  // pela receção/administrador com a hora que a pessoa realmente chegou.
+  const [aRegistarGeral, setARegistarGeral] = useState(null); // { id, nome, tipo }
+  const [horaGeral, setHoraGeral] = useState("");
 
   // Cada funcionário só pode marcar a SUA PRÓPRIA entrada/saída — mesmo
   // partilhando o computador da receção, ninguém deve conseguir marcar
@@ -5564,6 +5568,25 @@ function RegistoPonto({ contas, funcionariosGerais, contaAtual, perfil, registos
     if (conta.id !== contaAtual?.id) return; // proteção extra: nunca registar ponto de outra pessoa
     onRegistarPonto({ funcionarioId: conta.id, funcionarioNome: conta.nome, tipo, data: hojeStr, hora: new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }) });
     setARegistar(null);
+  };
+
+  const abrirRegistoGeral = (f, tipo) => {
+    setARegistarGeral({ id: f.id, nome: f.nome, tipo });
+    setHoraGeral(new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }));
+  };
+
+  const confirmarRegistoGeral = () => {
+    if (!aRegistarGeral || !/^\d{1,2}:\d{2}$/.test(horaGeral)) return;
+    const [h, m] = horaGeral.split(":");
+    onRegistarPonto({
+      funcionarioId: aRegistarGeral.id,
+      funcionarioNome: aRegistarGeral.nome,
+      tipo: aRegistarGeral.tipo,
+      data: hojeStr,
+      hora: `${h.padStart(2, "0")}:${m}`,
+      semConta: true,
+    });
+    setARegistarGeral(null);
   };
 
   const abrirMarcarFalta = (conta) => {
@@ -5664,21 +5687,44 @@ function RegistoPonto({ contas, funcionariosGerais, contaAtual, perfil, registos
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {funcionariosSemConta.map((f) => {
               const faltasDele = faltasRecentes.filter((r) => String(r.funcionarioId) === String(f.id)).length;
+              const dentroGeral = estadoAtual(f.id) === "entrada";
+              const ultimoHoje = registosHoje.find((r) => String(r.funcionarioId) === String(f.id));
               return (
-                <div key={f.id} className="flex items-center justify-between p-3 rounded-lg ring-1 ring-slate-200 dark:ring-slate-600">
+                <div key={f.id} className={`flex items-center justify-between gap-2 p-3 rounded-lg ring-1 ${dentroGeral ? "ring-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" : "ring-slate-200 dark:ring-slate-600"}`}>
                   <div>
                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{f.nome}</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">
                       {f.cargo || "Funcionário"}{faltasDele > 0 ? ` · ${faltasDele} falta(s) nos últimos 30 dias` : ""}
                     </p>
+                    {ultimoHoje && (
+                      <p className={`text-[11px] font-medium mt-0.5 ${dentroGeral ? "text-emerald-600" : "text-slate-400"}`}>
+                        {ultimoHoje.tipo === "entrada" ? "Entrou" : "Saiu"} às {ultimoHoje.hora}
+                      </p>
+                    )}
                   </div>
-                  <button
-                    onClick={() => abrirMarcarFalta({ id: f.id, nome: f.nome })}
-                    title="Marcar falta"
-                    className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 px-2 py-1 rounded-full hover:bg-red-100 shrink-0"
-                  >
-                    Falta
-                  </button>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <button
+                      onClick={() => abrirRegistoGeral(f, "entrada")}
+                      title="Registar hora de entrada"
+                      className="text-[10px] font-semibold text-white bg-emerald-500 hover:bg-emerald-600 px-2 py-1 rounded-full"
+                    >
+                      Entrada
+                    </button>
+                    <button
+                      onClick={() => abrirRegistoGeral(f, "saida")}
+                      title="Registar hora de saída"
+                      className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 ring-1 ring-slate-200 dark:ring-slate-600 px-2 py-1 rounded-full hover:bg-slate-200"
+                    >
+                      Saída
+                    </button>
+                    <button
+                      onClick={() => abrirMarcarFalta({ id: f.id, nome: f.nome })}
+                      title="Marcar falta"
+                      className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 px-2 py-1 rounded-full hover:bg-red-100"
+                    >
+                      Falta
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -5741,6 +5787,30 @@ function RegistoPonto({ contas, funcionariosGerais, contaAtual, perfil, registos
               </button>
               <button onClick={() => registar(aRegistar, "saida")} className="w-full ring-1 ring-slate-200 dark:ring-slate-600 text-slate-600 dark:text-slate-300 font-semibold py-2.5 rounded-lg text-sm">
                 Registar saída
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aRegistarGeral && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 w-full max-w-xs">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 dark:text-slate-100">
+                {aRegistarGeral.tipo === "entrada" ? "Hora de entrada" : "Hora de saída"} — {aRegistarGeral.nome}
+              </h3>
+              <button onClick={() => setARegistarGeral(null)}><X size={20} className="text-slate-400" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">A que horas {aRegistarGeral.tipo === "entrada" ? "entrou" : "saiu"}? (hoje, {hojeStr})</label>
+                <input type="time" value={horaGeral} onChange={(e) => setHoraGeral(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <button onClick={confirmarRegistoGeral} disabled={!horaGeral}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-200 text-white font-semibold py-2.5 rounded-lg text-sm">
+                Guardar {aRegistarGeral.tipo === "entrada" ? "entrada" : "saída"}
               </button>
             </div>
           </div>
