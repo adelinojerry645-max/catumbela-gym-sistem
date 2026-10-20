@@ -9,7 +9,7 @@ import {
   Building2, Landmark, Smartphone, ImagePlus, RefreshCw, ToggleLeft, ToggleRight, RotateCcw,
   PlayCircle, PauseCircle, MessageSquare, Send, ChevronRight, ScanLine, Clock, Printer, Calendar, Megaphone, Award, Wrench, Cake, Star, Target, Download,
 } from "lucide-react";
-import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
+import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
@@ -767,6 +767,9 @@ function usePersistente(chave, valorInicial, setStatusSync) {
 
       if (!emLocal && !emRemoto) return; // removido dos dois lados
       if (localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // só eu mudei (inclui criar/remover)
+      // Uma saída já registada nunca é "reaberta" por uma versão remota atrasada
+      // (ex.: uma leitura que saiu do servidor antes de a saída ser gravada).
+      if (chave === "acessos" && emLocal && emLocal.saida && emRemoto && !emRemoto.saida) { resultado.push(emLocal); return; }
       if (remotoMudou && !localMudou) { if (emRemoto) resultado.push(emRemoto); return; } // só o outro dispositivo mudou
       if (!localMudou && !remotoMudou) { if (emLocal) resultado.push(emLocal); return; } // nenhum mudou
       // Mudou nos dois lados ao mesmo tempo. Se o item foi apagado num dos
@@ -1161,6 +1164,45 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     }
   };
 
+  // Altera um único item (por id) de forma atómica no servidor e reflete-o aqui.
+  // Usado, por exemplo, para dar saída no Controlo de Acessos: não reenvia a
+  // lista inteira, por isso não é apagado por entradas de outros aparelhos.
+  const atualizarItemSeguro = async (id, patch) => {
+    const aplicar = (lista) => (Array.isArray(lista) ? lista.map((i) => (i && String(i.id) === String(id) ? { ...i, ...patch } : i)) : lista);
+    const vaiMudar = Array.isArray(valorRef.current) &&
+      valorRef.current.some((i) => i && String(i.id) === String(id) && Object.keys(patch).some((k) => canonico(i[k]) !== canonico(patch[k])));
+    try {
+      await atualizarItemAtomico(PREFIXO_COLECAO_TESTE + chave, id, patch);
+      const baseAtualizada = aplicar(baseParaFusao.current);
+      ultimoRemotoConhecido.current = canonico(baseAtualizada);
+      baseParaFusao.current = baseAtualizada;
+      ultimaDataRemota.current = null;
+      guardarBaseSincronizada(chave, baseAtualizada);
+      if (vaiMudar) ignorarProximoEnvio.current = true;
+      setValor(aplicar);
+    } catch (e) {
+      console.warn(`Alteração atómica de "${chave}" indisponível, a usar o método normal:`, e);
+      setValor(aplicar);
+    }
+  };
+  const removerItemSeguro = async (id) => {
+    const tirar = (lista) => (Array.isArray(lista) ? lista.filter((i) => !(i && String(i.id) === String(id))) : lista);
+    const vaiMudar = Array.isArray(valorRef.current) && valorRef.current.some((i) => i && String(i.id) === String(id));
+    try {
+      await removerItemAtomico(PREFIXO_COLECAO_TESTE + chave, id);
+      const baseAtualizada = tirar(baseParaFusao.current);
+      ultimoRemotoConhecido.current = canonico(baseAtualizada);
+      baseParaFusao.current = baseAtualizada;
+      ultimaDataRemota.current = null;
+      guardarBaseSincronizada(chave, baseAtualizada);
+      if (vaiMudar) ignorarProximoEnvio.current = true;
+      setValor(tirar);
+    } catch (e) {
+      console.warn(`Remoção atómica de "${chave}" indisponível, a usar o método normal:`, e);
+      setValor(tirar);
+    }
+  };
+
   // Atualiza o estado local SEM voltar a enviar para o Supabase — para
   // quando outra função já gravou os dados por outra via (ex.: uma função
   // atómica dedicada, como a de reservar atividades) e só falta refletir
@@ -1171,7 +1213,7 @@ function usePersistente(chave, valorInicial, setStatusSync) {
   };
 
   const valorOrdenado = useMemo(() => ordenarPorData(chave, valor), [chave, valor]);
-  return [valorOrdenado, setValor, adicionarItemSeguro, definirSemGravar];
+  return [valorOrdenado, setValor, adicionarItemSeguro, definirSemGravar, atualizarItemSeguro, removerItemSeguro];
 }
 
 // Gera um identificador único para esta sessão/dispositivo — usado para
@@ -15501,7 +15543,7 @@ export default function CatumbelaGymApp() {
   }, [dadosGinasio.frequenciaBackup, perfil]);
 
   const [contas, setContas] = usePersistente("contas", CONTAS_INICIAIS, setStatusSync);
-  const [acessos, setAcessos, adicionarAcessoSeguro] = usePersistente("acessos", ACESSOS_INICIAIS, setStatusSync);
+  const [acessos, setAcessos, adicionarAcessoSeguro, , atualizarAcessoSeguro, removerAcessoSeguro] = usePersistente("acessos", ACESSOS_INICIAIS, setStatusSync);
   const [pagamentosFeitos, setPagamentosFeitos] = usePersistente("pagamentosFeitos", [], setStatusSync);
   const [movimentosBancarios, setMovimentosBancarios] = usePersistente("movimentosBancarios", [], setStatusSync);
   const [movimentosCaixa, setMovimentosCaixa] = usePersistente("movimentosCaixa", [], setStatusSync);
@@ -17901,9 +17943,7 @@ export default function CatumbelaGymApp() {
       );
     }
 
-    setAcessos((atual) =>
-      atual.map((a) => (a.id === aberta.id ? { ...a, saida: horaSaida, taxaSessaoLongaFatura: numeroFaturaTaxa } : a))
-    );
+    atualizarAcessoSeguro(aberta.id, { saida: horaSaida, taxaSessaoLongaFatura: numeroFaturaTaxa });
     registarAuditoria("Registou saída", `${membro.nome} — ${membro.numero}`);
     return { acessoId: aberta.id, taxaFaturaNumero: numeroFaturaTaxa };
   };
@@ -17911,7 +17951,7 @@ export default function CatumbelaGymApp() {
   // Desfazer a entrada/saída mais recente — para quando se engana na pessoa
   // ou clica sem querer, sem ter de ir procurar noutro ecrã para corrigir.
   const desfazerEntrada = (acessoId) => {
-    setAcessos((atual) => atual.filter((a) => a.id !== acessoId));
+    removerAcessoSeguro(acessoId);
     registarAuditoria("Desfez uma entrada registada por engano", "");
   };
 

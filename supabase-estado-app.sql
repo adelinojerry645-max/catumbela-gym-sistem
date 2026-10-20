@@ -183,3 +183,32 @@ begin
   end if;
   return jsonb_build_object('ok', false);
 end $$;
+
+-- Alterar / remover UM item de uma coleção de forma atómica (usado nas saídas do
+-- Controlo de Acessos, para não serem apagadas por entradas de outros aparelhos).
+create or replace function public.atualizar_item_colecao(p_chave text, p_id text, p_patch jsonb)
+returns boolean language plpgsql as $$
+declare n int;
+begin
+  update estado_app
+     set valor = (select coalesce(jsonb_agg(case when e->>'id' = p_id then e || p_patch else e end order by ord), '[]'::jsonb)
+                    from jsonb_array_elements(valor) with ordinality as t(e, ord)),
+         atualizado_em = now()
+   where chave = p_chave and jsonb_typeof(valor) = 'array';
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+
+create or replace function public.remover_item_colecao(p_chave text, p_id text)
+returns boolean language plpgsql as $$
+declare n int;
+begin
+  update estado_app
+     set valor = (select coalesce(jsonb_agg(e order by ord), '[]'::jsonb)
+                    from jsonb_array_elements(valor) with ordinality as t(e, ord)
+                   where e->>'id' is distinct from p_id),
+         atualizado_em = now()
+   where chave = p_chave and jsonb_typeof(valor) = 'array';
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;

@@ -94,7 +94,9 @@ export function subscreverColecao(chave, aoAlterar) {
     try {
       const res = await lerColecaoComData(chave);
       if (desligado || !res) return;
-      if (res.atualizado_em && Date.parse(res.atualizado_em) === ultimaDataVista) return;
+      // Só aceita leituras MAIS NOVAS do que a última vista (uma leitura lenta e
+      // antiga não pode passar por cima de uma mais recente).
+      if (res.atualizado_em && ultimaDataVista !== null && Date.parse(res.atualizado_em) <= ultimaDataVista) return;
       ultimaDataVista = res.atualizado_em ? Date.parse(res.atualizado_em) : ultimaDataVista;
       aoAlterar(res.valor, res.atualizado_em);
     } catch { /* sem rede: o próximo aviso tenta outra vez */ }
@@ -135,6 +137,19 @@ export function desligarCanal(canal) {
 // ler-mudar-gravar a lista inteira no browser.
 export async function adicionarItemAtomico(chave, item) {
   const { error } = await supabase.rpc("adicionar_item_colecao", { p_chave: chave, p_item: item });
+  if (error) throw error;
+}
+
+// Altera (ou remove) UM item de uma coleção, de forma atómica no Postgres —
+// sem reenviar a lista inteira. Evita que, com muito movimento (ex.: dar saída a
+// muita gente enquanto outros entram), uma gravação apague a outra.
+export async function atualizarItemAtomico(chave, id, patch) {
+  const { error } = await supabase.rpc("atualizar_item_colecao", { p_chave: chave, p_id: String(id), p_patch: patch });
+  if (error) throw error;
+}
+
+export async function removerItemAtomico(chave, id) {
+  const { error } = await supabase.rpc("remover_item_colecao", { p_chave: chave, p_id: String(id) });
   if (error) throw error;
 }
 
