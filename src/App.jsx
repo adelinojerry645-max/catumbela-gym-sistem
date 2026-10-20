@@ -1081,7 +1081,8 @@ function usePersistente(chave, valorInicial, setStatusSync) {
             let baseRemota = remotoLido;
             let data = dataBase;
             let conflitoExtra = false;
-            for (let tentativa = 0; tentativa < 5; tentativa++) {
+            for (let tentativa = 0; tentativa < 10; tentativa++) {
+              if (tentativa > 0) await new Promise((resolve) => setTimeout(resolve, 80 + Math.random() * 320));
               const r = await gravarColecaoSeAtual(nome, candidato, data);
               if (r.ok) return { candidato, dataGravada: r.atualizado_em, conflitoExtra };
               const res = await lerColecaoComData(nome);
@@ -1093,8 +1094,11 @@ function usePersistente(chave, valorInicial, setStatusSync) {
               baseRemota = novoRemoto;
               conflitoExtra = true;
             }
-            const dataGravada = await gravarColecao(nome, candidato);
-            return { candidato, dataGravada, conflitoExtra };
+            // Muito movimento ao mesmo tempo: em vez de gravar às cegas por cima
+            // (e apagar o trabalho de outro aparelho), desiste desta vez e volta a
+            // tentar daqui a pouco com os dados mais recentes.
+            setTimeout(() => setValor((atual) => (Array.isArray(atual) ? [...atual] : atual && typeof atual === "object" ? { ...atual } : atual)), 3000);
+            throw new Error("conflito de gravação — a repetir");
           };
           gravarComSeguranca()
             .then(({ candidato: paraGravar, dataGravada, conflitoExtra }) => {
@@ -15389,6 +15393,28 @@ export default function CatumbelaGymApp() {
 
   const [ajustesDias, setAjustesDias] = usePersistente("ajustesDias", [], setStatusSync);
   const [membros, setMembros, adicionarMembroSeguro] = usePersistente("membros", MEMBROS_INICIAIS, setStatusSync);
+  // Cópia de segurança DO SEXO dos atletas, numa lista à parte (id → "M"/"F").
+  // O sexo já desapareceu da ficha quando um aparelho com dados antigos gravou a
+  // lista de atletas; como esta lista é separada, o sexo repõe-se sozinho.
+  const [sexosMembros, setSexosMembros] = usePersistente("sexosMembros", {}, setStatusSync);
+  useEffect(() => {
+    const mapa = sexosMembros && typeof sexosMembros === "object" && !Array.isArray(sexosMembros) ? sexosMembros : {};
+    const valido = (v) => v === "M" || v === "F";
+    const aRepor = membros.filter((m) => !valido(m.sexo) && valido(mapa[String(m.id)]));
+    const aGuardar = membros.filter((m) => valido(m.sexo) && mapa[String(m.id)] !== m.sexo);
+    if (aRepor.length > 0) {
+      setMembros((atual) => atual.map((m) => (!valido(m.sexo) && valido(mapa[String(m.id)]) ? { ...m, sexo: mapa[String(m.id)] } : m)));
+    }
+    if (aGuardar.length > 0) {
+      setSexosMembros((atual) => {
+        const base = atual && typeof atual === "object" && !Array.isArray(atual) ? atual : {};
+        const novo = { ...base };
+        aGuardar.forEach((m) => { novo[String(m.id)] = m.sexo; });
+        return novo;
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membros, sexosMembros]);
 
   // Corrige automaticamente o estado "ativo"/"vencido" com base na data real,
   // sempre que a app abre e a cada hora — sem isto, um membro cuja mensalidade
