@@ -85,6 +85,10 @@ const timestampDeRegisto = (m) => {
 const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 // O "vencimento" guardado é o dia em que a subscrição JÁ acabou (conta-se o dia do
 // pagamento: 7 dias = 7 dias de treino). O último dia de treino é o dia anterior.
+// "Ativo" na ficha pode estar desatualizado (ex.: ficou "ativo" mas a data já
+// passou). Para deixar entrar, conta também a data de hoje.
+const membroEmDia = (m) => !!m && m.estado === "ativo" && (!m.vencimento || m.vencimento > dataLocalISO(new Date()));
+
 const ultimoDiaDeTreino = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
   if (!m) return iso;
@@ -4145,7 +4149,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     ? Math.round((new Date(membroSelecionado.vencimento + "T00:00:00") - new Date(hojeStr + "T00:00:00")) / (1000 * 60 * 60 * 24))
     : null;
 
-  const podeEntrar = membroSelecionado?.estado === "ativo" || permitirExcecao;
+  const podeEntrar = membroEmDia(membroSelecionado) || permitirExcecao;
 
   return (
     <div className="space-y-4">
@@ -4484,7 +4488,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
                 </button>
               </div>
             </div>
-          ) : membroSelecionado.estado !== "ativo" ? (
+          ) : !membroEmDia(membroSelecionado) ? (
             <div className="space-y-3">
               <p className="text-sm text-slate-500 dark:text-slate-400">
                 {membroSelecionado.estado === "sem-subscricao" ? "Este atleta ainda não tem nenhum plano." : "A mensalidade deste atleta está vencida."}
@@ -4702,7 +4706,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
         ? `${m.nome} já está no ginásio desde as ${aberta.entrada}`
         : `${m.nome}: ficou uma entrada por fechar de ${aberta.data}. Regista a saída à mão.`);
     }
-    if (m.estado !== "ativo") return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (último dia de treino: ${m.vencimento ? ultimoDiaDeTreino(m.vencimento) : "—"})`);
+    if (!membroEmDia(m)) return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (último dia de treino: ${m.vencimento ? ultimoDiaDeTreino(m.vencimento) : "—"})`);
     registar(m);
     mostrarAviso("ok", `Entrada registada: ${m.nome}`);
   };
@@ -4968,8 +4972,8 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           // registar a saída), é essa que tem de aparecer aqui.
           const entradaAberta = acessos.filter((a) => a.numero === encontrado.numero && !a.saida).sort((a, b) => (a.data + a.entrada < b.data + b.entrada ? 1 : -1))[0] || null;
           const diasVencido = encontrado.vencimento ? Math.round((new Date(hojeStr) - new Date(encontrado.vencimento)) / (1000 * 60 * 60 * 24)) : 0;
-          const estaVencido = encontrado.estado !== "ativo" && encontrado.estado !== "suspenso" && encontrado.estado !== "pausada";
-          const podeEntrar = encontrado.estado === "ativo" || (estaVencido && perfil === "administrador" && permitirExcecao);
+          const estaVencido = !membroEmDia(encontrado) && encontrado.estado !== "suspenso" && encontrado.estado !== "pausada";
+          const podeEntrar = membroEmDia(encontrado) || (estaVencido && perfil === "administrador" && permitirExcecao);
           return (
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -16042,6 +16046,11 @@ export default function CatumbelaGymApp() {
     const hojeStr = dataLocalISO(new Date());
     const porId = new Map();
     divergentes.forEach((d) => {
+      // Nunca RECUA um vencimento: se o histórico aponta para uma data igual ou
+      // anterior à que o atleta já tem, não se mexe. Sem isto, esta correção e a
+      // do recibo (acima) desfaziam o trabalho uma da outra em ciclo (centenas
+      // de vezes por dia), mexendo na subscrição de vários atletas.
+      if (d.membro.vencimento && d.ultimo.vencimentoNovo && d.ultimo.vencimentoNovo <= d.membro.vencimento) return;
       const chave = `${d.membro.id}|${d.ultimo.planoNovo}|${d.ultimo.vencimentoNovo}`;
       if (subscricoesJaRepostasRef.current.has(chave)) return;
       subscricoesJaRepostasRef.current.add(chave);
