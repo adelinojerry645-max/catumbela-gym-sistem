@@ -3,6 +3,16 @@
 // bloco JSON. Ver supabase-estado-app.sql para criar a tabela.
 import { supabase } from "./supabaseClient";
 
+// A coluna "atualizado_em" é "timestamp sem fuso" (hora UTC, sem 'Z'). Sem
+// isto, o navegador lê essa hora como LOCAL (Angola = UTC+1) e a data fica
+// 1 hora errada — a gravação "só se ninguém mexeu" falhava sempre e as
+// alterações (ex.: renovações) deixavam de ser guardadas no Supabase.
+export function dataUTC(texto) {
+  if (!texto) return texto;
+  const t = String(texto).trim().replace(" ", "T");
+  return /(Z|[+-]\d{2}(:?\d{2})?)$/i.test(t) ? t : t + "Z";
+}
+
 export async function lerColecao(chave) {
   const { data, error } = await supabase
     .from("estado_app")
@@ -24,7 +34,7 @@ export async function lerColecaoComData(chave) {
     .eq("chave", chave)
     .maybeSingle();
   if (error) throw error;
-  return data ? { valor: data.valor, atualizado_em: data.atualizado_em } : null;
+  return data ? { valor: data.valor, atualizado_em: dataUTC(data.atualizado_em) } : null;
 }
 
 export async function lerDataColecao(chave) {
@@ -34,7 +44,7 @@ export async function lerDataColecao(chave) {
     .eq("chave", chave)
     .maybeSingle();
   if (error) throw error;
-  return data ? data.atualizado_em : null;
+  return data ? dataUTC(data.atualizado_em) : null;
 }
 
 export async function gravarColecao(chave, valor) {
@@ -61,7 +71,7 @@ export async function gravarColecaoSeAtual(chave, valor, dataEsperada) {
   const { data, error } = await supabase.rpc("gravar_colecao_se_atual", {
     p_chave: chave,
     p_valor: valor,
-    p_esperado: dataEsperada ? new Date(dataEsperada).toISOString() : null,
+    p_esperado: dataEsperada ? new Date(dataUTC(dataEsperada)).toISOString() : null,
     p_agora: agora,
   });
   if (error) {
