@@ -4524,6 +4524,128 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
   );
 }
 
+// ---------------------------------------------------------------------
+// QUEM ESTÁ DENTRO — lista só de quem está agora no ginásio, com o tempo
+// de cada um e aviso quando passam do tempo máximo (para reduzir a enchente).
+// ---------------------------------------------------------------------
+function QuemEstaDentro({ membros, acessos, dadosGinasio, onRegistarSaida }) {
+  const [limiteMin, setLimiteMin] = useState(() => {
+    try { const v = Number(localStorage.getItem("catumbela-gym:limite-treino")); return v > 0 ? v : 120; } catch { return 120; }
+  });
+  const mudarLimite = (v) => {
+    setLimiteMin(v);
+    try { localStorage.setItem("catumbela-gym:limite-treino", String(v)); } catch { /* ok */ }
+  };
+  const [agoraMs, setAgoraMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgoraMs(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const apitar = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      o.frequency.value = 220;
+      o.connect(ctx.destination);
+      o.start();
+      setTimeout(() => { o.stop(); ctx.close(); }, 450);
+    } catch { /* sem som */ }
+  };
+  const hojeISO = dataLocalISO(new Date(agoraMs));
+  const dentro = useMemo(() => {
+    const d = new Date(agoraMs);
+    const agoraMin = d.getHours() * 60 + d.getMinutes();
+    return acessos
+      .filter((a) => !a.saida && a.data === hojeISO)
+      .map((a) => {
+        const [h, m] = String(a.entrada || "").split(":").map(Number);
+        const mins = isNaN(h) || isNaN(m) ? 0 : Math.max(0, agoraMin - (h * 60 + m));
+        return { a, mins, membro: membros.find((x) => x.numero === a.numero) };
+      })
+      .sort((x, y) => y.mins - x.mins);
+  }, [acessos, membros, agoraMs, hojeISO]);
+  const antigas = acessos.filter((a) => !a.saida && a.data !== hojeISO).length;
+  const passaram = dentro.filter((r) => r.mins >= limiteMin);
+  const nAnt = React.useRef(0);
+  useEffect(() => {
+    if (passaram.length > nAnt.current) apitar();
+    nAnt.current = passaram.length;
+  }, [passaram.length]);
+
+  const sair = (r) => onRegistarSaida(r.membro || { id: null, numero: r.a.numero, nome: r.a.membro, _semFicha: true });
+  const tirarTodos = () => {
+    if (!window.confirm(`Registar a saída de ${passaram.length} atleta(s) que já passaram ${limiteMin} min?`)) return;
+    passaram.forEach(sair);
+  };
+  const fmt = (mm) => (mm >= 60 ? `${Math.floor(mm / 60)}h${String(mm % 60).padStart(2, "0")}` : `${mm} min`);
+  const textoZap = (nome) => `Olá ${nome}, o teu tempo de treino de ${fmt(limiteMin)} no ${dadosGinasio?.nome || "Catumbela Gym"} já terminou. Pedimos que libertes o espaço para outros atletas. Obrigado pela compreensão! 💪`;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-white dark:bg-slate-800 ring-1 ring-slate-100 dark:ring-slate-700 p-4">
+          <p className="text-xs text-slate-400">Dentro agora</p>
+          <p className="text-3xl font-bold text-slate-900 dark:text-white">{dentro.length}</p>
+        </div>
+        <div className={`rounded-xl p-4 ring-1 ${passaram.length ? "bg-red-50 dark:bg-red-900/20 ring-red-200 dark:ring-red-800" : "bg-white dark:bg-slate-800 ring-slate-100 dark:ring-slate-700"}`}>
+          <p className="text-xs text-slate-400">Passaram {fmt(limiteMin)}</p>
+          <p className={`text-3xl font-bold ${passaram.length ? "text-red-600" : "text-slate-900 dark:text-white"}`}>{passaram.length}</p>
+        </div>
+      </div>
+
+      <Card title="Quem está no ginásio">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3 text-xs text-slate-500 dark:text-slate-400">
+          <label className="flex items-center gap-2">
+            Tempo máximo de treino:
+            <select value={limiteMin} onChange={(e) => mudarLimite(Number(e.target.value))}
+              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+              {[30, 45, 60, 75, 90, 120, 150, 180].map((v) => <option key={v} value={v}>{fmt(v)}</option>)}
+            </select>
+          </label>
+          {passaram.length > 0 && (
+            <button onClick={tirarTodos} className="text-xs font-semibold bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg">
+              Registar saída de todos os que passaram ({passaram.length})
+            </button>
+          )}
+        </div>
+        {passaram.length > 0 && (
+          <p role="alert" className="mb-3 text-sm font-semibold text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 rounded-lg px-3 py-2">
+            {passaram.length} {passaram.length === 1 ? "atleta já passou" : "atletas já passaram"} o tempo — pede-lhes para sair.
+          </p>
+        )}
+        <div className="divide-y divide-slate-50 dark:divide-slate-700">
+          {dentro.map((r) => {
+            const passou = r.mins >= limiteMin;
+            const tel = r.membro?.telefone;
+            return (
+              <div key={r.a.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium text-slate-900 dark:text-slate-100 truncate">{r.a.membro}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{r.a.numero} · entrou às {r.a.entrada}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-xs ${passou ? "text-red-600 dark:text-red-400 font-bold" : "text-slate-500 dark:text-slate-400"}`}>
+                    {passou ? "⏰ " : ""}{fmt(r.mins)}
+                  </span>
+                  {passou && tel && (
+                    <a href={linkWhatsApp(tel, textoZap(r.a.membro))} target="_blank" rel="noreferrer" aria-label={`Avisar ${r.a.membro} por WhatsApp`}
+                      className="text-emerald-600 hover:text-emerald-700"><MessageCircle size={16} /></a>
+                  )}
+                  <button onClick={() => sair(r)} className="text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1.5 rounded-lg">Saída</button>
+                </div>
+              </div>
+            );
+          })}
+          {dentro.length === 0 && <p className="text-sm text-slate-400 py-3">Ninguém está no ginásio neste momento.</p>}
+        </div>
+        {antigas > 0 && (
+          <p className="text-[11px] text-amber-600 mt-3">Há {antigas} entrada(s) de dias anteriores sem saída — vê em Controlo de Acessos.</p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
   const [query, setQuery] = useState("");
   const [encontrado, setEncontrado] = useState(null);
@@ -14749,6 +14871,7 @@ const MENU_ADMIN = [
     itens: [
       { id: "balcao", label: "Balcão", icon: DoorOpen },
       { id: "acessos", label: "Controlo de Acessos", icon: DoorOpen },
+      { id: "dentro", label: "Quem está dentro", icon: Clock },
     ],
   },
   {
@@ -14799,6 +14922,7 @@ const MENU_RECEPCAO = [
       { id: "pos", label: "Vendas (POS)", icon: ShoppingCart },
       { id: "stock", label: "Stock / Produtos", icon: Package },
       { id: "acessos", label: "Controlo de Acessos", icon: DoorOpen },
+      { id: "dentro", label: "Quem está dentro", icon: Clock },
       { id: "caixa", label: "O meu turno", icon: Wallet },
       { id: "relatorio-inscricoes", label: "Inscrições (novos)", icon: Users },
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
@@ -18510,6 +18634,9 @@ export default function CatumbelaGymApp() {
               onEditarHoras={editarHorasAcesso}
               onAdicionarAcessoManual={adicionarAcessoManual}
             />
+          )}
+          {telaAtual === "dentro" && (
+            <QuemEstaDentro membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} onRegistarSaida={registarSaida} />
           )}
           {telaAtual === "acessos" && (
             <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
