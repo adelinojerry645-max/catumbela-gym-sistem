@@ -3926,6 +3926,7 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
   const [novoNome, setNovoNome] = useState("");
   const [novoTelefone, setNovoTelefone] = useState("");
   const [novoSexo, setNovoSexo] = useState("");
+  const [novoConsentimento, setNovoConsentimento] = useState(false);
   const [taxaInscricaoValor, setTaxaInscricaoValor] = useState(dadosGinasio?.taxaInscricaoPadrao ? String(dadosGinasio.taxaInscricaoPadrao) : "");
   const [taxaInscricaoMetodo, setTaxaInscricaoMetodo] = useState("dinheiro");
   const [taxaInscricaoContaId, setTaxaInscricaoContaId] = useState("");
@@ -4012,6 +4013,10 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
 
   const criarMembroRapido = async () => {
     if (!novoNome.trim()) return;
+    if (!novoConsentimento) {
+      alert("Confirma primeiro que o atleta foi informado e aceita o uso dos dados (caixa no fim do formulário).");
+      return;
+    }
     // Proteção contra duplo clique. IMPORTANTE: a trava NÃO é reposta a
     // "false" no final com sucesso (só quando o formulário é aberto de
     // novo, em "abrirCriarNovo"/"voltarAoInicio"/"selecionar") — porque um
@@ -4025,12 +4030,13 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     aCriarRapidoRef.current = true;
     try {
       const resultado = await onCriarMembro({
-        nome: novoNome.trim(), telefone: novoTelefone.trim(), sexo: novoSexo,
+        nome: novoNome.trim(), telefone: novoTelefone.trim(), sexo: novoSexo, consentimento: true,
         taxaInscricao: taxaInscricaoValor, metodoTaxaInscricao: taxaInscricaoMetodo, contaBancariaTaxaId: taxaInscricaoContaId,
       });
       setNovoNome("");
       setNovoTelefone("");
       setNovoSexo("");
+      setNovoConsentimento(false);
       if (resultado?.membro) selecionar(resultado.membro);
     } catch (erro) {
       aCriarRapidoRef.current = false;
@@ -4292,6 +4298,10 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
                 <option value="F">Mulher</option>
               </select>
             </div>
+            <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={novoConsentimento} onChange={(e) => setNovoConsentimento(e.target.checked)} className="mt-0.5" />
+              <span>O atleta foi informado e aceita que guardemos os seus dados e os termos do ginásio (ver “Privacidade e termos” no menu).</span>
+            </label>
             <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1">Taxa de inscrição (matrícula)</p>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2">
@@ -14748,6 +14758,47 @@ const MENU_TRAINER = [
 // ---------------------------------------------------------------------
 // TELA DE LOGIN
 // ---------------------------------------------------------------------
+// ───────── Privacidade, Termos e Reembolsos ─────────
+// Texto-base. Deve ser revisto por um advogado (Lei n.º 22/11, Proteção de Dados Pessoais).
+function ModalPrivacidade({ dadosGinasio, onFechar }) {
+  const nome = dadosGinasio?.nome || "Catumbela Gym";
+  const contacto = [dadosGinasio?.telefone, dadosGinasio?.email].filter(Boolean).join(" · ");
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4" role="dialog" aria-modal="true" aria-label="Privacidade e termos">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-lg relative max-h-[85vh] overflow-y-auto text-sm text-slate-700 dark:text-slate-200">
+        <button onClick={onFechar} aria-label="Fechar" className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
+          <X size={18} />
+        </button>
+        <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1 text-base">Privacidade e termos</h3>
+        <p className="text-xs text-slate-400 mb-4">
+          {nome}{dadosGinasio?.nif ? ` · NIF ${dadosGinasio.nif}` : ""}{dadosGinasio?.morada ? ` · ${dadosGinasio.morada}` : ""}{dadosGinasio?.cidade ? `, ${dadosGinasio.cidade}` : ""}
+        </p>
+
+        <h4 className="font-semibold mt-3 mb-1">1. Que dados guardamos</h4>
+        <p>Nome, telefone, e-mail, data de nascimento (se indicada), sexo, foto (se existir), plano, pagamentos, entradas e saídas do ginásio e, quando assinas o contrato, a tua assinatura.</p>
+
+        <h4 className="font-semibold mt-3 mb-1">2. Para que usamos</h4>
+        <p>Para te inscrever, controlar o acesso, cobrar e emitir recibos, avisar-te do fim da mensalidade (por exemplo por WhatsApp) e organizar o ginásio. Não vendemos os teus dados.</p>
+
+        <h4 className="font-semibold mt-3 mb-1">3. Quem pode ver</h4>
+        <p>Só a equipa do {nome} e os serviços técnicos que guardam a informação (alojamento e base de dados). Só partilhamos com terceiros se a lei o exigir.</p>
+
+        <h4 className="font-semibold mt-3 mb-1">4. Os teus direitos</h4>
+        <p>Podes pedir para ver, corrigir ou apagar os teus dados, e retirar o teu consentimento quando quiseres. Alguns registos (como recibos) podem ter de ser guardados pelo tempo que a lei obriga. Fala com a receção{contacto ? ` (${contacto})` : ""}.</p>
+
+        <h4 className="font-semibold mt-3 mb-1">5. Regras da mensalidade e reembolsos</h4>
+        <p>A mensalidade dá acesso ao ginásio durante o período pago. Depois de paga e iniciada, a mensalidade e a taxa de inscrição <strong>não são reembolsáveis</strong>, salvo erro nosso (por exemplo, valor cobrado a mais ou cobrança em duplicado), que é corrigido com devolução ou crédito. Se o ginásio ficar fechado por muito tempo por causa nossa, o tempo perdido é compensado. A subscrição não é cobrada sozinha: só renova quando pagas outra vez.</p>
+
+        <h4 className="font-semibold mt-3 mb-1">6. Uso do ginásio</h4>
+        <p>Usa o espaço e os equipamentos com cuidado e respeito. O cartão/QR é pessoal e não pode ser emprestado. Treinas por tua conta e risco; se tiveres algum problema de saúde, consulta um médico antes de treinar. O ginásio pode recusar ou terminar o acesso a quem não cumprir as regras.</p>
+
+        <p className="text-[11px] text-slate-400 mt-4">Texto de base, sujeito a revisão jurídica. Última atualização: outubro de 2026.</p>
+        <button onClick={onFechar} className="w-full mt-4 bg-gradient-to-b from-[#4FA69D] to-[#357A73] text-white font-semibold py-2.5 rounded-lg text-sm">Fechar</button>
+      </div>
+    </div>
+  );
+}
+
 function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, onRedefinirSenha, onAutoInscrever, abrirInscricaoDireta, escuro, setEscuro, avisoSessaoEncerrada }) {
   const existeAdmin = contas.some((c) => c.perfil === "administrador");
 
@@ -14783,6 +14834,8 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
   const [inscConfirmarSenha, setInscConfirmarSenha] = useState("");
   const [inscPlanoId, setInscPlanoId] = useState(planosDisponiveis[0]?.id || "");
   const [erroInscricao, setErroInscricao] = useState("");
+  const [inscConsentimento, setInscConsentimento] = useState(false);
+  const [mostrarPrivacidade, setMostrarPrivacidade] = useState(false);
 
   const submeterInscricao = (e) => {
     e.preventDefault();
@@ -14802,6 +14855,10 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
       setErroInscricao("As palavras-passe não coincidem.");
       return;
     }
+    if (!inscConsentimento) {
+      setErroInscricao("Para continuar, tens de aceitar o uso dos teus dados e os termos.");
+      return;
+    }
     setErroInscricao("");
     onAutoInscrever({
       nome: inscNome.trim(),
@@ -14809,6 +14866,7 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
       email: inscEmail.trim(),
       senha: inscSenha,
       planoId: inscPlanoId || null,
+      consentimento: true,
     });
   };
 
@@ -14937,6 +14995,7 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-6">
       <button
         onClick={() => setEscuro(!escuro)}
+        aria-label="Mudar entre tema claro e escuro"
         className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
       >
         {escuro ? <Sun size={20} /> : <Moon size={20} />}
@@ -15089,12 +15148,27 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
                   paga junto com a primeira mensalidade depois de entrares na tua área de membro.
                 </p>
               )}
-              {erroInscricao && <p className="text-xs text-red-500">{erroInscricao}</p>}
+              <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={inscConsentimento} onChange={(e) => setInscConsentimento(e.target.checked)} className="mt-0.5" />
+                <span>
+                  Li e aceito que o ginásio guarde e use os meus dados para a inscrição, pagamentos e acessos, e aceito os{" "}
+                  <button type="button" onClick={() => setMostrarPrivacidade(true)} className="underline text-[#3F8F87]">termos e a política de privacidade</button>.
+                </span>
+              </label>
+              {erroInscricao && <p className="text-xs text-red-500" role="alert">{erroInscricao}</p>}
               <button className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] text-white font-semibold py-2.5 rounded-lg text-sm mt-2">
                 <UserIcon size={16} /> Criar conta e continuar
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {mostrarPrivacidade && <ModalPrivacidade dadosGinasio={dadosGinasio} onFechar={() => setMostrarPrivacidade(false)} />}
+      {!modoInscricao && !modoRecuperar && (
+        <div className="fixed bottom-3 left-0 right-0 text-center text-[11px] text-slate-400 dark:text-slate-500 px-4">
+          {dadosGinasio?.nome || "Catumbela Gym"}{dadosGinasio?.nif ? ` · NIF ${dadosGinasio.nif}` : ""}{dadosGinasio?.telefone ? ` · ${dadosGinasio.telefone}` : ""}{" · "}
+          <button type="button" onClick={() => setMostrarPrivacidade(true)} className="underline">Privacidade e termos</button>
         </div>
       )}
 
@@ -15252,6 +15326,7 @@ function PesquisaGlobal({ membros, onIrParaMembros }) {
 }
 
 export default function CatumbelaGymApp() {
+  const [mostrarPrivacidadeApp, setMostrarPrivacidadeApp] = useState(false);
   const [autenticado, setAutenticado] = useLocalOnly("autenticado", false);
   const [perfil, setPerfil] = useLocalOnly("perfil", null);
   const [contaAtual, setContaAtual] = useLocalOnly("contaAtual", null);
@@ -16008,7 +16083,7 @@ export default function CatumbelaGymApp() {
   // plano escolhido ser confirmado, tal como uma inscrição feita pela
   // receção) e entra logo na área de membro, onde pode concluir o
   // pagamento em "Pagar mensalidade".
-  const autoInscrever = ({ nome, telefone, email, senha, planoId }) => {
+  const autoInscrever = ({ nome, telefone, email, senha, planoId, consentimento }) => {
     const planoEscolhido = planos.find((p) => p.id === planoId);
     const numero = proximoNumeroMembro();
     // ID único global (não sequencial) — dois dispositivos podem inscrever
@@ -16039,6 +16114,8 @@ export default function CatumbelaGymApp() {
       dataAssinaturaContrato: null,
       taxaInscricaoPendente,
       taxaInscricaoPaga: taxaInscricaoPendente === 0,
+      consentimentoDados: !!consentimento,
+      dataConsentimento: consentimento ? new Date().toISOString() : null,
     };
     const novaConta = { id: gerarIdUnico(), nome, email, senha: protegerSenha(senha), perfil: "membro", membroId: novoIdMembro };
     setMembros((atual) => [...atual, membroNovo]);
@@ -16099,6 +16176,8 @@ export default function CatumbelaGymApp() {
       dataInscricao: dataInscricaoFinal,
       dataNascimento: novo.dataNascimento || null,
       sexo: novo.sexo || null,
+      consentimentoDados: !!novo.consentimento,
+      dataConsentimento: novo.consentimento ? new Date().toISOString() : null,
       vencimento: vencimentoFinal,
       estado: estadoFinal,
       assinaturaContrato: novo.assinaturaContrato || null,
@@ -18133,6 +18212,7 @@ export default function CatumbelaGymApp() {
             </div>
           ))}
         </nav>
+        <button onClick={() => setMostrarPrivacidadeApp(true)} className="mx-4 mb-2 text-left text-[11px] text-slate-500 hover:text-white underline">Privacidade e termos</button>
         <div className="px-4 py-4 border-t border-slate-800 flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-full bg-slate-700 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -18142,6 +18222,7 @@ export default function CatumbelaGymApp() {
           <button
             onClick={sair}
             title="Sair"
+            aria-label="Sair"
             className="text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-white shrink-0"
           >
             <LogOut size={16} />
@@ -18149,6 +18230,7 @@ export default function CatumbelaGymApp() {
         </div>
       </aside>
 
+      {mostrarPrivacidadeApp && <ModalPrivacidade dadosGinasio={dadosGinasio} onFechar={() => setMostrarPrivacidadeApp(false)} />}
       {/* CONTEÚDO */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {MODO_TESTE_ATIVO && (
