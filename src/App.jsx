@@ -4601,6 +4601,42 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
     [acessos]
   );
 
+  // TEMPO MÁXIMO DE TREINO: para reduzir a enchente, quem passa do tempo
+  // definido (por defeito 1 hora) é avisado aqui para a receção o tirar.
+  const [limiteMin, setLimiteMin] = useState(() => {
+    try { const v = Number(localStorage.getItem("catumbela-gym:limite-treino")); return v > 0 ? v : 60; } catch { return 60; }
+  });
+  const mudarLimite = (v) => {
+    setLimiteMin(v);
+    try { localStorage.setItem("catumbela-gym:limite-treino", String(v)); } catch { /* ok */ }
+  };
+  const [agoraMs, setAgoraMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgoraMs(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const minutosDentro = (a) => {
+    if (a.saida || a.data !== dataLocalISO(new Date(agoraMs))) return null;
+    const [h, m] = String(a.entrada || "").split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return null;
+    const d = new Date(agoraMs);
+    return Math.max(0, d.getHours() * 60 + d.getMinutes() - (h * 60 + m));
+  };
+  const passaramTempo = acessos.filter((a) => { const mm = minutosDentro(a); return mm !== null && mm >= limiteMin; });
+  const nPassaram = passaramTempo.length;
+  const nPassaramAnt = React.useRef(0);
+  useEffect(() => {
+    if (nPassaram > nPassaramAnt.current) apitar(true);
+    nPassaramAnt.current = nPassaram;
+  }, [nPassaram]);
+  const tirarTodosOsQuePassaram = () => {
+    if (!window.confirm(`Registar a saída de ${passaramTempo.length} atleta(s) que já passaram ${limiteMin} min?`)) return;
+    passaramTempo.forEach((a) => {
+      const m = membros.find((x) => x.numero === a.numero) || { id: null, numero: a.numero, nome: a.membro, _semFicha: true };
+      onRegistarSaida(m);
+    });
+  };
+
   const localizar = (texto) => {
     const alvo = texto.trim().toLowerCase();
     // aceita "CG-000001", "000001", ou apenas "1" — compara também pelo número sem zeros à esquerda
@@ -4876,6 +4912,28 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
       </div>
 
       <Card title="Últimas entradas" className="lg:col-span-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-3 text-xs text-slate-500 dark:text-slate-400">
+          <label className="flex items-center gap-2">
+            Tempo máximo de treino:
+            <select value={limiteMin} onChange={(e) => mudarLimite(Number(e.target.value))}
+              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+              {[30, 45, 60, 75, 90, 120].map((v) => <option key={v} value={v}>{v} min</option>)}
+            </select>
+          </label>
+        </div>
+        {nPassaram > 0 && (
+          <div role="alert" className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 ring-1 ring-red-200 dark:ring-red-800 p-3">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+              {nPassaram} {nPassaram === 1 ? "atleta já passou" : "atletas já passaram"} {limiteMin} min — pede-lhes para sair
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-300 mt-1">
+              {passaramTempo.map((a) => a.membro).join(", ")}
+            </p>
+            <button onClick={tirarTodosOsQuePassaram} className="mt-2 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg">
+              Registar saída de todos
+            </button>
+          </div>
+        )}
         <div className="divide-y divide-slate-50 dark:divide-slate-700">
           {acessosOrdenados.map((a) => (
             <div key={a.id} className="flex items-center justify-between py-2.5 text-sm">
@@ -4885,6 +4943,14 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
               </div>
               <div className="text-right">
                 <p className="text-slate-600 dark:text-slate-300">Entrada {a.entrada}</p>
+                {(() => {
+                  const mm = minutosDentro(a);
+                  if (mm === null) return null;
+                  const passou = mm >= limiteMin;
+                  return <p className={`text-xs ${passou ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-400 dark:text-slate-500"}`}>
+                    {passou ? "⏰ " : ""}Dentro há {mm >= 60 ? `${Math.floor(mm / 60)}h${String(mm % 60).padStart(2, "0")}` : `${mm} min`}
+                  </p>;
+                })()}
                 {a.saida ? (
                   <p className="text-xs text-slate-400 dark:text-slate-500">Saída {a.saida}</p>
                 ) : (
