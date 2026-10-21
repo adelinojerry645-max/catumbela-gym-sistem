@@ -14912,6 +14912,7 @@ const MENU_RECEPCAO = [
     grupo: "",
     itens: [
       { id: "balcao", label: "Balcão", icon: DoorOpen },
+      { id: "dentro", label: "Quem está dentro", icon: Clock },
       { id: "dashboard", label: "Início", icon: LayoutDashboard },
       { id: "ponto", label: "Ponto", icon: Clock },
       { id: "membros", label: "Membros", icon: Users },
@@ -14922,7 +14923,6 @@ const MENU_RECEPCAO = [
       { id: "pos", label: "Vendas (POS)", icon: ShoppingCart },
       { id: "stock", label: "Stock / Produtos", icon: Package },
       { id: "acessos", label: "Controlo de Acessos", icon: DoorOpen },
-      { id: "dentro", label: "Quem está dentro", icon: Clock },
       { id: "caixa", label: "O meu turno", icon: Wallet },
       { id: "relatorio-inscricoes", label: "Inscrições (novos)", icon: Users },
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
