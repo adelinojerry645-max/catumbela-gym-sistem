@@ -4602,9 +4602,9 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   );
 
   // TEMPO MÁXIMO DE TREINO: para reduzir a enchente, quem passa do tempo
-  // definido (por defeito 1 hora) é avisado aqui para a receção o tirar.
+  // definido (por defeito 2 horas) é avisado aqui para a receção o tirar.
   const [limiteMin, setLimiteMin] = useState(() => {
-    try { const v = Number(localStorage.getItem("catumbela-gym:limite-treino")); return v > 0 ? v : 60; } catch { return 60; }
+    try { const v = Number(localStorage.getItem("catumbela-gym:limite-treino")); return v > 0 ? v : 120; } catch { return 120; }
   });
   const mudarLimite = (v) => {
     setLimiteMin(v);
