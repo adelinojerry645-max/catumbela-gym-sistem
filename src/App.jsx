@@ -89,6 +89,29 @@ const dataLocalISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSt
 // passou). Para deixar entrar, conta também a data de hoje.
 const membroEmDia = (m) => !!m && m.estado === "ativo" && (!m.vencimento || m.vencimento > dataLocalISO(new Date()));
 
+// Planos por ENTRADAS (ex.: "Semanal 3 entradas"): o plano tem o campo
+// "entradas" (nº máximo de dias de treino dentro da validade). Não há
+// contador guardado — as entradas usadas contam-se a partir dos acessos
+// do atleta dentro da validade do plano (início = vencimento − duração).
+// Assim, desfazer uma entrada por engano devolve a entrada sozinho, e
+// nada fica fora de sincronia. Várias entradas no mesmo dia contam 1.
+// Devolve null se o plano não tem limite de entradas.
+const infoEntradas = (m, planos, acessos) => {
+  if (!m || !m.vencimento) return null;
+  const plano = (planos || []).find((p) => p.nome === m.plano);
+  const limite = Number(plano?.entradas) || 0;
+  if (!limite) return null;
+  const d = new Date(m.vencimento + "T00:00:00");
+  d.setDate(d.getDate() - (Number(plano.duracaoDias) || 7));
+  const inicio = dataLocalISO(d);
+  const datas = new Set(
+    (acessos || []).filter((a) => a.numero === m.numero && a.data >= inicio && a.data < m.vencimento).map((a) => a.data)
+  );
+  const usadas = datas.size;
+  const jaEntrouHoje = datas.has(dataLocalISO(new Date()));
+  return { limite, usadas, restantes: Math.max(0, limite - usadas), jaEntrouHoje, semEntradas: !jaEntrouHoje && usadas >= limite };
+};
+
 const ultimoDiaDeTreino = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
   if (!m) return iso;
@@ -2898,18 +2921,18 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
 function Planos({ planos, membros, onSave, onRemove }) {
   const [editando, setEditando] = useState(null); // objeto do plano, ou {} para novo
   const [aEliminar, setAEliminar] = useState(null);
-  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0 });
+  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0, entradas: "" });
   const [historicoPreco, setHistoricoPreco] = useState({}); // { planoId: [{de, para, data}] }
   const [erroNomeDuplicado, setErroNomeDuplicado] = useState("");
 
   const abrirNovo = () => {
-    setForm({ nome: "", duracaoDias: 30, preco: 0 });
+    setForm({ nome: "", duracaoDias: 30, preco: 0, entradas: "" });
     setErroNomeDuplicado("");
     setEditando({});
   };
 
   const abrirEdicao = (p) => {
-    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco });
+    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "" });
     setErroNomeDuplicado("");
     setEditando(p);
   };
@@ -2936,7 +2959,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
     }
     setErroNomeDuplicado("");
     const precoAntigo = editando?.id ? planos.find((p) => p.id === editando.id)?.preco : null;
-    onSave({ ...editando, ...form, preco: Number(form.preco), duracaoDias: Number(form.duracaoDias) });
+    onSave({ ...editando, ...form, preco: Number(form.preco), duracaoDias: Number(form.duracaoDias), entradas: Number(form.entradas) > 0 ? Number(form.entradas) : null });
 
     if (editando?.id && precoAntigo !== null && precoAntigo !== Number(form.preco)) {
       setHistoricoPreco((h) => ({
@@ -2996,7 +3019,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {planos.map((p) => (
           <Card key={p.id}>
-            <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{p.duracaoDias} dias</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}</p>
             <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">{p.nome}</h3>
             <p className="text-2xl font-extrabold text-[#3F8F87] mt-3">{kz(p.preco)}</p>
 
@@ -3045,6 +3068,13 @@ function Planos({ planos, membros, onSave, onRemove }) {
                 <input required type="number" min={1} value={form.duracaoDias}
                   onChange={(e) => setForm({ ...form, duracaoDias: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Entradas dentro da validade (deixa vazio = sem limite)</label>
+                <input type="number" min={1} value={form.entradas} placeholder="ex.: 3"
+                  onChange={(e) => setForm({ ...form, entradas: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Cada dia de treino conta 1 entrada. Passado o limite, a entrada fica bloqueada até renovar.</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Preço (Kz)</label>
@@ -4150,6 +4180,9 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
     : null;
 
   const podeEntrar = membroEmDia(membroSelecionado) || permitirExcecao;
+  // Plano por entradas: quantas já usou e se já esgotou.
+  const entradasInfo = infoEntradas(membroSelecionado, planos, acessos);
+  const semEntradas = !!entradasInfo?.semEntradas;
 
   return (
     <div className="space-y-4">
@@ -4488,10 +4521,14 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
                 </button>
               </div>
             </div>
-          ) : !membroEmDia(membroSelecionado) ? (
+          ) : (!membroEmDia(membroSelecionado) || (semEntradas && !acessoAbertoDoMembro)) ? (
             <div className="space-y-3">
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                {membroSelecionado.estado === "sem-subscricao" ? "Este atleta ainda não tem nenhum plano." : "A mensalidade deste atleta está vencida."}
+                {membroSelecionado.estado === "sem-subscricao"
+                  ? "Este atleta ainda não tem nenhum plano."
+                  : membroEmDia(membroSelecionado)
+                    ? `Já usou as ${entradasInfo.limite} entradas deste plano. Para voltar a treinar, tem de renovar (ou paga um dia extra).`
+                    : "A mensalidade deste atleta está vencida."}
               </p>
               <button onClick={() => { aConfirmarSubscricaoRef.current = false; setASubscrever(true); }} className="w-full bg-[#3F8F87] text-white font-semibold py-3 rounded-lg">
                 Subscrever / renovar agora
@@ -4518,9 +4555,16 @@ function Balcao({ membros, planos, acessos, pagamentosPendentes, dadosGinasio, c
               </button>
             </div>
           ) : (
-            <button onClick={fazerEntrada} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-bold text-lg py-4 rounded-lg">
-              Registar entrada
-            </button>
+            <div className="space-y-2">
+              {entradasInfo && (
+                <p className="text-sm font-semibold text-center text-slate-600 dark:text-slate-300">
+                  {entradasInfo.jaEntrouHoje ? "Hoje já conta como 1 entrada. " : ""}Restam {entradasInfo.restantes} de {entradasInfo.limite} entradas
+                </p>
+              )}
+              <button onClick={fazerEntrada} className="w-full bg-[#3F8F87] hover:bg-[#357A73] text-white font-bold text-lg py-4 rounded-lg">
+                Registar entrada
+              </button>
+            </div>
           )}
         </Card>
       )}
@@ -4650,7 +4694,7 @@ function QuemEstaDentro({ membros, acessos, dadosGinasio, onRegistarSaida }) {
   );
 }
 
-function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
+function ControloAcessos({ membros, planos, acessos, onRegistarEntrada, onRegistarSaida, perfil }) {
   const [query, setQuery] = useState("");
   const [encontrado, setEncontrado] = useState(null);
   const [permitirExcecao, setPermitirExcecao] = useState(false);
@@ -4668,7 +4712,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
   const autoRef = React.useRef(false);
   const ultimoLidoRef = React.useRef({ texto: "", t: 0 });
   const dadosRef = React.useRef({});
-  dadosRef.current = { membros, acessos, onRegistarEntrada };
+  dadosRef.current = { membros, planos, acessos, onRegistarEntrada };
   autoRef.current = modoAuto;
 
   const apitar = (grave) => {
@@ -4691,7 +4735,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
     // Ignora o mesmo QR lido várias vezes seguidas (o telemóvel do atleta fica à frente da câmara)
     if (ultimoLidoRef.current.texto === texto && agora - ultimoLidoRef.current.t < 6000) return;
     ultimoLidoRef.current = { texto, t: agora };
-    const { membros: ms, acessos: ac, onRegistarEntrada: registar } = dadosRef.current;
+    const { membros: ms, planos: pl, acessos: ac, onRegistarEntrada: registar } = dadosRef.current;
     const alvo = texto.trim().toLowerCase();
     const alvoNum = parseInt(alvo.replace(/\D/g, ""), 10);
     const m = (ms || []).find((x) => {
@@ -4707,8 +4751,10 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
         : `${m.nome}: ficou uma entrada por fechar de ${aberta.data}. Regista a saída à mão.`);
     }
     if (!membroEmDia(m)) return mostrarAviso("erro", `${m.nome}: mensalidade não está ativa (último dia de treino: ${m.vencimento ? ultimoDiaDeTreino(m.vencimento) : "—"})`);
+    const ent = infoEntradas(m, pl, ac);
+    if (ent?.semEntradas) return mostrarAviso("erro", `${m.nome}: já usou as ${ent.limite} entradas do plano — tem de renovar`);
     registar(m);
-    mostrarAviso("ok", `Entrada registada: ${m.nome}`);
+    mostrarAviso("ok", ent ? `Entrada registada: ${m.nome} (restam ${ent.jaEntrouHoje ? ent.restantes : Math.max(0, ent.restantes - 1)} de ${ent.limite})` : `Entrada registada: ${m.nome}`);
   };
 
   // Quem ainda está dentro do ginásio (sem saída registada) aparece sempre
@@ -4973,7 +5019,9 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
           const entradaAberta = acessos.filter((a) => a.numero === encontrado.numero && !a.saida).sort((a, b) => (a.data + a.entrada < b.data + b.entrada ? 1 : -1))[0] || null;
           const diasVencido = encontrado.vencimento ? Math.round((new Date(hojeStr) - new Date(encontrado.vencimento)) / (1000 * 60 * 60 * 24)) : 0;
           const estaVencido = !membroEmDia(encontrado) && encontrado.estado !== "suspenso" && encontrado.estado !== "pausada";
-          const podeEntrar = membroEmDia(encontrado) || (estaVencido && perfil === "administrador" && permitirExcecao);
+          const entradasInfo = infoEntradas(encontrado, planos, acessos);
+          const semEntradas = !!entradasInfo?.semEntradas;
+          const podeEntrar = (membroEmDia(encontrado) && !semEntradas) || ((estaVencido || semEntradas) && perfil === "administrador" && permitirExcecao);
           return (
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -4998,7 +5046,13 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                 </p>
               )}
 
-              {estaVencido && perfil === "administrador" && !entradaAberta && (
+              {entradasInfo && (
+                <p className={`text-sm font-semibold mb-2 ${semEntradas ? "text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"}`}>
+                  {semEntradas ? `⚠️ Já usou as ${entradasInfo.limite} entradas do plano — tem de renovar` : `Restam ${entradasInfo.restantes} de ${entradasInfo.limite} entradas`}
+                </p>
+              )}
+
+              {(estaVencido || semEntradas) && perfil === "administrador" && !entradaAberta && (
                 <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 mb-2 p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
                   <input type="checkbox" checked={permitirExcecao} onChange={(e) => setPermitirExcecao(e.target.checked)} />
                   Permitir entrada mesmo assim, excecionalmente (ex.: está a pagar agora mesmo)
@@ -5028,7 +5082,7 @@ function ControloAcessos({ membros, acessos, onRegistarEntrada, onRegistarSaida,
                   }}
                   className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all disabled:bg-slate-200 dark:bg-slate-600 disabled:text-slate-400 dark:text-slate-500 text-white font-semibold py-2.5 rounded-lg mt-2"
                 >
-                  <DoorOpen size={16} /> {podeEntrar ? "Registar entrada" : "Entrada bloqueada — mensalidade vencida"}
+                  <DoorOpen size={16} /> {podeEntrar ? "Registar entrada" : semEntradas ? "Entrada bloqueada — entradas esgotadas" : "Entrada bloqueada — mensalidade vencida"}
                 </button>
               )}
             </div>
@@ -14405,6 +14459,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
   const minhasCompras = compras.filter((c) => c.membroId === membro.id);
   const hojeStr = dataLocalISO(new Date());
   const entradaAbertaHoje = acessos?.find((a) => a.numero === membro.numero && a.data === hojeStr && !a.saida) || null;
+  const entradasMembro = infoEntradas(membro, planos, acessos);
   const naoLidas = mensagens.filter((m) => m.participanteId === membro.id && m.participanteTipo === "membro" && m.deAdmin && !m.lida).length;
   const abas = [
     { id: "inicio", label: "Início", icon: LayoutDashboard },
@@ -14455,6 +14510,11 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
 
               {membro.estado === "ativo" && (
                 <div className="bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 shadow-sm p-4">
+                  {entradasMembro && (
+                    <p className={`text-xs font-semibold mb-2 ${entradasMembro.semEntradas ? "text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"}`}>
+                      {entradasMembro.semEntradas ? `Já usaste as ${entradasMembro.limite} entradas do plano — renova para voltar a treinar.` : `Restam ${entradasMembro.restantes} de ${entradasMembro.limite} entradas.`}
+                    </p>
+                  )}
                   <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                     <DoorOpen size={14} className="text-[#3F8F87]" /> Check-in
                   </p>
@@ -14472,6 +14532,7 @@ function AreaMembro({ membro, planos, compras, dadosGinasio, contaAtual, onMudar
                     </button>
                   ) : (
                     <button
+                      disabled={!!entradasMembro?.semEntradas}
                       onClick={() => onRegistarEntrada(membro)}
                       className="w-full flex items-center justify-center gap-2 bg-gradient-to-b from-[#4FA69D] to-[#357A73] hover:from-[#459087] hover:to-[#2E6C66] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white font-semibold py-2.5 rounded-xl text-sm"
                     >
@@ -18648,7 +18709,7 @@ export default function CatumbelaGymApp() {
             <QuemEstaDentro membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} onRegistarSaida={registarSaida} />
           )}
           {telaAtual === "acessos" && (
-            <ControloAcessos membros={membros} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
+            <ControloAcessos membros={membros} planos={planos} acessos={acessos} onRegistarEntrada={registarEntrada} onRegistarSaida={registarSaida} perfil={perfil} />
           )}
           {telaAtual === "funcionarios" && perfil === "administrador" && (
             <Funcionarios
