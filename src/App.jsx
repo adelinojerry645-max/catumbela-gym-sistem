@@ -2454,7 +2454,7 @@ function CanvasAssinatura({ onAssinar }) {
 
 const TEXTO_TERMO_RESPONSABILIDADE = `Declaro que estou em condições físicas adequadas para a prática de exercício físico neste ginásio, e que participo nas atividades por minha conta e risco. Comprometo-me a seguir as regras e normas de funcionamento do espaço, e a informar a equipa técnica de qualquer condição de saúde relevante antes de iniciar os treinos.`;
 
-function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAlternarSuspensao, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas }) {
+function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAlternarSuspensao, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas, acessos }) {
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -2857,7 +2857,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
 
       {aVerEvolucaoDeMembro && (
         <RelatorioEvolucaoTreino
-          membros={membros} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
+          membros={membros} acessos={acessos} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
           membroInicialId={aVerEvolucaoDeMembro.id}
           onFechar={() => setAVerEvolucaoDeMembro(null)}
         />
@@ -11868,12 +11868,12 @@ function ReiniciarSite({ contaAtual }) {
 // do tempo. Vem do histórico gravado sempre que um Personal Trainer
 // atualiza o plano de treino de alguém com uma carga preenchida.
 // ---------------------------------------------------------------------
-function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, membroInicialId }) {
+function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGinasio, onFechar, membroInicialId }) {
   // O peso corporal é a parte principal deste relatório — mostra se o
   // atleta está mesmo a evoluir (emagrecer, engordar, manter), independente
   // de qual seja o objetivo dele. As cargas dos exercícios vêm depois, como
   // complemento.
-  const membrosComDados = membros.filter((m) => avaliacoesFisicas.some((a) => a.membroId === m.id) || historicoCargas.some((h) => h.membroId === m.id));
+  const membrosComDados = membros.filter((m) => m.estado !== "cancelado").slice().sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
   // Se veio um atleta pré-selecionado (ex.: botão de imprimir junto do nome
   // dele em Membros) e ele ainda não tem nenhum dado registado, mostra-o na
   // lista à mesma — para se perceber que "ainda não há dados" em vez de o
@@ -11896,14 +11896,18 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
   const ultimaAval = avaliacoesDoMes[avaliacoesDoMes.length - 1];
   const diferencaPeso = primeiraAval && ultimaAval && primeiraAval.id !== ultimaAval.id ? ultimaAval.peso - primeiraAval.peso : null;
 
-  const historicoDoMembro = historicoCargas.filter((h) => h.membroId === membroId);
-  const historicoDoMes = historicoDoMembro.filter((h) => (h.data || "").startsWith(mesEscolhido));
-  const porExercicio = {};
-  historicoDoMes.forEach((h) => {
-    if (!porExercicio[h.exercicio]) porExercicio[h.exercicio] = [];
-    porExercicio[h.exercicio].push(h);
-  });
-  Object.values(porExercicio).forEach((lista) => lista.sort((a, b) => a.data.localeCompare(b.data)));
+  // Frequência: quantos dias diferentes o atleta veio ao ginásio neste mês.
+  const diasDoMes = new Set(
+    (acessos || [])
+      .filter((a) => membro && a.numero === membro.numero && (a.data || "").startsWith(mesEscolhido))
+      .map((a) => (a.data || "").slice(0, 10))
+  );
+  const diasVindos = diasDoMes.size;
+  const [anoM, mesM] = mesEscolhido.split("-").map(Number);
+  const hojeD = new Date();
+  const ehMesAtual = hojeD.getFullYear() === anoM && hojeD.getMonth() + 1 === mesM;
+  const diasNoMes = ehMesAtual ? hojeD.getDate() : new Date(anoM, mesM, 0).getDate();
+  const textoFrequencia = diasVindos >= 16 ? "Excelente! 🔥" : diasVindos >= 10 ? "Muito bom! 💪" : diasVindos >= 5 ? "Bom, mas dá para vir mais vezes." : "Vem mais vezes para ver resultados.";
 
   // Mensagem de WhatsApp com o resumo do mês, para o Personal Trainer ou a
   // receção poderem mandar diretamente ao atleta com um clique.
@@ -11917,19 +11921,8 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
       }
       msg += "\n";
     }
-    const exerciciosComProgresso = Object.entries(porExercicio).filter(([, pontos]) => pontos.length >= 2);
-    if (exerciciosComProgresso.length > 0) {
-      msg += `\n💪 Progressão nas cargas:\n`;
-      exerciciosComProgresso.forEach(([nome, pontos]) => {
-        const diff = pontos[pontos.length - 1].carga - pontos[0].carga;
-        msg += `• ${nome}: ${pontos[0].carga}kg → ${pontos[pontos.length - 1].carga}kg (${diff > 0 ? "+" : ""}${diff.toFixed(1)}kg)\n`;
-      });
-    }
-    if (!ultimaAval && exerciciosComProgresso.length === 0) {
-      msg += "Continua a treinar — assim que tivermos mais registos este mês, mandamos-te a tua evolução!";
-    } else {
-      msg += `\nContinua assim! 💪`;
-    }
+    msg += `📅 Vieste ${diasVindos} ${diasVindos === 1 ? "dia" : "dias"} este mês. ${textoFrequencia}\n`;
+    msg += `\nContinua assim! 💪`;
     return msg;
   };
 
@@ -12024,43 +12017,14 @@ function RelatorioEvolucaoTreino({ membros, historicoCargas, avaliacoesFisicas, 
               </div>
             )}
 
-            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Progressão nas cargas em {nomeMes}</h3>
-            {Object.keys(porExercicio).length === 0 ? (
-              <p className="text-sm text-slate-400">Sem cargas registadas neste mês.</p>
-            ) : (
-              Object.entries(porExercicio).map(([nomeExercicio, pontos]) => (
-                <div key={nomeExercicio} className="mb-6 break-inside-avoid">
-                  <p className="font-semibold text-sm mb-2">{nomeExercicio}</p>
-                  {pontos.length >= 2 ? (
-                    <div className="h-32 mb-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={pontos}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                          <XAxis dataKey="data" tick={{ fontSize: 10 }} />
-                          <YAxis tick={{ fontSize: 10 }} unit="kg" />
-                          <Tooltip />
-                          <Line type="monotone" dataKey="carga" stroke="#B45309" strokeWidth={2} dot={{ r: 3 }} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : null}
-                  <table className="w-full text-sm">
-                    <thead><tr className="text-left text-xs text-slate-400"><th>Data</th><th className="text-right">Carga</th></tr></thead>
-                    <tbody>
-                      {pontos.map((p) => (
-                        <tr key={p.id} className="border-t"><td className="py-1">{p.data}</td><td className="text-right font-medium">{p.carga} kg</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {pontos.length >= 2 && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Evolução: {pontos[0].carga} kg → {pontos[pontos.length - 1].carga} kg
-                      {" "}({pontos[pontos.length - 1].carga >= pontos[0].carga ? "+" : ""}{(pontos[pontos.length - 1].carga - pontos[0].carga).toFixed(1)} kg)
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
+            <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Frequência em {nomeMes}</h3>
+            <div className="mb-4 break-inside-avoid">
+              <p className="text-3xl font-extrabold text-[#3F8F87]">{diasVindos} <span className="text-base font-semibold text-slate-500">{diasVindos === 1 ? "dia" : "dias"} de treino{ehMesAtual ? ` (até hoje, dia ${diasNoMes})` : ` em ${diasNoMes}`}</span></p>
+              <div className="h-3 bg-slate-100 rounded-full overflow-hidden mt-2">
+                <div className="h-full bg-[#3F8F87]" style={{ width: `${Math.min(100, Math.round((diasVindos / Math.max(1, diasNoMes)) * 100))}%` }} />
+              </div>
+              <p className="text-sm text-slate-600 mt-2">{textoFrequencia}</p>
+            </div>
           </>
         )}
       </div>
@@ -13415,7 +13379,7 @@ const exportarMembros = () => {
 
       {aVerEvolucaoTreino && (
         <RelatorioEvolucaoTreino
-          membros={membros} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
+          membros={membros} acessos={acessos} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
           onFechar={() => setAVerEvolucaoTreino(false)}
         />
       )}
@@ -18653,6 +18617,7 @@ export default function CatumbelaGymApp() {
               dadosGinasio={dadosGinasio}
               historicoCargas={historicoCargas}
               avaliacoesFisicas={avaliacoesFisicas}
+              acessos={acessos}
             />
           )}
           {telaAtual === "planos" && perfil === "administrador" && <Planos planos={planos} membros={membros} onSave={salvarPlano} onRemove={removerPlano} />}
