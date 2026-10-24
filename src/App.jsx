@@ -11896,6 +11896,16 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
   const ultimaAval = avaliacoesDoMes[avaliacoesDoMes.length - 1];
   const diferencaPeso = primeiraAval && ultimaAval && primeiraAval.id !== ultimaAval.id ? ultimaAval.peso - primeiraAval.peso : null;
 
+  // O que o atleta quer: vem do peso-alvo definido em Membros/Meus alunos.
+  // Peso-alvo abaixo do peso actual = emagrecer; acima = ganhar; igual = manter.
+  const pesoAtual = (avaliacoesDoMembro[avaliacoesDoMembro.length - 1] || {}).peso;
+  const pesoAlvo = Number(membro?.pesoObjetivo) || null;
+  const objetivo = !pesoAlvo || !pesoAtual ? null : Math.abs(pesoAlvo - pesoAtual) < 0.5 ? "manter" : pesoAlvo < pesoAtual ? "emagrecer" : "ganhar";
+  const textoObjetivo = { emagrecer: "Emagrecer", ganhar: "Ganhar peso / massa", manter: "Manter o peso" }[objetivo] || null;
+  const faltaParaAlvo = pesoAlvo && pesoAtual ? pesoAlvo - pesoAtual : null;
+  const rumoCerto = diferencaPeso === null || !objetivo ? null : objetivo === "emagrecer" ? diferencaPeso < 0 : objetivo === "ganhar" ? diferencaPeso > 0 : Math.abs(diferencaPeso) <= 1;
+  const frasePeso = diferencaPeso === null || diferencaPeso === 0 ? "" : rumoCerto === null ? (diferencaPeso < 0 ? "emagreceu" : "engordou") : rumoCerto ? (diferencaPeso < 0 ? "emagreceu — vais no caminho certo!" : "ganhaste peso — vais no caminho certo!") : (diferencaPeso < 0 ? "perdeste peso, mas o teu objetivo é outro — fala com o teu Personal." : "ganhaste peso, mas o teu objetivo é outro — fala com o teu Personal.");
+
   // Frequência: quantos dias diferentes o atleta veio ao ginásio neste mês.
   const diasDoMes = new Set(
     (acessos || [])
@@ -11917,9 +11927,12 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
     if (ultimaAval) {
       msg += `📊 Peso: ${ultimaAval.peso} kg`;
       if (diferencaPeso !== null && diferencaPeso !== 0) {
-        msg += ` (${diferencaPeso > 0 ? "+" : ""}${diferencaPeso.toFixed(1)} kg este mês — ${diferencaPeso < 0 ? "parabéns, estás a emagrecer!" : "a ganhar peso"})`;
+        msg += ` (${diferencaPeso > 0 ? "+" : ""}${diferencaPeso.toFixed(1)} kg este mês — ${frasePeso})`;
       }
       msg += "\n";
+    }
+    if (textoObjetivo) {
+      msg += `🎯 O teu objetivo: ${textoObjetivo} (meta ${pesoAlvo} kg${faltaParaAlvo ? faltaParaAlvo < 0 ? `, faltam ${Math.abs(faltaParaAlvo).toFixed(1)} kg a perder` : `, faltam ${faltaParaAlvo.toFixed(1)} kg a ganhar` : ""})\n`;
     }
     msg += `📅 Vieste ${diasVindos} ${diasVindos === 1 ? "dia" : "dias"} este mês. ${textoFrequencia}\n`;
     msg += `\nContinua assim! 💪`;
@@ -11980,7 +11993,15 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
           </p>
         ) : (
           <>
-            <p className="font-semibold mb-3">{membro.nome} — {membro.numero}</p>
+            <p className="font-semibold mb-1">{membro.nome} — {membro.numero}</p>
+            {textoObjetivo ? (
+              <p className="text-sm mb-3 bg-teal-50 text-teal-800 rounded-lg px-3 py-2">
+                🎯 Objetivo: <b>{textoObjetivo}</b> — meta {pesoAlvo} kg (peso actual {pesoAtual} kg
+                {faltaParaAlvo ? faltaParaAlvo < 0 ? `, faltam ${Math.abs(faltaParaAlvo).toFixed(1)} kg a perder` : `, faltam ${faltaParaAlvo.toFixed(1)} kg a ganhar` : ""})
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 mb-3 print:hidden">Este atleta ainda não tem meta de peso. Define em Membros → Meta (ou no ecrã do Personal) para o relatório saber o que ele quer.</p>
+            )}
 
             <h3 className="font-bold text-sm uppercase tracking-wide text-slate-500 mb-2">Peso corporal em {nomeMes}</h3>
             {avaliacoesDoMes.length === 0 ? (
@@ -12011,7 +12032,7 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
                 {diferencaPeso !== null && (
                   <p className={`text-sm font-semibold mt-2 ${diferencaPeso < 0 ? "text-emerald-600" : diferencaPeso > 0 ? "text-amber-600" : "text-slate-500"}`}>
                     {primeiraAval.peso} kg → {ultimaAval.peso} kg
-                    {" "}({diferencaPeso === 0 ? "sem alteração" : `${diferencaPeso > 0 ? "+" : ""}${diferencaPeso.toFixed(1)} kg — ${diferencaPeso < 0 ? "emagreceu" : "engordou"}`})
+                    {" "}({diferencaPeso === 0 ? "sem alteração" : `${diferencaPeso > 0 ? "+" : ""}${diferencaPeso.toFixed(1)} kg — ${frasePeso}`})
                   </p>
                 )}
               </div>
