@@ -101,9 +101,14 @@ const infoEntradas = (m, planos, acessos) => {
   const plano = (planos || []).find((p) => p.nome === m.plano);
   const limite = Number(plano?.entradas) || 0;
   if (!limite) return null;
-  const d = new Date(m.vencimento + "T00:00:00");
-  d.setDate(d.getDate() - (Number(plano.duracaoDias) || 7));
-  const inicio = dataLocalISO(d);
+  // Início da contagem: o dia em que o pacote foi comprado ("inicioPlano",
+  // guardado ao subscrever); sem ele, calcula-se a partir do vencimento.
+  let inicio = m.inicioPlano;
+  if (!inicio) {
+    const d = new Date(m.vencimento + "T00:00:00");
+    d.setDate(d.getDate() - (Number(plano.duracaoDias) || 7));
+    inicio = dataLocalISO(d);
+  }
   const datas = new Set(
     (acessos || []).filter((a) => a.numero === m.numero && a.data >= inicio && a.data < m.vencimento).map((a) => a.data)
   );
@@ -3074,7 +3079,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
                 <input type="number" min={1} value={form.entradas} placeholder="ex.: 3"
                   onChange={(e) => setForm({ ...form, entradas: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]" />
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Cada dia de treino conta 1 entrada. Passado o limite, a entrada fica bloqueada até renovar.</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Cada dia de treino conta 1 entrada. Passado o limite, a entrada fica bloqueada até renovar. Para as entradas não expirarem depressa, põe uma duração longa (ex.: 365 dias).</p>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Preço (Kz)</label>
@@ -17237,7 +17242,7 @@ export default function CatumbelaGymApp() {
     const plano = planos.find((p) => p.nome === (pendente.planoNome || pendente.membro.plano));
     // Estende a partir do vencimento atual (se ainda não passou) ou de hoje —
     // a mesma regra usada em Subscrições, para nunca "perder" dias já pagos.
-    const base = new Date(pendente.membro.vencimento) > new Date() ? new Date(pendente.membro.vencimento) : new Date();
+    const base = !plano?.entradas && new Date(pendente.membro.vencimento) > new Date() ? new Date(pendente.membro.vencimento) : new Date();
     base.setDate(base.getDate() + (plano ? plano.duracaoDias : 30));
     const novoVencimento = dataLocalISO(base);
     const hojeStr = dataLocalISO(new Date());
@@ -17286,6 +17291,7 @@ export default function CatumbelaGymApp() {
           plano: pendente.planoNome || m.plano,
           estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
           vencimento: novoVencimento,
+          ...(plano?.entradas ? { inicioPlano: hojeStr } : {}),
           ...(valorTaxa > 0 ? { taxaInscricaoPaga: true, taxaInscricaoPendente: 0 } : {}),
         };
       })
@@ -17369,6 +17375,8 @@ export default function CatumbelaGymApp() {
           plano: novoPlanoNome,
           vencimento: novoVencimento,
           estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
+          // Plano por entradas: as entradas contam a partir do dia da compra.
+          ...(plano.entradas ? { inicioPlano: dataInicio || hojeStr } : {}),
         };
       })
     );
@@ -17397,7 +17405,9 @@ export default function CatumbelaGymApp() {
     // Renova a partir do vencimento atual, se ainda estiver a decorrer — ou
     // a partir de hoje, se já tiver expirado (mesma regra usada na aprovação
     // de pagamentos por transferência).
-    const baseTexto = membro.vencimento && membro.vencimento > hojeStr ? membro.vencimento : hojeStr;
+    // Plano por entradas: cada compra é um pacote novo que começa hoje (não se
+    // soma ao prazo do pacote anterior).
+    const baseTexto = !plano.entradas && membro.vencimento && membro.vencimento > hojeStr ? membro.vencimento : hojeStr;
     const base = new Date(baseTexto + "T00:00:00");
     // mesesPagos multiplica a duração do plano — pagar 3 meses de uma vez
     // avança o vencimento em 3× a duração normal, não só 1 mês.
@@ -17414,6 +17424,7 @@ export default function CatumbelaGymApp() {
           plano: nomePlanoPago,
           vencimento: novoVencimento,
           estado: novoVencimento <= hojeStr ? "vencido" : "ativo",
+          ...(plano.entradas ? { inicioPlano: hojeStr } : {}),
         };
       })
     );
