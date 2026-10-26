@@ -13534,7 +13534,12 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   // o filtro de data, o turno somava tudo o que a pessoa já tinha
   // registado desde sempre, não só o turno do dia atual.
   const hojeStr = dataLocalISO(new Date());
-  const meusPagamentos = pagamentosFeitos.filter((p) => p.registadoPor === nomeAtual && p.data === hojeStr);
+  // Pagamentos de hoje gravados SEM nome (aparelho com sessão antiga) também
+  // entram no turno — antes ficavam de fora e o fecho de caixa mostrava 0.
+  const semNome = (p) => !p.registadoPor || p.registadoPor === "—";
+  const meusPagamentos = pagamentosFeitos.filter((p) => p.data === hojeStr && ((nomeAtual && p.registadoPor === nomeAtual) || semNome(p)));
+  const pagamentosSemNome = meusPagamentos.filter(semNome);
+  const totalSemNome = pagamentosSemNome.reduce((a, p) => a + (Number(p.valor) || 0), 0);
 
   const totais = useMemo(() => {
     const t = { dinheiro: 0, tpa: 0, express: 0, referencia: 0, transferencia: 0 };
@@ -13564,7 +13569,7 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
     if (totais.dinheiro >= 1000 && contado < totais.dinheiro * 0.2 &&
         !window.confirm(`Escreveste ${kz(contado)}, mas o sistema espera ${kz(totais.dinheiro)}. Tens a certeza? (Para 17.500 Kz escreve 17500 ou 17.500)`)) return;
     const diferenca = contado - totais.dinheiro;
-    onFecharTurno({ nomeFuncionario: nomeAtual, totalSistema: totais.dinheiro, totalContado: contado, diferenca, observacoes });
+    onFecharTurno({ nomeFuncionario: nomeAtual || "Sem identificação", totalSistema: totais.dinheiro, totalContado: contado, diferenca, observacoes });
     // Congela os totais vistos NESTE momento (contagem física feita, turno
     // fechado). Sem isto, os quadros abaixo continuavam a recalcular-se a
     // partir de "pagamentosFeitos" em tempo real — se alguém eliminasse
@@ -13595,7 +13600,13 @@ function TurnoCaixa({ pagamentosFeitos, nomeAtual, onFecharTurno }) {
   }
 
   return (
-    <Card title={fechado ? `Turno fechado — resumo de ${nomeAtual}` : `Turno aberto — ${nomeAtual}`}>
+    <Card title={fechado ? `Turno fechado — resumo de ${nomeAtual || "—"}` : `Turno aberto — ${nomeAtual || "—"}`}>
+      {pagamentosSemNome.length > 0 && !fechado && (
+        <p className="text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2 mb-3">
+          Incluí {pagamentosSemNome.length} pagamento(s) de hoje sem nome de funcionário ({kz(totalSemNome)}), registados num aparelho com sessão antiga.
+          Se houver mais do que uma pessoa a fechar caixa hoje, confirma a contagem com o administrador.
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide mb-2">Por tipo</p>
@@ -15702,6 +15713,20 @@ export default function CatumbelaGymApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessoesAtivas, autenticado, contaAtual?.id, meuTokenSessao]);
 
+
+  // SESSÃO ANTIGA SEM NOME: aparelhos que já estavam "entrados" antes de a
+  // conta passar a ser guardada ficam autenticados mas sem contaAtual — tudo o
+  // que registam fica sem nome ("—") e o fecho de caixa não o encontra.
+  // Obriga a entrar de novo para a conta (e o nome) ficarem identificados.
+  useEffect(() => {
+    if (autenticado && !contaAtual?.nome) {
+      setAutenticado(false);
+      setPerfil(null);
+      setContaAtual(null);
+      setTela("dashboard");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autenticado, contaAtual?.nome]);
 
   // Registo de aparelhos com acesso: cada aparelho (telemóvel/computador)
   // escreve aqui o seu "batimento" — quem está a usar, quando, e que versão
