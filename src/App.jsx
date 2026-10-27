@@ -12519,8 +12519,14 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
     const limiteHoras = Number(dadosGinasio?.limiteHorasSessao) || 2;
     return membros
       .map((m) => {
-        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada && a.saida);
-        const horasTreino = acessosDoMes.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+        // Todas as entradas do mês (com ou sem saída registada) — um dia em que
+        // a receção esqueceu a saída continua a ser um dia treinado.
+        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada);
+        const acessosComSaida = acessosDoMes.filter((a) => a.saida);
+        const horasTreino = acessosComSaida.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
+        // Para a pontuação, cada sessão conta no máximo o limite de horas —
+        // ficar muito tempo no ginásio não compra pontos; vir mais dias sim.
+        const horasParaPontos = acessosComSaida.reduce((s, a) => s + Math.min(calcularHorasEntreHorarios(a.entrada, a.saida), limiteHoras), 0);
         // Só conta como "taxada" quem realmente TEM a taxa cobrada e ativa
         // (a.taxaSessaoLongaFatura aponta para essa fatura) — não só quem
         // ficou mais tempo do que o limite. Assim, se a taxa foi cobrada
@@ -12561,7 +12567,10 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         // progresso nas cargas vale 2, e cada 1% de gordura corporal
         // reduzida vale 30 — a tabela mostra sempre os números em
         // separado, nunca só o resultado final.
-        const pontuacao = horasTreino * 10 + diasTreinados * 15 + progressaoCarga * 2 + reducaoGordura * 30;
+        // ATUALIZADO: quem treinou mais DIAS mais se dedicou, por isso os dias
+        // são o que mais pesa — 50 pontos por dia distinto, contra 5 por hora
+        // (e cada sessão conta no máximo o limite de horas).
+        const pontuacao = diasTreinados * 50 + horasParaPontos * 5 + progressaoCarga * 2 + reducaoGordura * 30;
 
         return { membro: m, horasTreino, diasTreinados, progressaoCarga, reducaoGordura, pontuacao, numTreinos: acessosDoMes.length, sessoesLongas };
       })
@@ -12787,8 +12796,8 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             </table>
             </div>
             <p className="text-[11px] text-slate-400 mt-3">
-              Pontuação: 15 pontos por cada dia distinto que veio treinar (consistência), 10 por cada hora de treino
-              (horas entre entrada e saída em Controlo de Acessos), 2 por cada kg de progresso nas cargas, e 30 por
+              Pontuação: 50 pontos por cada dia distinto que veio treinar (é o que mais conta — quem vem mais dias mais
+              se dedicou), 5 por cada hora de treino (entre entrada e saída; cada visita conta no máximo {Number(dadosGinasio?.limiteHorasSessao) || 2}h), 2 por cada kg de progresso nas cargas, e 30 por
               cada 1% de gordura corporal reduzida entre a primeira e a última avaliação física do mês. "Sessões
               longas" mostra quantas vezes o atleta ultrapassou o limite de {Number(dadosGinasio?.limiteHorasSessao) || 2}h
               numa só visita (e por isso pagou a taxa extra) — não afeta a pontuação, mas quem tem pelo menos uma
