@@ -11691,13 +11691,184 @@ function CopiaSeguranca({ dadosGinasio, onSalvarFrequencia }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// POUPANÇA (só administrador) — dinheiro posto de lado, separado do Caixa.
+// Depositar = o dinheiro SAI do Caixa/Banco para a poupança; levantar = volta
+// para o Caixa/Banco. Cada depósito/levantamento fica ligado ao movimento
+// financeiro que gerou (poupancaId), por isso apagar o registo desfaz também
+// o movimento — o saldo do Caixa nunca fica errado.
+// Os registos guardam kind "mov" (movimento) ou "meta" (objetivo de poupança).
+// ---------------------------------------------------------------------
+function Poupanca({ itens, saldoCaixa, dadosGinasio, onMovimento, onRemoverMovimento, onNovaMeta, onRemoverMeta }) {
+  const contasBancarias = obterContasBancarias(dadosGinasio);
+  const movs = itens.filter((i) => i.kind === "mov");
+  const metas = itens.filter((i) => i.kind === "meta");
+  const saldoTotal = movs.reduce((t, m) => t + (m.tipo === "deposito" ? 1 : -1) * (Number(m.valor) || 0), 0);
+  const saldoDaMeta = (id) => movs.filter((m) => m.metaId === id).reduce((t, m) => t + (m.tipo === "deposito" ? 1 : -1) * (Number(m.valor) || 0), 0);
+  const saldoSemMeta = movs.filter((m) => !m.metaId).reduce((t, m) => t + (m.tipo === "deposito" ? 1 : -1) * (Number(m.valor) || 0), 0);
+
+  const vazio = (tipo) => ({ tipo, valor: "", descricao: "", metaId: "", origem: "caixa", contaBancariaId: contasBancarias[0]?.id || "" });
+  const [form, setForm] = useState(null); // null | { tipo: "deposito"|"levantamento", ... }
+  const [novaMeta, setNovaMeta] = useState(null); // null | { nome, alvo }
+
+  const submeter = (e) => {
+    e.preventDefault();
+    if (!form || !(Number(form.valor) > 0)) return;
+    const ok = onMovimento({ ...form, valor: Number(form.valor) });
+    if (ok) setForm(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card title="Poupança">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+          Dinheiro posto de lado, separado do Caixa. Ao depositar, o dinheiro sai do Caixa (ou do Banco); ao levantar, volta para lá.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 p-4">
+            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Saldo da poupança</p>
+            <p className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-300">{kz(saldoTotal)}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Dinheiro no Caixa agora</p>
+            <p className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">{kz(Math.max(0, saldoCaixa))}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setForm(vazio("deposito"))} className="bg-[#3F8F87] hover:bg-[#357A73] text-white text-sm font-semibold px-4 py-2 rounded-lg">Depositar na poupança</button>
+          <button onClick={() => setForm(vazio("levantamento"))} className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">Levantar da poupança</button>
+        </div>
+
+        {form && (
+          <form onSubmit={submeter} className="mt-4 bg-slate-50 dark:bg-slate-900 rounded-xl p-4 space-y-3">
+            <p className="text-sm font-semibold">{form.tipo === "deposito" ? "Depositar na poupança" : "Levantar da poupança"}</p>
+            <div>
+              <label className="text-xs font-medium text-slate-500">Valor (Kz)</label>
+              <input type="number" min="1" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} autoFocus
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500">{form.tipo === "deposito" ? "Sai de" : "Volta para"}</label>
+                <select value={form.origem} onChange={(e) => setForm({ ...form, origem: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm">
+                  <option value="caixa">Caixa (dinheiro)</option>
+                  <option value="banco">Banco</option>
+                </select>
+              </div>
+              {form.origem === "banco" && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500">Conta bancária</label>
+                  <select value={form.contaBancariaId} onChange={(e) => setForm({ ...form, contaBancariaId: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm">
+                    {contasBancarias.length === 0 && <option value="">Sem contas</option>}
+                    {contasBancarias.map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            {metas.length > 0 && (
+              <div>
+                <label className="text-xs font-medium text-slate-500">Para que objetivo? (opcional)</label>
+                <select value={form.metaId} onChange={(e) => setForm({ ...form, metaId: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm">
+                  <option value="">Poupança geral</option>
+                  {metas.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-slate-500">Nota (opcional)</label>
+              <input value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} placeholder="Ex.: sobras da semana"
+                className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm" />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 bg-[#3F8F87] hover:bg-[#357A73] text-white text-sm font-semibold py-2 rounded-lg">Confirmar</button>
+              <button type="button" onClick={() => setForm(null)} className="px-4 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 rounded-lg">Cancelar</button>
+            </div>
+          </form>
+        )}
+      </Card>
+
+      <Card title="Objetivos de poupança" action={
+        <button onClick={() => setNovaMeta({ nome: "", alvo: "" })} className="text-xs font-semibold text-[#3F8F87]">+ Novo objetivo</button>
+      }>
+        {novaMeta && (
+          <form onSubmit={(e) => { e.preventDefault(); if (!novaMeta.nome.trim()) return; onNovaMeta({ nome: novaMeta.nome.trim(), alvo: Number(novaMeta.alvo) || 0 }); setNovaMeta(null); }}
+            className="bg-slate-50 dark:bg-slate-900 rounded-xl p-3 mb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <input value={novaMeta.nome} onChange={(e) => setNovaMeta({ ...novaMeta, nome: e.target.value })} placeholder="Ex.: Comprar passadeira" autoFocus
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm sm:col-span-2" />
+            <input type="number" min="0" value={novaMeta.alvo} onChange={(e) => setNovaMeta({ ...novaMeta, alvo: e.target.value })} placeholder="Valor alvo (Kz)"
+              className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white text-sm" />
+            <div className="flex gap-2 sm:col-span-3">
+              <button type="submit" className="bg-[#3F8F87] text-white text-sm font-semibold px-4 py-2 rounded-lg">Guardar objetivo</button>
+              <button type="button" onClick={() => setNovaMeta(null)} className="px-4 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 rounded-lg">Cancelar</button>
+            </div>
+          </form>
+        )}
+        {metas.length === 0 && !novaMeta && <p className="text-sm text-slate-400">Sem objetivos. Cria um (ex.: "Comprar passadeira") para ver quanto já poupaste para ele.</p>}
+        <div className="space-y-3">
+          {metas.map((m) => {
+            const guardado = saldoDaMeta(m.id);
+            const pct = m.alvo > 0 ? Math.min(100, Math.round((guardado / m.alvo) * 100)) : 0;
+            return (
+              <div key={m.id}>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-semibold">{m.nome}</span>
+                  <span className="text-slate-600 dark:text-slate-300">{kz(guardado)}{m.alvo > 0 ? ` de ${kz(m.alvo)}` : ""}</span>
+                </div>
+                {m.alvo > 0 && (
+                  <div className="h-2.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mt-1.5">
+                    <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-xs text-slate-400">{m.alvo > 0 ? `${pct}% do objetivo${pct >= 100 ? " — atingido! 🎉" : ""}` : "Sem valor alvo"}</span>
+                  <button onClick={() => { if (window.confirm(`Apagar o objetivo "${m.nome}"? O dinheiro poupado fica na poupança geral.`)) onRemoverMeta(m.id); }} className="text-xs text-red-500">Apagar</button>
+                </div>
+              </div>
+            );
+          })}
+          {metas.length > 0 && saldoSemMeta !== 0 && (
+            <p className="text-xs text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-700">Poupança geral (sem objetivo): {kz(saldoSemMeta)}</p>
+          )}
+        </div>
+      </Card>
+
+      <Card title="Histórico">
+        {movs.length === 0 ? (
+          <p className="text-sm text-slate-400">Ainda não há depósitos nem levantamentos.</p>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-slate-700">
+            {movs.map((m) => (
+              <div key={m.id} className="py-2 flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className={`font-semibold ${m.tipo === "deposito" ? "text-emerald-600" : "text-amber-600"}`}>
+                    {m.tipo === "deposito" ? "+" : "−"} {kz(m.valor)} <span className="text-slate-500 font-normal">· {m.tipo === "deposito" ? "depósito" : "levantamento"} ({m.origem === "banco" ? "banco" : "caixa"})</span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {String(m.data || "").split("-").reverse().join("/")} · {m.registadoPor}
+                    {m.metaId ? ` · ${metas.find((x) => x.id === m.metaId)?.nome || "objetivo apagado"}` : ""}
+                    {m.descricao ? ` · ${m.descricao}` : ""}
+                  </p>
+                </div>
+                <button onClick={() => { if (window.confirm("Apagar este registo? O movimento no Caixa/Banco também é desfeito.")) onRemoverMovimento(m.id); }} className="text-xs text-red-500 shrink-0">Apagar</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // Todas as coleções persistentes do sistema — usado para limpar tudo (local
 // e no Supabase) quando se reinicia o site.
 const CHAVES_TODAS_COLECOES = [
   "membros", "planos", "produtos", "trainers", "dadosGinasio", "contas", "acessos",
   "pagamentosFeitos", "movimentosBancarios", "movimentosCaixa", "comprasMembros", "vendasProdutos",
   "auditLog", "pagamentosPendentes", "custos", "faturas", "advertencias", "orcamento",
-  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer",
+  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer", "poupanca",
 ];
 
 // O modo de teste só pode ser ligado a partir daqui — de dentro do painel
@@ -14930,6 +15101,7 @@ const MENU_ADMIN = [
       { id: "aprovacao", label: "Aprovação de Pagamentos", icon: ShieldCheck },
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
       { id: "custos", label: "Centro de Custos", icon: TrendingUp },
+      { id: "poupanca", label: "Poupança", icon: Wallet },
       { id: "orcamento", label: "Orçamento (plano de compras)", icon: ClipboardList },
       { id: "faturacao", label: "Faturação / Recibos", icon: FileText },
     ],
@@ -16083,6 +16255,7 @@ export default function CatumbelaGymApp() {
 
   const [advertencias, setAdvertencias] = usePersistente("advertencias", [], setStatusSync);
   const [orcamento, setOrcamento] = usePersistente("orcamento", [], setStatusSync);
+  const [poupanca, setPoupanca] = usePersistente("poupanca", [], setStatusSync);
   const [atividades, setAtividades] = usePersistente("atividades", [], setStatusSync);
   const [reservasAtividades, setReservasAtividades, adicionarReservaSegura, definirReservasSemGravar] = usePersistente("reservasAtividades", [], setStatusSync);
   const [avaliacoesFisicas, setAvaliacoesFisicas] = usePersistente("avaliacoesFisicas", [], setStatusSync);
@@ -17728,6 +17901,55 @@ export default function CatumbelaGymApp() {
     );
   };
 
+  // POUPANÇA — depositar tira o dinheiro do Caixa/Banco; levantar devolve-o.
+  // Cada registo fica ligado ao movimento financeiro (poupancaId).
+  const registarMovimentoPoupanca = ({ tipo, valor, descricao, metaId, origem, contaBancariaId }) => {
+    const v = Number(valor) || 0;
+    if (!(v > 0)) return false;
+    const saldoPoupanca = poupanca.filter((i) => i.kind === "mov").reduce((t, m) => t + (m.tipo === "deposito" ? 1 : -1) * (Number(m.valor) || 0), 0);
+    if (tipo === "levantamento" && v > saldoPoupanca + 0.001) {
+      alert(`Só há ${kz(Math.max(0, saldoPoupanca))} na poupança. Não podes levantar ${kz(v)}.`);
+      return false;
+    }
+    // Depósito: sai do Caixa/Banco (o Caixa não pode ficar negativo).
+    // Levantamento no Banco: só precisa de ter uma conta escolhida.
+    if (!podeSair(origem === "banco" ? "banco" : "caixa", tipo === "deposito" ? v : 0, contaBancariaId)) return false;
+    const novoId = gerarIdUnico();
+    setPoupanca((atual) => [
+      { id: novoId, kind: "mov", tipo, valor: v, descricao: descricao || "", metaId: metaId || null, origem: origem === "banco" ? "banco" : "caixa", contaBancariaId: origem === "banco" ? contaBancariaId : null, data: dataLocalISO(new Date()), registadoPor: contaAtual?.nome || "—" },
+      ...atual,
+    ]);
+    adicionarMovimento(origem === "banco" ? "banco" : "caixa", {
+      direcao: tipo === "deposito" ? "saida" : "entrada",
+      subtipo: tipo === "deposito" ? "Poupança — depósito" : "Poupança — levantamento",
+      valor: v,
+      descricao: descricao || "Poupança",
+      contaBancariaId: origem === "banco" ? contaBancariaId : undefined,
+      poupancaId: novoId,
+    });
+    registarAuditoria(tipo === "deposito" ? "Depositou na poupança" : "Levantou da poupança", `${kz(v)} (${origem === "banco" ? "banco" : "caixa"})${descricao ? " — " + descricao : ""}`);
+    return true;
+  };
+
+  const removerMovimentoPoupanca = (id) => {
+    const mov = poupanca.find((i) => i.id === id);
+    setPoupanca((atual) => atual.filter((i) => i.id !== id));
+    setMovimentosCaixa((atual) => atual.filter((m) => m.poupancaId !== id));
+    setMovimentosBancarios((atual) => atual.filter((m) => m.poupancaId !== id));
+    registarAuditoria("Apagou registo da poupança", `${mov?.tipo === "deposito" ? "Depósito" : "Levantamento"} de ${kz(mov?.valor || 0)} (e o movimento no Caixa/Banco)`);
+  };
+
+  const criarMetaPoupanca = ({ nome, alvo }) => {
+    setPoupanca((atual) => [{ id: gerarIdUnico(), kind: "meta", nome, alvo: Number(alvo) || 0, data: dataLocalISO(new Date()) }, ...atual]);
+    registarAuditoria("Criou objetivo de poupança", `${nome}${alvo ? " — " + kz(Number(alvo)) : ""}`);
+  };
+
+  const removerMetaPoupanca = (id) => {
+    const meta = poupanca.find((i) => i.id === id);
+    setPoupanca((atual) => atual.filter((i) => i.id !== id).map((i) => (i.metaId === id ? { ...i, metaId: null } : i)));
+    registarAuditoria("Apagou objetivo de poupança", meta?.nome || "");
+  };
+
   // Apagar um custo tem de apagar também o movimento financeiro que ele
   // gerou (no Caixa ou no Banco, conforme onde foi pago) — senão o saldo
   // financeiro continuava a descontar um custo que já não existe.
@@ -18705,6 +18927,9 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "custos" && perfil === "administrador" && (
             <CentroCustos custos={custos} onAdicionar={adicionarCusto} onEditar={editarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
+          )}
+          {telaAtual === "poupanca" && perfil === "administrador" && (
+            <Poupanca itens={poupanca} saldoCaixa={saldoCaixaAtual} dadosGinasio={dadosGinasio} onMovimento={registarMovimentoPoupanca} onRemoverMovimento={removerMovimentoPoupanca} onNovaMeta={criarMetaPoupanca} onRemoverMeta={removerMetaPoupanca} />
           )}
           {telaAtual === "orcamento" && perfil === "administrador" && (
             <Orcamento itens={orcamento} onAdicionar={adicionarItemOrcamento} onRemover={removerItemOrcamento} onMarcarComprado={marcarItemComprado} onRegistarPagamento={registarPagamentoOrcamento} dadosGinasio={dadosGinasio} />
