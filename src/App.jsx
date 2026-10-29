@@ -16121,24 +16121,12 @@ export default function CatumbelaGymApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faturas]);
 
-  // BACKFILL: antes de "eliminarFatura" passar a limpar também
-  // "taxaSessaoLongaFatura" no acesso correspondente (ver esse comentário),
-  // eliminar uma fatura de taxa por sessão longa deixava essa ligação
-  // "pendurada" — o acesso continuava a apontar para um número de fatura
-  // que já não existe em "faturas". Isso fazia esses atletas continuarem
-  // marcados com "taxada" no Melhor Atleta para sempre, mesmo depois de a
-  // fatura ter sido eliminada por engano. Este efeito limpa, uma única
-  // vez, qualquer ligação órfã que já exista dos tempos antes desta
-  // correção — não afeta nenhuma fatura que ainda exista de verdade.
-  useEffect(() => {
-    const numerosDeFaturas = new Set(faturas.map((f) => f.numero));
-    const comLigacaoOrfa = acessos.some((a) => a.taxaSessaoLongaFatura && !numerosDeFaturas.has(a.taxaSessaoLongaFatura));
-    if (!comLigacaoOrfa) return;
-    setAcessos((atual) =>
-      atual.map((a) => (a.taxaSessaoLongaFatura && !numerosDeFaturas.has(a.taxaSessaoLongaFatura) ? { ...a, taxaSessaoLongaFatura: null } : a))
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [faturas, acessos]);
+  // (Removido) Havia aqui uma limpeza automática de ligações "órfãs" entre uma
+  // entrada e a sua fatura de taxa. Corria sempre que "faturas" ou "acessos"
+  // mudavam e, quando a lista local de faturas ainda não tinha recebido a
+  // fatura acabada de criar, apagava a ligação de uma taxa VÁLIDA — por isso
+  // os atletas taxados deixavam de aparecer como "taxada" no Melhor Atleta.
+  // Já não é preciso: "eliminarFatura" limpa a ligação ao apagar a fatura.
 
   // BACKFILL: recibos de mensalidade criados ANTES de o sistema passar a
   // guardar "vencimentoSubscricao" diretamente no documento não têm essa
