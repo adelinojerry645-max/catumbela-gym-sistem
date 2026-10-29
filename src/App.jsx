@@ -12682,6 +12682,22 @@ function RelatorioHorarioColaboradores({ contas, registosPonto, dadosGinasio, on
 
 function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, onDefinirSexo }) {
   const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
+  // Período do ranking: um mês inteiro, ou uma semana (segunda a domingo) —
+  // escolhe-se qualquer dia e o sistema calcula a semana a que ele pertence.
+  const [modoPeriodo, setModoPeriodo] = useState("mes"); // "mes" | "semana"
+  const [diaSemanaRef, setDiaSemanaRef] = useState(dataLocalISO(new Date()));
+  const { semanaIni, semanaFim } = (() => {
+    const d = new Date((diaSemanaRef || dataLocalISO(new Date())) + "T12:00:00");
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const ini = dataLocalISO(d);
+    d.setDate(d.getDate() + 6);
+    return { semanaIni: ini, semanaFim: dataLocalISO(d) };
+  })();
+  const noPeriodo = (dataISO) => {
+    const dia = String(dataISO || "").slice(0, 10);
+    return modoPeriodo === "semana" ? dia >= semanaIni && dia <= semanaFim : dia.startsWith(mesEscolhido);
+  };
+  const dmy = (iso) => iso.split("-").reverse().slice(0, 2).join("/");
   // Homens e mulheres têm cada um o seu melhor atleta (os homens costumam treinar
   // mais, por isso competir todos juntos não era justo).
   const [categoriaEscolhida, setCategoria] = useState(null); // "M" | "F" | "sem" (null = automático)
@@ -12692,7 +12708,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       .map((m) => {
         // Todas as entradas do mês (com ou sem saída registada) — um dia em que
         // a receção esqueceu a saída continua a ser um dia treinado.
-        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && (a.data || "").startsWith(mesEscolhido) && a.entrada);
+        const acessosDoMes = acessos.filter((a) => a.numero === m.numero && noPeriodo(a.data) && a.entrada);
         const acessosComSaida = acessosDoMes.filter((a) => a.saida);
         const horasTreino = acessosComSaida.reduce((s, a) => s + calcularHorasEntreHorarios(a.entrada, a.saida), 0);
         // Para a pontuação, cada sessão conta no máximo o limite de horas —
@@ -12709,7 +12725,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         // duas entradas no MESMO dia não duplicam isto.
         const diasTreinados = new Set(acessosDoMes.map((a) => a.data)).size;
 
-        const cargasDoMembro = historicoCargas.filter((h) => h.membroId === m.id && (h.data || "").startsWith(mesEscolhido));
+        const cargasDoMembro = historicoCargas.filter((h) => h.membroId === m.id && noPeriodo(h.data));
         const porExercicio = {};
         cargasDoMembro.forEach((h) => {
           if (!porExercicio[h.exercicio]) porExercicio[h.exercicio] = [];
@@ -12725,7 +12741,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         // primeira e a última avaliação do mês (só conta se houver pelo
         // menos 2 avaliações com esse valor preenchido nesse mês).
         const avaliacoesDoMes = (avaliacoesFisicas || [])
-          .filter((a) => a.membroId === m.id && (a.data || "").startsWith(mesEscolhido) && a.gordura)
+          .filter((a) => a.membroId === m.id && noPeriodo(a.data) && a.gordura)
           .sort((a, b) => a.data.localeCompare(b.data));
         let reducaoGordura = 0;
         if (avaliacoesDoMes.length >= 2) {
@@ -12756,7 +12772,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         if (aTaxada !== bTaxada) return aTaxada ? 1 : -1;
         return b.pontuacao - a.pontuacao;
       });
-  }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, dadosGinasio]);
+  }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, modoPeriodo, semanaIni, semanaFim, dadosGinasio]);
 
   const contagemCategoria = { M: 0, F: 0, sem: 0 };
   rankingTodos.forEach((r) => { contagemCategoria[r.membro.sexo === "M" || r.membro.sexo === "F" ? r.membro.sexo : "sem"] += 1; });
@@ -12765,7 +12781,10 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
   const ranking = rankingTodos.filter((r) => (categoria === "sem" ? r.membro.sexo !== "M" && r.membro.sexo !== "F" : r.membro.sexo === categoria));
   const rotuloCat = categoria === "F" ? "Mulheres" : categoria === "M" ? "Homens" : "Sem sexo definido";
   const vencedor = ranking[0];
-  const nomeMes = new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const nomeMes = modoPeriodo === "semana"
+    ? `a semana de ${dmy(semanaIni)} a ${dmy(semanaFim)}`
+    : new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
+  const deNomeMes = modoPeriodo === "semana" ? nomeMes : `de ${nomeMes}`;
   const [aVerCartaz, setAVerCartaz] = useState(false);
 
   // Cartaz de anúncio do vencedor — gerado diretamente a partir dos dados
@@ -12781,7 +12800,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       ...(vencedor.reducaoGordura > 0 ? [{ label: "Redução de gordura", valor: `-${vencedor.reducaoGordura.toFixed(1)}%` }] : []),
     ];
     const iniciais = vencedor.membro.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
-    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
+    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
     return (
       <div className="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
         <div className="flex items-center justify-center gap-2 py-4 print:hidden flex-wrap">
@@ -12860,7 +12879,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
     <div className="fixed inset-0 bg-black/50 z-50 overflow-y-auto print:bg-white print:static">
       <div className="max-w-2xl mx-auto bg-white my-4 rounded-2xl print:rounded-none print:my-0 p-6 text-slate-800 area-imprimivel">
         <div className="flex items-center justify-between mb-4 print:hidden">
-          <h2 className="font-bold text-lg">Melhor atleta do mês</h2>
+          <h2 className="font-bold text-lg">Melhor atleta {modoPeriodo === "semana" ? "da semana" : "do mês"}</h2>
           <div className="flex items-center gap-2">
             {ranking.length > 0 && (
               <button onClick={() => setAVerCartaz(true)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-2">
@@ -12869,7 +12888,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             )}
             {ranking.length > 0 && vencedor.membro.telefone && (
               <a
-                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) de ${nomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2"
               >
@@ -12887,13 +12906,31 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
           <div>
             <h1 className="text-xl font-extrabold">{dadosGinasio?.nome || "Catumbela Gym"}</h1>
-            <p className="text-xs text-slate-500">Melhor atleta ({rotuloCat}) de {nomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
+            <p className="text-xs text-slate-500">Melhor atleta ({rotuloCat}) {deNomeMes} — gerado em {new Date().toLocaleDateString("pt-PT")}</p>
           </div>
         </div>
 
         <div className="print:hidden mb-4">
-          <label className="text-xs font-medium text-slate-500">Mês</label>
-          <input type="month" value={mesEscolhido} onChange={(e) => setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+          <div className="flex gap-2 mb-2">
+            {[["mes", "Mês"], ["semana", "Semana"]].map(([id, rotulo]) => (
+              <button key={id} onClick={() => setModoPeriodo(id)}
+                className={`text-sm font-semibold rounded-full px-4 py-1.5 ${modoPeriodo === id ? "bg-slate-800 text-white" : "ring-1 ring-slate-200 text-slate-600"}`}>
+                {rotulo}
+              </button>
+            ))}
+          </div>
+          {modoPeriodo === "mes" ? (
+            <>
+              <label className="text-xs font-medium text-slate-500">Mês</label>
+              <input type="month" value={mesEscolhido} onChange={(e) => e.target.value && setMesEscolhido(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+            </>
+          ) : (
+            <>
+              <label className="text-xs font-medium text-slate-500">Escolhe um dia da semana</label>
+              <input type="date" value={diaSemanaRef} max={dataLocalISO(new Date())} onChange={(e) => e.target.value && setDiaSemanaRef(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm" />
+              <p className="text-xs text-slate-500 mt-1">Semana de segunda {dmy(semanaIni)} a domingo {dmy(semanaFim)}.</p>
+            </>
+          )}
         </div>
 
         <div className="print:hidden flex flex-wrap gap-2 mb-4">
@@ -12928,7 +12965,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             <div className="bg-amber-50 ring-1 ring-amber-200 rounded-xl p-4 mb-5 flex items-center gap-4">
               <Award size={36} className="text-amber-500 shrink-0" />
               <div>
-                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta ({rotuloCat}) de {nomeMes}</p>
+                <p className="text-xs font-bold text-amber-700 uppercase tracking-wide">Melhor atleta ({rotuloCat}) {deNomeMes}</p>
                 <p className="text-lg font-extrabold text-slate-900">{vencedor.membro.nome}</p>
                 <p className="text-sm text-slate-600">
                   {vencedor.diasTreinados} dia{vencedor.diasTreinados === 1 ? "" : "s"} treinados · {vencedor.horasTreino.toFixed(1)}h no total
