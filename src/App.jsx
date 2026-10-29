@@ -10747,28 +10747,41 @@ function RelatorioInscricoes({ membros, faturas, planos }) {
 // ---------------------------------------------------------------------
 function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   const [dia, setDia] = useState(dataLocalISO(new Date()));
+  // "dia" = um dia à escolha; "semana" = a semana (segunda a domingo) a que
+  // esse dia pertence, com o total da semana e o resumo dia a dia.
+  const [modo, setModo] = useState("dia");
+  const { semanaIni, semanaFim } = (() => {
+    const d = new Date((dia || dataLocalISO(new Date())) + "T12:00:00");
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const ini = dataLocalISO(d);
+    d.setDate(d.getDate() + 6);
+    return { semanaIni: ini, semanaFim: dataLocalISO(d) };
+  })();
+  const dentro = (iso) => (modo === "semana" ? iso >= semanaIni && iso <= semanaFim : iso === dia);
+  const dmy = (iso) => String(iso || "").split("-").reverse().slice(0, 2).join("/");
+  const periodoTxt = modo === "semana" ? "da semana" : "do dia";
 
   // Pagamentos do dia = os registados + os que existem como RECIBO mas se
   // perderam da lista de pagamentos (reconstruídos). Assim o relatório diário
   // não depende de uma única lista que pode ter ficado desatualizada.
   const reconstruidosDoDia = useMemo(
-    () => reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, (iso) => iso === dia),
-    [faturas, pagamentosFeitos, dia]
+    () => reconstruirPagamentosDeRecibos(faturas, pagamentosFeitos, dentro),
+    [faturas, pagamentosFeitos, dia, modo]
   );
   const pagamentosDoDia = useMemo(
     () => [
-      ...pagamentosFeitos.filter((p) => p.data === dia),
+      ...pagamentosFeitos.filter((p) => dentro(p.data)),
       ...reconstruidosDoDia.flatMap((r) =>
         r.partes.map((parte) => ({
-          numero: r.numero, metodo: parte.metodo, valor: Number(parte.valor), tipo: r.tipo, planoNome: r.planoNome, data: dia, reconstruido: true,
+          numero: r.numero, metodo: parte.metodo, valor: Number(parte.valor), tipo: r.tipo, planoNome: r.planoNome, data: r.dataISO || dia, reconstruido: true,
         }))
       ),
     ],
-    [pagamentosFeitos, reconstruidosDoDia, dia]
+    [pagamentosFeitos, reconstruidosDoDia, dia, modo]
   );
   const acessosDoDia = useMemo(
-    () => acessos.filter((a) => a.data === dia).sort((a, b) => (a.entrada > b.entrada ? 1 : -1)),
-    [acessos, dia]
+    () => acessos.filter((a) => dentro(a.data)).sort((a, b) => (a.data + a.entrada > b.data + b.entrada ? 1 : -1)),
+    [acessos, dia, modo]
   );
 
   const comFatura = (p) => {
@@ -10784,6 +10797,21 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   const totalSubscricoes = subscricoes.reduce((s, p) => s + p.valor, 0);
   const totalOutros = outros.reduce((s, p) => s + p.valor, 0);
   const totalDia = totalVendas + totalSubscricoes + totalOutros;
+
+  // Resumo dia a dia (só útil na vista de semana).
+  const resumoPorDia = [];
+  if (modo === "semana") {
+    const d = new Date(semanaIni + "T12:00:00");
+    for (let i = 0; i < 7; i++) {
+      const iso = dataLocalISO(d);
+      const doDia = pagamentosDoDia.filter((p) => p.data === iso);
+      const v = doDia.filter((p) => p.tipo === "venda").reduce((t, p) => t + p.valor, 0);
+      const sb = doDia.filter((p) => p.tipo === "mensalidade" || p.tipo === "inscricao").reduce((t, p) => t + p.valor, 0);
+      const ou = doDia.reduce((t, p) => t + p.valor, 0) - v - sb;
+      resumoPorDia.push({ iso, nome: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][i], vendas: v, subs: sb, outros: ou, total: v + sb + ou, acessos: acessosDoDia.filter((a) => a.data === iso).length });
+      d.setDate(d.getDate() + 1);
+    }
+  }
 
   const rotuloMetodo = { dinheiro: "Dinheiro", tpa: "TPA", express: "Express", referencia: "Referência", transferencia: "Transferência" };
 
@@ -10828,12 +10856,12 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
     );
     XLSX.utils.book_append_sheet(livro, folhaAcessos, "Acessos do dia");
 
-    XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-Diario-${dia}.xlsx`);
+    XLSX.writeFile(livro, `Catumbela-Gym-Relatorio-${modo === "semana" ? `Semana-${semanaIni}-a-${semanaFim}` : `Diario-${dia}`}.xlsx`);
   };
 
   const linhaTabela = (p, idx) => (
     <tr key={idx} className="border-b border-slate-50 dark:border-slate-700">
-      <td className="py-1.5">{p.hora || "—"}</td>
+      <td className="py-1.5">{modo === "semana" ? `${dmy(p.data)} ` : ""}{p.hora || "—"}</td>
       <td className="py-1.5">{p.membroNome}</td>
       <td className="py-1.5">{p.itens.map((i) => i.descricao).join(", ") || (p.planoNome ? `Plano ${p.planoNome}` : "—")}</td>
       <td className="py-1.5">{rotuloMetodo[p.metodo] || p.metodo}</td>
@@ -10846,7 +10874,13 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
       <Card>
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">Dia:</label>
+            <div className="flex gap-1.5">
+              {[["dia", "Dia"], ["semana", "Semana"]].map(([id, rotulo]) => (
+                <button key={id} onClick={() => setModo(id)}
+                  className={`text-sm font-semibold rounded-full px-3 py-1.5 ${modo === id ? "bg-slate-800 text-white" : "ring-1 ring-slate-200 text-slate-600"}`}>{rotulo}</button>
+              ))}
+            </div>
+            <label className="text-sm font-medium text-slate-500 dark:text-slate-400">{modo === "semana" ? "Um dia da semana:" : "Dia:"}</label>
             <input
               type="date" value={dia} onChange={(e) => setDia(e.target.value)}
               className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#BFE4E1]"
@@ -10861,6 +10895,12 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         </div>
       </Card>
 
+      {modo === "semana" && (
+        <p className="text-sm text-slate-600 dark:text-slate-300 px-1">
+          Semana de <strong>segunda {dmy(semanaIni)}</strong> a <strong>domingo {dmy(semanaFim)}</strong>.
+        </p>
+      )}
+
       {reconstruidosDoDia.length > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800 p-3 text-xs text-amber-800 dark:text-amber-200">
           {reconstruidosDoDia.length} recibo(s) deste dia não estavam na lista de pagamentos e foram incluídos aqui a partir dos próprios recibos. Para
@@ -10871,13 +10911,52 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Vendas POS</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalVendas)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Subscrições</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{kz(totalSubscricoes)}</p></Card>
-        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total do dia</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
+        <Card><p className="text-xs text-slate-400 dark:text-slate-500">Total {periodoTxt}</p><p className="text-xl font-extrabold text-[#3F8F87]">{kz(totalDia)}</p></Card>
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Acessos ao ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{acessosDoDia.length}</p></Card>
       </div>
 
-      <Card title={`Vendas POS do dia (${vendasPOS.length})`}>
+      {modo === "semana" && (
+        <Card title="Resumo dia a dia">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700">
+                  <th className="pb-2 font-medium">Dia</th>
+                  <th className="pb-2 font-medium text-right">Vendas</th>
+                  <th className="pb-2 font-medium text-right">Subscrições</th>
+                  {totalOutros > 0 && <th className="pb-2 font-medium text-right">Outros</th>}
+                  <th className="pb-2 font-medium text-right">Total</th>
+                  <th className="pb-2 font-medium text-right">Acessos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumoPorDia.map((r) => (
+                  <tr key={r.iso} className="border-b border-slate-50 dark:border-slate-700">
+                    <td className="py-1.5">{r.nome} {dmy(r.iso)}</td>
+                    <td className="py-1.5 text-right">{kz(r.vendas)}</td>
+                    <td className="py-1.5 text-right">{kz(r.subs)}</td>
+                    {totalOutros > 0 && <td className="py-1.5 text-right">{kz(r.outros)}</td>}
+                    <td className="py-1.5 text-right font-medium">{kz(r.total)}</td>
+                    <td className="py-1.5 text-right">{r.acessos}</td>
+                  </tr>
+                ))}
+                <tr className="font-bold">
+                  <td className="py-2">Total da semana</td>
+                  <td className="py-2 text-right">{kz(totalVendas)}</td>
+                  <td className="py-2 text-right">{kz(totalSubscricoes)}</td>
+                  {totalOutros > 0 && <td className="py-2 text-right">{kz(totalOutros)}</td>}
+                  <td className="py-2 text-right text-[#3F8F87]">{kz(totalDia)}</td>
+                  <td className="py-2 text-right">{acessosDoDia.length}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      <Card title={`Vendas POS ${periodoTxt} (${vendasPOS.length})`}>
         {vendasPOS.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma venda neste dia.</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma venda neste período.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -10896,9 +10975,9 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         )}
       </Card>
 
-      <Card title={`Subscrições do dia (${subscricoes.length})`}>
+      <Card title={`Subscrições ${periodoTxt} (${subscricoes.length})`}>
         {subscricoes.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma subscrição neste dia.</p>
+          <p className="text-sm text-slate-400 dark:text-slate-500">Nenhuma subscrição neste período.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -10917,7 +10996,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         )}
       </Card>
 
-      <Card title={`Acessos do dia (${acessosDoDia.length})`}>
+      <Card title={`Acessos ${periodoTxt} (${acessosDoDia.length})`}>
         {acessosDoDia.length === 0 ? (
           <p className="text-sm text-slate-400 dark:text-slate-500">Ninguém fez check-in neste dia.</p>
         ) : (
