@@ -18767,7 +18767,7 @@ export default function CatumbelaGymApp() {
   const telaAtual = telaValida ? tela : "dashboard";
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200 overflow-hidden">
+    <div className="fundo-vidro flex h-screen bg-slate-50 dark:bg-slate-900 font-sans text-slate-800 dark:text-slate-200 overflow-hidden">
       {/* Fundo escurecido atrás do menu no telemóvel */}
       {menuAberto && (
         <div
@@ -18778,7 +18778,7 @@ export default function CatumbelaGymApp() {
 
       {/* SIDEBAR — fixa em ecrã grande, menu deslizante no telemóvel */}
       <aside
-        className={`w-64 bg-gradient-to-b from-slate-900 to-slate-950 text-slate-300 flex flex-col shrink-0 fixed md:static inset-y-0 left-0 z-50 transform transition-transform duration-200 shadow-[4px_0_24px_rgba(0,0,0,0.35)] ${
+        className={`vidro-lateral w-64 text-slate-300 flex flex-col shrink-0 fixed md:static inset-y-0 left-0 z-50 transform transition-transform duration-200 shadow-[4px_0_24px_rgba(0,0,0,0.35)] ${
           menuAberto ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
@@ -18855,7 +18855,7 @@ export default function CatumbelaGymApp() {
             <button onClick={() => alternarModoTeste(false)} className="underline hover:no-underline">Sair</button>
           </div>
         )}
-        <header className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4 bg-white dark:bg-slate-800 border-b border-slate-100 dark:border-slate-700 shrink-0">
+        <header className="vidro-barra flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setMenuAberto(true)} className="md:hidden text-slate-500 dark:text-slate-400 shrink-0">
               <Menu size={22} />
