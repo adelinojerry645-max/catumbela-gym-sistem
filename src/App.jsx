@@ -12989,7 +12989,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       ...(vencedor.reducaoGordura > 0 ? [{ label: "Redução de gordura", valor: `-${vencedor.reducaoGordura.toFixed(1)}%` }] : []),
     ];
     const iniciais = vencedor.membro.nome.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase();
-    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`;
+    const mensagemVencedor = `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! Passa na receção para receber o teu prémio: um plano de treino semanal. Continua assim 💪`;
     return (
       <div className="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
         <div className="flex items-center justify-center gap-2 py-4 print:hidden flex-wrap">
@@ -13089,15 +13089,22 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
                 <PlayCircle size={15} /> {progressoVideo !== null ? `A gravar… ${Math.round(progressoVideo * 100)}%` : "Vídeo"}
               </button>
             )}
-            {ranking.length > 0 && vencedor.membro.telefone && (
+            {ranking.length > 0 && vencedor.membro.telefone && (<>
               <a
-                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! O teu prémio é um plano de treino semanal — fala com o teu personal trainer. Continua assim 💪`)}
+                href={linkWhatsApp(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! Passa na receção para receber o teu prémio: um plano de treino semanal. Continua assim 💪`)}
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2"
               >
                 <MessageSquare size={15} /> WhatsApp ao vencedor
               </a>
-            )}
+            <a
+                href={linkSMS(vencedor.membro.telefone, `Parabéns, ${vencedor.membro.nome.split(" ")[0]}! 🏆 Foste eleito(a) Melhor Atleta (${rotuloCat}) ${deNomeMes} na ${dadosGinasio?.nome || "Catumbela Gym"}! Passa na receção para receber o teu prémio: um plano de treino semanal. Continua assim 💪`)}
+                
+                className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-2"
+              >
+                <Send size={15} /> SMS ao vencedor
+              </a>
+            </>)}
             <button onClick={() => window.print()} className="flex items-center gap-1.5 text-sm font-semibold bg-tema-500 text-white rounded-lg px-3 py-2">
               <Printer size={15} /> Imprimir / Guardar PDF
             </button>
