@@ -3510,7 +3510,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
               key={p.id}
               onClick={() => adicionar(p)}
               disabled={p.stock === 0}
-              className="bg-white dark:bg-slate-800 rounded-xl ring-1 ring-slate-100 dark:ring-slate-700 p-4 text-left hover:ring-[#5AAFA8] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              className="bg-white dark:bg-slate-800 rounded-xl ring-1 ring-slate-100 dark:ring-slate-700 p-4 text-left hover:ring-[#5AAFA8] disabled:[&>*]:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{p.nome}</p>
               <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{p.categoria}</p>
