@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
+import { prepararCorrida, gerarVideo, gerarCartaz, entregarFicheiro, videoSuportado } from "./videoAtleta.js";
 import { OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
@@ -12212,6 +12213,11 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
             <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
           </div>
         </div>
+        {(progressoVideo !== null || avisoMidia) && (
+          <p className={`print:hidden text-sm rounded-lg px-3 py-2 mb-3 ${avisoMidia ? "bg-red-50 text-red-700" : "bg-tema-100 text-tema-700"}`}>
+            {avisoMidia || "A gravar o vídeo (cerca de 1 minuto). Não feches nem mudes de ecrã até acabar."}
+          </p>
+        )}
 
         <div className="flex items-center gap-3 border-b pb-3 mb-4">
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
@@ -12867,6 +12873,71 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
     : new Date(`${mesEscolhido}-01T00:00:00`).toLocaleDateString("pt-PT", { month: "long", year: "numeric" });
   const deNomeMes = modoPeriodo === "semana" ? nomeMes : `de ${nomeMes}`;
   const [aVerCartaz, setAVerCartaz] = useState(false);
+  const [progressoVideo, setProgressoVideo] = useState(null); // null = parado, 0..1 = a gravar
+  const [avisoMidia, setAvisoMidia] = useState("");
+
+  // Dados para o vídeo e para o cartaz em imagem (usam o mesmo ranking do ecrã).
+  const dadosMidia = () => {
+    const limite = Number(dadosGinasio?.limiteHorasSessao) || 2;
+    const hoje = dataLocalISO(new Date());
+    let dias = [];
+    if (modoPeriodo === "semana") {
+      const d = new Date(semanaIni + "T12:00:00");
+      for (let i = 0; i < 7; i++) { dias.push(dataLocalISO(d)); d.setDate(d.getDate() + 1); }
+    } else {
+      const [ano, mes] = mesEscolhido.split("-").map(Number);
+      const total = new Date(ano, mes, 0).getDate();
+      for (let i = 1; i <= total; i++) dias.push(`${mesEscolhido}-${String(i).padStart(2, "0")}`);
+    }
+    dias = dias.filter((x) => x <= hoje);
+    const atletas = ranking.slice(0, 25).map((r) => {
+      const acs = acessos.filter((x) => x.numero === r.membro.numero && noPeriodo(x.data) && x.entrada);
+      return {
+        nome: r.membro.nome,
+        sessoes: acs.map((x) => ({ dia: String(x.data).slice(0, 10), horas: x.saida ? Math.min(calcularHorasEntreHorarios(x.entrada, x.saida), limite) : 0 })),
+        taxaDias: acs.filter((x) => x.taxaSessaoLongaFatura).map((x) => String(x.data).slice(0, 10)),
+        extra: r.progressaoCarga * 2 + r.reducaoGordura * 30,
+      };
+    });
+    const meta = {
+      nomeGinasio: dadosGinasio?.nome || "Catumbela Gym",
+      categoria: rotuloCat,
+      periodo: nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1),
+      rotuloDia: (iso) => (modoPeriodo === "semana"
+        ? new Date(iso + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "numeric" }).replace(".", "")
+        : `Dia ${Number(iso.slice(8))}`),
+      vencedor: vencedor?.membro.nome || "",
+      rotuloVencedor: modoPeriodo === "semana" ? "MELHOR ATLETA DA SEMANA" : "MELHOR ATLETA DO MÊS",
+    };
+    return { dias, atletas, meta };
+  };
+  const fazerCartazImagem = async () => {
+    setAvisoMidia("");
+    try {
+      const { meta } = dadosMidia();
+      const top = ranking.slice(0, 3).map((r) => ({ nome: r.membro.nome, pts: Math.round(r.pontuacao), dias: r.diasTreinados }));
+      const blob = await gerarCartaz({ meta, top, logoSrc: dadosGinasio?.logo });
+      await entregarFicheiro(blob, `melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.png`);
+    } catch (e) {
+      setAvisoMidia("Não foi possível criar a imagem neste aparelho.");
+    }
+  };
+  const fazerVideoCorrida = async () => {
+    setAvisoMidia("");
+    if (!videoSuportado()) return setAvisoMidia("Este navegador não grava vídeo. Experimenta no Chrome ou no Safari mais recente.");
+    try {
+      const { dias, atletas, meta } = dadosMidia();
+      if (dias.length === 0 || atletas.length === 0) return setAvisoMidia("Ainda não há treinos neste período.");
+      setProgressoVideo(0);
+      const prep = prepararCorrida(atletas, dias);
+      const { blob, ext } = await gerarVideo({ prep, meta, logoSrc: dadosGinasio?.logo, onProgresso: setProgressoVideo });
+      setProgressoVideo(null);
+      await entregarFicheiro(blob, `corrida-melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.${ext}`);
+    } catch (e) {
+      setProgressoVideo(null);
+      setAvisoMidia("Não foi possível gravar o vídeo neste aparelho.");
+    }
+  };
 
   // Cartaz de anúncio do vencedor — gerado diretamente a partir dos dados
   // já calculados no relatório (nome, mês, destaques), sem precisar de
@@ -12965,6 +13036,20 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             {ranking.length > 0 && (
               <button onClick={() => setAVerCartaz(true)} className="flex items-center gap-1.5 text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-3 py-2">
                 <Award size={15} /> Cartaz do vencedor
+              </button>
+            )}
+            {ranking.length > 0 && (
+              <button onClick={fazerCartazImagem} className="flex items-center gap-1.5 text-sm font-semibold bg-tema-500 hover:bg-tema-600 text-white rounded-lg px-3 py-2">
+                <Download size={15} /> Imagem
+              </button>
+            )}
+            {ranking.length > 0 && (
+              <button
+                onClick={fazerVideoCorrida}
+                disabled={progressoVideo !== null}
+                className="flex items-center gap-1.5 text-sm font-semibold bg-tema-500 hover:bg-tema-600 text-white rounded-lg px-3 py-2 disabled:opacity-70"
+              >
+                <PlayCircle size={15} /> {progressoVideo !== null ? `A gravar… ${Math.round(progressoVideo * 100)}%` : "Vídeo"}
               </button>
             )}
             {ranking.length > 0 && vencedor.membro.telefone && (
