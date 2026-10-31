@@ -661,6 +661,22 @@ function canonico(v) {
   );
 }
 
+// Conjunto que se lembra do que já foi feito mesmo depois de fechar e abrir a
+// app (guardado neste aparelho). Serve para a correção automática de
+// subscrições não voltar a escrever o MESMO registo na Auditoria a cada vez
+// que alguém abre o sistema (eram milhares de linhas repetidas, que ainda
+// por cima enchiam o espaço do navegador).
+function conjuntoPersistente(chaveLocal, maximo = 3000) {
+  let s;
+  try { s = new Set(JSON.parse(window.localStorage.getItem(chaveLocal) || "[]")); } catch { s = new Set(); }
+  const guardar = () => {
+    try { window.localStorage.setItem(chaveLocal, JSON.stringify([...s].slice(-maximo))); } catch { /* sem espaço: ignora */ }
+  };
+  return { has: (k) => s.has(k), add: (k) => { s.add(k); guardar(); return s; } };
+}
+const REGISTOS_RECUPERACAO_RECIBO = conjuntoPersistente("catumbela:recuperacoes-recibo");
+const REGISTOS_RECUPERACAO_HISTORICO = conjuntoPersistente("catumbela:recuperacoes-historico");
+
 function usePersistente(chave, valorInicial, setStatusSync) {
   const [valor, setValor] = useState(() => {
     const guardado = carregarEstadoGuardado();
@@ -16388,7 +16404,7 @@ export default function CatumbelaGymApp() {
   // mensalidade (atleta antigo, já a pagar antes deste sistema) também
   // fica intocado — o campo guardado manualmente continua a ser a verdade
   // para esses casos.
-  const reconciliacoesJaRegistadasRef = useRef(new Set());
+  const reconciliacoesJaRegistadasRef = useRef(REGISTOS_RECUPERACAO_RECIBO);
   useEffect(() => {
     const reconciliar = () => {
       // Lista (só para o registo na Auditoria) do que vai ser corrigido
@@ -16499,7 +16515,7 @@ export default function CatumbelaGymApp() {
   // Guarda o que já foi reposto nesta sessão para nunca repetir a mesma
   // correção em loop (depois de repor, deixa de ser divergente, mas isto
   // protege contra qualquer instante intermédio da sincronização).
-  const subscricoesJaRepostasRef = useRef(new Set());
+  const subscricoesJaRepostasRef = useRef(REGISTOS_RECUPERACAO_HISTORICO);
   useEffect(() => {
     // Nota: esta lógica está propositadamente escrita por extenso aqui (em
     // vez de chamar reporSubscricao/registarAuditoria, que só são
