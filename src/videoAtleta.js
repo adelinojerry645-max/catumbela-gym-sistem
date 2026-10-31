@@ -359,5 +359,5 @@ export async function entregarFicheiro(blob, nome) {
   const a = document.createElement("a");
   a.href = url; a.download = nome;
   document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
 }

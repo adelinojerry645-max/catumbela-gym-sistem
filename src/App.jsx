@@ -12952,7 +12952,6 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       const blob = await gerarCartaz({ meta, top, logoSrc: dadosGinasio?.logo });
       const nomeImg = `melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.png`;
       setFicheiroPronto({ blob, nome: nomeImg, tipo: "imagem" });
-      await entregarFicheiro(blob, nomeImg);
     } catch (e) {
       setAvisoMidia("Não foi possível criar a imagem neste aparelho.");
     }
@@ -12969,7 +12968,6 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       setProgressoVideo(null);
       const nomeVid = `corrida-melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.${ext}`;
       setFicheiroPronto({ blob, nome: nomeVid, tipo: "video" });
-      await entregarFicheiro(blob, nomeVid);
     } catch (e) {
       setProgressoVideo(null);
       setAvisoMidia("Não foi possível gravar o vídeo neste aparelho.");
@@ -13119,12 +13117,12 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         )}
         {ficheiroPronto && progressoVideo === null && (
           <div className="print:hidden bg-emerald-50 ring-1 ring-emerald-200 rounded-xl px-3 py-3 mb-3 flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-emerald-800 w-full">{ficheiroPronto.tipo === "video" ? "Vídeo pronto." : "Imagem pronta."} Envia agora:</p>
+            <p className="text-sm font-semibold text-emerald-800 w-full">{ficheiroPronto.tipo === "video" ? "Vídeo pronto." : "Imagem pronta."} Toca num botão (no iPhone, "Guardar" abre a lista e escolhes "Guardar vídeo"):</p>
             <button onClick={enviarWhatsApp} className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2">
               <MessageSquare size={15} /> Enviar no WhatsApp
             </button>
             <button onClick={() => entregarFicheiro(ficheiroPronto.blob, ficheiroPronto.nome)} className="flex items-center gap-1.5 text-sm font-semibold bg-white ring-1 ring-slate-200 text-slate-700 rounded-lg px-3 py-2">
-              <Download size={15} /> Guardar outra vez
+              <Download size={15} /> Guardar
             </button>
             <button onClick={() => setFicheiroPronto(null)} className="text-xs text-slate-400 ml-auto">Fechar</button>
           </div>
