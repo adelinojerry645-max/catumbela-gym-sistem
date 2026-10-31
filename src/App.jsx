@@ -18855,7 +18855,7 @@ export default function CatumbelaGymApp() {
             <button onClick={() => alternarModoTeste(false)} className="underline hover:no-underline">Sair</button>
           </div>
         )}
-        <header className="vidro-barra flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b shrink-0">
+        <header className="vidro-barra flex items-center justify-between gap-2 px-3 sm:px-6 py-3 sm:py-4 border-b shrink-0 -mb-16 sm:-mb-[72px]">
           <div className="flex items-center gap-2 min-w-0">
             <button onClick={() => setMenuAberto(true)} className="md:hidden text-slate-500 dark:text-slate-400 shrink-0">
               <Menu size={22} />
@@ -18957,7 +18957,7 @@ export default function CatumbelaGymApp() {
             </button>
           </div>
         )}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pt-[76px] sm:pt-[96px]">
           {telaAtual === "meus-alunos" && perfil === "personal_trainer" && (
             <MeusAlunos
               trainer={trainers.find((t) => t.id === contaAtual?.trainerId)}
