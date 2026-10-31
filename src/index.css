@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== Temas de cor (variáveis) ===== */
+:root{--tema-100:234 245 244;--tema-200:191 228 224;--tema-250:143 201 195;--tema-300:90 175 167;--tema-400:79 166 157;--tema-450:69 144 136;--tema-500:63 143 135;--tema-600:53 122 115;--tema-700:46 108 102;--lat-topo:33 105 97;--lat-meio:29 67 68;--lat-fundo:21 44 46;--acento:230 144 25;}
+html[data-tema="oceano"]{--tema-100:230 239 249;--tema-200:178 207 241;--tema-250:123 169 221;--tema-300:60 128 205;--tema-400:49 118 196;--tema-450:43 102 170;--tema-500:35 98 171;--tema-600:29 84 146;--tema-700:24 73 130;--lat-topo:8 65 130;--lat-meio:16 38 81;--lat-fundo:12 24 55;--acento:230 128 25;}
+html[data-tema="violeta"]{--tema-100:237 231 248;--tema-200:202 182 237;--tema-250:160 129 216;--tema-300:116 69 196;--tema-400:105 57 188;--tema-450:91 50 163;--tema-500:87 43 163;--tema-600:74 36 139;--tema-700:65 30 124;--lat-topo:55 15 123;--lat-meio:48 19 78;--lat-fundo:35 14 52;--acento:230 25 128;}
+html[data-tema="rosa"]{--tema-100:248 231 238;--tema-200:239 180 205;--tema-250:218 126 164;--tema-300:200 65 121;--tema-400:192 53 111;--tema-450:166 46 96;--tema-500:167 39 92;--tema-600:143 32 78;--tema-700:127 27 69;--lat-topo:126 12 59;--lat-meio:79 17 36;--lat-fundo:53 13 23;--acento:25 161 230;}
+html[data-tema="sol"]{--tema-100:249 235 230;--tema-200:241 193 178;--tema-250:221 146 123;--tema-300:205 94 60;--tema-400:196 83 49;--tema-450:170 72 43;--tema-500:171 67 35;--tema-600:146 56 29;--tema-700:130 49 24;--lat-topo:130 36 8;--lat-meio:81 39 16;--lat-fundo:55 29 12;--acento:230 179 25;}
+html[data-tema="dourado"]{--tema-100:249 242 230;--tema-200:241 218 178;--tema-250:221 185 123;--tema-300:205 152 60;--tema-400:196 142 49;--tema-450:170 123 43;--tema-500:171 121 35;--tema-600:146 103 29;--tema-700:130 91 24;--lat-topo:130 85 8;--lat-meio:81 65 16;--lat-fundo:55 47 12;--acento:25 110 230;}
+html[data-tema="esmeralda"]{--tema-100:232 247 239;--tema-200:185 234 208;--tema-250:134 210 169;--tema-300:77 188 129;--tema-400:66 179 119;--tema-450:58 155 103;--tema-500:51 155 100;--tema-600:43 132 85;--tema-700:37 117 74;--lat-topo:22 115 66;--lat-meio:23 74 53;--lat-fundo:17 50 38;--acento:230 179 25;}
+html[data-tema="grafite"]{--tema-100:239 239 240;--tema-200:207 209 212;--tema-250:168 171 176;--tema-300:127 132 138;--tema-400:116 121 129;--tema-450:101 106 112;--tema-500:97 102 109;--tema-600:83 87 92;--tema-700:73 76 81;--lat-topo:64 68 74;--lat-meio:46 47 51;--lat-fundo:31 32 35;--acento:25 230 212;}
+
+
 body {
   margin: 0;
 }
@@ -54,9 +65,9 @@ body {
 }
 html:not(.dark) .vidro-lateral {
   background:
-    radial-gradient(circle at 100% 55%, rgba(63, 160, 150, 0.35), transparent 45%),
-    radial-gradient(circle at 0% 25%, rgba(120, 60, 70, 0.28), transparent 45%),
-    linear-gradient(180deg, rgba(36, 100, 112, 0.97) 0%, rgba(28, 46, 78, 0.98) 45%, rgba(18, 28, 54, 0.98) 100%);
+    radial-gradient(circle at 100% 55%, rgb(var(--tema-400) / 0.35), transparent 45%),
+    radial-gradient(circle at 0% 25%, rgb(var(--acento) / 0.22), transparent 45%),
+    linear-gradient(180deg, rgb(var(--lat-topo) / 0.97) 0%, rgb(var(--lat-meio) / 0.98) 45%, rgb(var(--lat-fundo) / 0.98) 100%);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   border-right: 1px solid rgba(255, 255, 255, 0.4);
@@ -69,27 +80,27 @@ html:not(.dark) .vidro-lateral {
   backdrop-filter: blur(24px) saturate(200%) brightness(1.3);
 }
 /* Botões principais (verde do sistema) — vidro verde */
-button[class*="bg-[#3F8F87]"] {
-  background-color: rgba(53, 132, 124, 0.94);
+button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]) {
+  background-color: rgb(var(--tema-600) / 0.94);
   background-image: linear-gradient(170deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.12) 40%, rgba(255, 255, 255, 0) 60%, rgba(255, 255, 255, 0.22) 100%);
   -webkit-backdrop-filter: blur(14px) saturate(200%) brightness(1.15);
   backdrop-filter: blur(14px) saturate(200%) brightness(1.15);
   border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 2px rgba(255, 255, 255, 0.75) inset, 0 -6px 12px -6px rgba(255, 255, 255, 0.4) inset, 0 10px 24px -8px rgba(30, 120, 112, 0.7);
+  box-shadow: 0 2px 2px rgba(255, 255, 255, 0.75) inset, 0 -6px 12px -6px rgba(255, 255, 255, 0.4) inset, 0 10px 24px -8px rgb(var(--tema-700) / 0.7);
   text-shadow: 0 1px 2px rgba(10, 60, 55, 0.55);
 }
-button[class*="bg-[#3F8F87]"]:hover:not(:disabled) {
-  background-color: rgba(63, 150, 140, 0.75);
+button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):hover:not(:disabled) {
+  background-color: rgb(var(--tema-600) / 0.9);
 }
-button[class*="bg-[#3F8F87]"]:active:not(:disabled) {
+button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):active:not(:disabled) {
   transform: scale(0.98);
 }
 .fundo-vidro {
-  background-image: radial-gradient(circle at 90% 0%, rgba(63, 143, 135, 0.55), transparent 45%), radial-gradient(circle at 0% 55%, rgba(245, 158, 11, 0.22), transparent 40%), radial-gradient(circle at 100% 100%, rgba(90, 175, 168, 0.4), transparent 45%);
+  background-image: radial-gradient(circle at 90% 0%, rgb(var(--tema-500) / 0.55), transparent 45%), radial-gradient(circle at 0% 55%, rgb(var(--acento) / 0.28), transparent 40%), radial-gradient(circle at 100% 100%, rgb(var(--tema-300) / 0.4), transparent 45%);
   background-attachment: fixed;
 }
-button[class*="bg-[#3F8F87]"]:disabled {
-  background-color: rgba(53, 132, 124, 0.94);
+button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):disabled {
+  background-color: rgb(var(--tema-600) / 0.94);
   opacity: 0.55;
   text-shadow: none;
 }
