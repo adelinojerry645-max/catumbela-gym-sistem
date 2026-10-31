@@ -12,11 +12,21 @@ const FONTE = '"Inter", "Helvetica Neue", Arial, sans-serif';
 
 const ease = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
 
+// Guarda as cores já lidas: ler o CSS em cada quadro deixava o telemóvel lento
+// e o vídeo "arrastado". A cache limpa-se no início de cada gravação.
+const _cacheCores = new Map();
+let _fundoCache = null;
+function limparCaches() { _cacheCores.clear(); _fundoCache = null; }
 function corTema(n, alfa = 1) {
+  const chave = n + "|" + alfa;
+  const guardada = _cacheCores.get(chave);
+  if (guardada) return guardada;
   let v = "63 143 135";
   try { v = getComputedStyle(document.documentElement).getPropertyValue(`--tema-${n}`).trim() || v; } catch {}
   const [r, g, b] = v.split(/\s+/).map(Number);
-  return `rgba(${r},${g},${b},${alfa})`;
+  const res = `rgba(${r},${g},${b},${alfa})`;
+  _cacheCores.set(chave, res);
+  return res;
 }
 function corVar(nome, padrao) {
   try { const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim(); if (v) return v.split(/\s+/).map(Number); } catch {}
@@ -26,7 +36,13 @@ const rgb = (arr, a = 1) => `rgba(${arr[0]},${arr[1]},${arr[2]},${a})`;
 
 function caixa(ctx, x, y, w, h, r, fill, sombra = true) {
   ctx.save();
-  if (sombra) { ctx.shadowColor = "rgba(15,23,42,0.16)"; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8; }
+  if (sombra) {
+    // sombra barata (sem desfoque): duas camadas suaves por baixo do cartão
+    ctx.fillStyle = "rgba(15,23,42,0.05)";
+    ctx.beginPath(); ctx.roundRect(x - 4, y + 4, w + 8, h + 12, r + 4); ctx.fill();
+    ctx.fillStyle = "rgba(15,23,42,0.07)";
+    ctx.beginPath(); ctx.roundRect(x, y + 6, w, h + 2, r); ctx.fill();
+  }
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, r);
   ctx.fillStyle = fill;
@@ -51,6 +67,18 @@ function titulo(s) {
 }
 
 function fundo(ctx) {
+  // o fundo é igual em todos os quadros: desenha-se uma vez e copia-se
+  if (ctx.canvas.height === H) {
+    if (!_fundoCache) {
+      _fundoCache = document.createElement("canvas"); _fundoCache.width = W; _fundoCache.height = H;
+      fundoDireto(_fundoCache.getContext("2d"));
+    }
+    ctx.drawImage(_fundoCache, 0, 0);
+    return;
+  }
+  fundoDireto(ctx);
+}
+function fundoDireto(ctx) {
   ctx.fillStyle = corTema(100);
   ctx.fillRect(0, 0, W, H);
   const g1 = ctx.createRadialGradient(W * 0.9, 0, 0, W * 0.9, 0, 900);
@@ -250,6 +278,7 @@ export function videoSuportado() {
 export async function gerarVideo({ prep, meta, logoSrc, onProgresso }) {
   const formato = escolherFormato();
   if (!formato) throw new Error("Este navegador não consegue gravar vídeo.");
+  limparCaches();
   const logo = await carregarLogo(logoSrc);
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
@@ -311,6 +340,7 @@ export async function gerarVideo({ prep, meta, logoSrc, onProgresso }) {
 // Cartaz (PNG 1080x1350) do vencedor
 // ---------------------------------------------------------------------
 export async function gerarCartaz({ meta, top, logoSrc }) {
+  limparCaches();
   const logo = await carregarLogo(logoSrc);
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = 1350;
