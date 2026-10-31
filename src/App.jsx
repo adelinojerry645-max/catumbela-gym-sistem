@@ -12922,7 +12922,10 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       for (let i = 1; i <= total; i++) dias.push(`${mesEscolhido}-${String(i).padStart(2, "0")}`);
     }
     dias = dias.filter((x) => x <= hoje);
-    const atletas = ranking.slice(0, 25).map((r) => {
+    // Escolhe os atletas só pelos PONTOS (os taxados ficam no fim do ranking oficial,
+    // e cortá-los ali fazia-os desaparecer do vídeo — têm de correr e depois descer).
+    const paraVideo = [...ranking].sort((x, y) => y.pontuacao - x.pontuacao).slice(0, 30);
+    const atletas = paraVideo.map((r) => {
       const acs = acessos.filter((x) => x.numero === r.membro.numero && noPeriodo(x.data) && x.entrada);
       return {
         nome: r.membro.nome,
