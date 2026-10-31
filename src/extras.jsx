@@ -977,3 +977,168 @@ export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
     </div>
   );
 }
+
+// =====================================================================
+// 9) PAINEL DO DONO: retenção, previsão de renovações, ranking de vendas
+// =====================================================================
+const somaDias = (iso, n) => { const d = parseISO(iso); d.setDate(d.getDate() + n); return dataISO(d); };
+const segundaDe = (iso) => { const d = parseISO(iso); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return dataISO(d); };
+const ddmm = (iso) => iso.split("-").reverse().slice(0, 2).join("/");
+
+function calcularRetencao(historico) {
+  const ACOES = ["renovacao", "subscricao", "ajuste-dias"];
+  const regs = (historico || []).filter((h) => ACOES.includes(h.acao) && h.vencimentoNovo && h.data && h.membroId != null);
+  if (regs.length === 0) return { semanas: [], media: null };
+  const porMembro = {};
+  regs.forEach((h) => { (porMembro[h.membroId] = porMembro[h.membroId] || []).push({ ini: String(h.data).slice(0, 10), fim: String(h.vencimentoNovo).slice(0, 10) }); });
+  const primeiro = {};
+  Object.entries(porMembro).forEach(([id, l]) => { primeiro[id] = l.reduce((m, x) => (x.ini < m ? x.ini : m), "9999"); });
+  const dadosDesde = regs.reduce((m, h) => (String(h.data).slice(0, 10) < m ? String(h.data).slice(0, 10) : m), "9999");
+  const seg0 = segundaDe(hojeStrISO());
+  const semanas = [];
+  for (let i = 9; i >= 0; i--) {
+    const seg = somaDias(seg0, -7 * i), dom = somaDias(seg, 6);
+    if (seg < somaDias(segundaDe(dadosDesde), 7)) continue; // semanas com histórico incompleto
+    const ativos = new Set(Object.keys(porMembro).filter((id) => porMembro[id].some((x) => x.ini <= dom && x.fim >= seg)));
+    semanas.push({ seg, dom, ativos });
+  }
+  const linhas = semanas.map((s, i) => {
+    const ant = i > 0 ? semanas[i - 1].ativos : null;
+    const novos = [...s.ativos].filter((id) => primeiro[id] >= s.seg && primeiro[id] <= s.dom).length;
+    let perderam = 0, ficaram = 0;
+    if (ant) ant.forEach((id) => { if (s.ativos.has(id)) ficaram++; else perderam++; });
+    const retencao = ant && ant.size ? Math.round((ficaram / ant.size) * 100) : null;
+    const ehAtual = hojeStrISO() >= s.seg && hojeStrISO() <= s.dom;
+    return { seg: s.seg, dom: s.dom, ativos: s.ativos.size, novos, perderam, retencao, ehAtual };
+  });
+  const comRet = linhas.filter((l) => l.retencao != null && !l.ehAtual);
+  const media = comRet.length ? Math.round(comRet.reduce((t, l) => t + l.retencao, 0) / comRet.length) : null;
+  return { semanas: linhas, media };
+}
+
+export function PainelDono({ membros, planos, historicoSubscricoes, faturas }) {
+  const hoje = hojeStrISO();
+  const ret = useMemo(() => calcularRetencao(historicoSubscricoes), [historicoSubscricoes]);
+
+  // ---- previsão de renovações ----
+  const prev = useMemo(() => {
+    const precoDe = (nome) => (planos || []).find((p) => p.nome === nome)?.preco || 0;
+    const ok = (m) => m.vencimento && !["suspenso", "pausada", "cancelado"].includes(m.estado);
+    const dias = [];
+    for (let i = 0; i < 7; i++) {
+      const dia = somaDias(hoje, i);
+      const lista = (membros || []).filter((m) => ok(m) && m.vencimento === dia);
+      dias.push({ dia, n: lista.length, valor: lista.reduce((t, m) => t + precoDe(m.plano), 0) });
+    }
+    const total = dias.reduce((t, d) => t + d.valor, 0);
+    const nTotal = dias.reduce((t, d) => t + d.n, 0);
+    const atrasados = (membros || []).filter((m) => ok(m) && m.vencimento < hoje && m.vencimento >= somaDias(hoje, -14));
+    const valorAtras = atrasados.reduce((t, m) => t + precoDe(m.plano), 0);
+    return { dias, total, nTotal, atrasados: atrasados.length, valorAtras };
+  }, [membros, planos, hoje]);
+  const esperado = ret.media != null ? Math.round((prev.total * ret.media) / 100) : null;
+
+  // ---- ranking de vendas dos funcionários ----
+  const [mes, setMes] = useState(mesAtual());
+  const ranking = useMemo(() => {
+    const [a, m] = mes.split("-").map(Number);
+    const por = {};
+    (faturas || []).forEach((f) => {
+      if (!f || f.tipo !== "RECIBO") return;
+      if (f.estado && /anulad|elimin/i.test(f.estado)) return;
+      const d = parseBR(f.data);
+      if (!d || d.getFullYear() !== a || d.getMonth() + 1 !== m) return;
+      const nome = !f.registadoPor || f.registadoPor === "—" ? "Sem nome" : f.registadoPor;
+      const o = (por[nome] = por[nome] || { nome, vendas: 0, subs: 0, outros: 0, recibos: 0 });
+      const v = +f.valor || 0;
+      if (f.tipoReceita === "venda") o.vendas += v;
+      else if (f.tipoReceita === "mensalidade" || f.tipoReceita === "inscricao") o.subs += v;
+      else o.outros += v;
+      o.recibos += 1;
+    });
+    return Object.values(por).map((o) => ({ ...o, total: o.vendas + o.subs + o.outros })).sort((x, y) => y.total - x.total);
+  }, [faturas, mes]);
+  const maior = ranking[0]?.total || 1;
+
+  return (
+    <div className="space-y-5">
+      <Cartao title="Retenção: quem fica e quem sai">
+        {ret.semanas.length === 0 ? (
+          <p className="text-sm text-slate-400">Ainda não há histórico suficiente.</p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
+              Por semana: quantos atletas tinham subscrição, quantos são novos e quantos da semana anterior não renovaram.
+              {ret.media != null && <> Em média, <b className="text-tema-600">{ret.media}%</b> dos atletas ficam de uma semana para a outra.</>}
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-400 text-left">
+                    <th className="py-1 pr-2 font-semibold">Semana</th><th className="px-2 font-semibold">Ativos</th><th className="px-2 font-semibold">Novos</th><th className="px-2 font-semibold">Saíram</th><th className="px-2 font-semibold">Ficam</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...ret.semanas].reverse().map((l) => (
+                    <tr key={l.seg} className="border-t border-slate-100 dark:border-slate-700">
+                      <td className="py-2 pr-2 text-slate-700 dark:text-slate-200 whitespace-nowrap">{ddmm(l.seg)}–{ddmm(l.dom)}{l.ehAtual ? " ·atual" : ""}</td>
+                      <td className="px-2 font-semibold">{l.ativos}</td>
+                      <td className="px-2 text-emerald-600 font-semibold">+{l.novos}</td>
+                      <td className="px-2 text-red-600 font-semibold">{l.perderam ? `−${l.perderam}` : "0"}</td>
+                      <td className="px-2">{l.retencao != null && !l.ehAtual ? `${l.retencao}%` : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-400 mt-3">A semana atual ainda não acabou, por isso “Saíram” pode baixar quando houver mais renovações.</p>
+          </>
+        )}
+      </Cartao>
+
+      <Cartao title="Previsão de renovações (próximos 7 dias)">
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div><p className="text-xs text-slate-400">Vão vencer</p><p className="text-2xl font-extrabold">{prev.nTotal} <span className="text-sm font-semibold text-slate-400">atletas</span></p></div>
+          <div><p className="text-xs text-slate-400">Se todos renovarem</p><p className="text-2xl font-extrabold text-tema-600">{kz(prev.total)}</p></div>
+        </div>
+        {esperado != null && <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">Com a retenção média ({ret.media}%), conta com cerca de <b>{kz(esperado)}</b>.</p>}
+        <div className="space-y-1.5">
+          {prev.dias.map((d) => (
+            <div key={d.dia} className="flex items-center gap-2 text-sm">
+              <span className="w-20 text-slate-500">{d.dia === hoje ? "Hoje" : ddmm(d.dia)}</span>
+              <div className="flex-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden"><div className="h-full bg-tema-500 rounded-full" style={{ width: `${prev.total ? (d.valor / Math.max(...prev.dias.map((x) => x.valor), 1)) * 100 : 0}%` }} /></div>
+              <span className="w-28 text-right text-slate-700 dark:text-slate-200">{d.n} · {kz(d.valor)}</span>
+            </div>
+          ))}
+        </div>
+        {prev.atrasados > 0 && (
+          <p className="text-sm mt-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-3 py-2">
+            Há <b>{prev.atrasados}</b> atletas que venceram nos últimos 14 dias e ainda não renovaram: pode haver até <b>{kz(prev.valorAtras)}</b> para recuperar.
+          </p>
+        )}
+      </Cartao>
+
+      <Cartao
+        title="Vendas por funcionário"
+        action={<input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm" />}
+      >
+        {ranking.length === 0 && <p className="text-sm text-slate-400">Sem recibos neste mês.</p>}
+        <div className="space-y-4">
+          {ranking.map((r, i) => (
+            <div key={r.nome}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{i === 0 ? "🏆 " : `${i + 1}. `}{r.nome}</p>
+                <p className="font-extrabold">{kz(r.total)}</p>
+              </div>
+              <div className="h-2.5 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden mt-1.5">
+                <div className={`h-full rounded-full ${i === 0 ? "bg-amber-500" : "bg-tema-500"}`} style={{ width: `${(r.total / maior) * 100}%` }} />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">Produtos {kz(r.vendas)} · Mensalidades e inscrições {kz(r.subs)} · Outros {kz(r.outros)} · {r.recibos} recibos</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-4">Conta o valor dos recibos passados por cada funcionário.</p>
+      </Cartao>
+    </div>
+  );
+}

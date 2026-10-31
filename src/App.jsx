@@ -12,7 +12,7 @@ import {
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { prepararCorrida, gerarVideo, gerarCartaz, entregarFicheiro, videoSuportado } from "./videoAtleta.js";
-import { ContasAPagar, ConfigPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
+import { PainelDono, ContasAPagar, ConfigPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
@@ -15364,6 +15364,7 @@ const MENU_ADMIN = [
       { id: "relatorio-inscricoes", label: "Relatório de Inscrições", icon: Users },
       { id: "automacao", label: "Centro de Automação", icon: Target },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
+      { id: "painel-dono", label: "Painel do Dono", icon: BarChart3 },
       { id: "alertas", label: "Coisas Estranhas", icon: AlertTriangle },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
       { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
@@ -19214,6 +19215,7 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "pagina-publica" && perfil === "administrador" && <ConfigPaginaPublica planos={planos} config={paginaPublica} setConfig={setPaginaPublica} siteUrl={dadosGinasio?.siteUrl} />}
           {telaAtual === "opinioes" && perfil === "administrador" && <OpinioesAdmin siteUrl={dadosGinasio?.siteUrl} />}
+          {telaAtual === "painel-dono" && perfil === "administrador" && <PainelDono membros={membros} planos={planos} historicoSubscricoes={historicoSubscricoes} faturas={faturas} />}
           {telaAtual === "alertas" && perfil === "administrador" && <AlertasEstranhos auditLog={auditLog} movimentosCaixa={movimentosCaixa} pagamentosFeitos={pagamentosFeitos} />}
           {telaAtual === "equilibrio" && perfil === "administrador" && <PontoEquilibrio membros={membros} planos={planos} despesasFixas={despesasFixas} setDespesasFixas={setDespesasFixas} custos={custos} pagamentosFeitos={pagamentosFeitos} />}
           {telaAtual === "comissoes" && perfil === "administrador" && <ComissoesPersonal trainers={trainers} membros={membros} faturas={faturas} comissoes={comissoes} setComissoes={setComissoes} />}
