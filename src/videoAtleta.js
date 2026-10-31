@@ -150,10 +150,12 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
   const dataTxt = diaMostrado === 0 ? "Início" : meta.rotuloDia(prep.dias[diaMostrado - 1]);
   ctx.font = `800 110px ${FONTE}`;
   texto(ctx, dataTxt, 60, 380, 110, "#0f172a", 800);
-  // aviso de taxado
+  // aviso de taxado (para TODOS os que foram taxados, mesmo fora do top)
+  const taxadosAgora = new Set();
   lista.forEach((a) => {
     for (let dd = 1; dd <= n; dd++) {
-      if (a.taxa[dd] && !a.taxa[dd - 1] && a.rank[dd - 1] < NSHOW && dd - 1 + 0.15 <= diaF && diaF < dd + 0.55) {
+      if (a.taxa[dd] && !a.taxa[dd - 1] && dd - 1 + 0.15 <= diaF && diaF < dd + 0.55) {
+        taxadosAgora.add(a);
         caixa(ctx, 600, 296, W - 660, 100, 24, "#ef4444", false);
         texto(ctx, "TAXADO: " + cortar(ctx, a.nome, 340, 22, 800), 600 + (W - 660) / 2, 326, 22, "#fff", 800, "center", "middle");
         texto(ctx, "desce no ranking", 600 + (W - 660) / 2, 366, 28, "#fff", 500, "center", "middle");
@@ -173,16 +175,19 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
   })).sort((x, y) => y.pos - x.pos);
 
   itens.forEach(({ a, pts, pos, taxa }) => {
-    if (pos > NSHOW - 0.15) return;
-    const y = ROW_Y0 + pos * ROW_H;
+    const alerta = taxadosAgora.has(a) && pos > NSHOW - 0.15;
+    if (pos > NSHOW - 0.15 && !alerta) return;
+    // quem acabou de ser taxado e saiu do top aparece mesmo assim, em vermelho, por baixo da lista
+    const y = alerta ? ROW_Y0 + NSHOW * ROW_H : ROW_Y0 + pos * ROW_H;
     const lider = a.rank[k > 0.5 ? d1 : d0] === 0 && pts > 0 && !taxa;
-    const cor = taxa ? "#ef4444" : lider ? "#f59e0b" : corTema(400);
-    caixa(ctx, 50, y, W - 100, 118, 28, "#fff");
+    const cor = taxa || alerta ? "#ef4444" : lider ? "#f59e0b" : corTema(400);
+    caixa(ctx, 50, y, W - 100, 118, 28, alerta ? "#fee2e2" : "#fff");
+    if (alerta) { ctx.save(); ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 6; ctx.beginPath(); ctx.roundRect(50, y, W - 100, 118, 28); ctx.stroke(); ctx.restore(); }
     ctx.beginPath(); ctx.arc(116, y + 59, 36, 0, Math.PI * 2);
-    ctx.fillStyle = lider ? "#f59e0b" : corTema(100); ctx.fill();
-    texto(ctx, String(Math.round(pos) + 1), 116, y + 60, 36, lider ? "#fff" : corTema(700), 700, "center", "middle");
-    texto(ctx, cortar(ctx, titulo(a.nome), taxa ? 520 : 700, 34, 700), 180, y + 40, 34, "#0f172a", 700);
-    if (taxa) {
+    ctx.fillStyle = alerta ? "#ef4444" : lider ? "#f59e0b" : corTema(100); ctx.fill();
+    texto(ctx, alerta ? "!" : String(Math.round(pos) + 1), 116, y + 60, 36, alerta || lider ? "#fff" : corTema(700), 700, "center", "middle");
+    texto(ctx, cortar(ctx, titulo(a.nome), taxa || alerta ? 520 : 700, 34, 700), 180, y + 40, 34, "#0f172a", 700);
+    if (taxa || alerta) {
       caixa(ctx, W - 80 - 140, y + 12, 140, 34, 17, "#ef4444", false);
       texto(ctx, meta.categoria === "Mulheres" ? "TAXADA" : "TAXADO", W - 80 - 70, y + 29, 20, "#fff", 800, "center", "middle");
     }
@@ -193,8 +198,10 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
     texto(ctx, `${Math.round(pts)} pts`, W - 80, y + 86, 32, "#0f172a", 700, "right", "middle");
   });
 
-  texto(ctx, "50 pontos por cada dia que veio treinar + 5 por hora (máx. 2 h por visita).", W / 2, 1810, 25, "#64748b", 500, "center");
-  texto(ctx, "Quem pagou taxa de sessão longa fica sempre atrás de quem não pagou.", W / 2, 1848, 25, "#64748b", 500, "center");
+  if (taxadosAgora.size === 0) {
+    texto(ctx, "50 pontos por cada dia que veio treinar + 5 por hora (máx. 2 h por visita).", W / 2, 1810, 25, "#64748b", 500, "center");
+    texto(ctx, "Quem pagou taxa de sessão longa fica sempre atrás de quem não pagou.", W / 2, 1848, 25, "#64748b", 500, "center");
+  }
 
   if (fracFinal > 0) {
     ctx.save();
