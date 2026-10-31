@@ -12229,11 +12229,6 @@ function RelatorioEvolucaoTreino({ membros, acessos, avaliacoesFisicas, dadosGin
             <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
           </div>
         </div>
-        {(progressoVideo !== null || avisoMidia) && (
-          <p className={`print:hidden text-sm rounded-lg px-3 py-2 mb-3 ${avisoMidia ? "bg-red-50 text-red-700" : "bg-tema-100 text-tema-700"}`}>
-            {avisoMidia || "A gravar o vídeo (cerca de 1 minuto). Não feches nem mudes de ecrã até acabar."}
-          </p>
-        )}
 
         <div className="flex items-center gap-3 border-b pb-3 mb-4">
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
@@ -12891,6 +12886,27 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
   const [aVerCartaz, setAVerCartaz] = useState(false);
   const [progressoVideo, setProgressoVideo] = useState(null); // null = parado, 0..1 = a gravar
   const [avisoMidia, setAvisoMidia] = useState("");
+  const [ficheiroPronto, setFicheiroPronto] = useState(null); // {blob, nome, tipo} do último vídeo/imagem feito
+  // Abre a lista de partilha do telemóvel (WhatsApp aparece lá) com o ficheiro.
+  // Em computador não dá para anexar ficheiros por link, por isso guarda o ficheiro
+  // e abre o WhatsApp Web com a mensagem pronta para o anexar.
+  const enviarWhatsApp = async () => {
+    const f = ficheiroPronto;
+    if (!f) return;
+    const texto = `${f.tipo === "video" ? "Corrida" : "Cartaz"} do Melhor Atleta (${rotuloCat}) ${deNomeMes} — ${dadosGinasio?.nome || "Catumbela Gym"} 🏆`;
+    try {
+      const ficheiro = new File([f.blob], f.nome, { type: f.blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [ficheiro] })) {
+        await navigator.share({ files: [ficheiro], text: texto, title: f.nome });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+    await entregarFicheiro(f.blob, f.nome);
+    setAvisoMidia("");
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+  };
 
   // Dados para o vídeo e para o cartaz em imagem (usam o mesmo ranking do ecrã).
   const dadosMidia = () => {
@@ -12934,7 +12950,9 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       const { meta } = dadosMidia();
       const top = ranking.slice(0, 3).map((r) => ({ nome: r.membro.nome, pts: Math.round(r.pontuacao), dias: r.diasTreinados }));
       const blob = await gerarCartaz({ meta, top, logoSrc: dadosGinasio?.logo });
-      await entregarFicheiro(blob, `melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.png`);
+      const nomeImg = `melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.png`;
+      setFicheiroPronto({ blob, nome: nomeImg, tipo: "imagem" });
+      await entregarFicheiro(blob, nomeImg);
     } catch (e) {
       setAvisoMidia("Não foi possível criar a imagem neste aparelho.");
     }
@@ -12949,7 +12967,9 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       const prep = prepararCorrida(atletas, dias);
       const { blob, ext } = await gerarVideo({ prep, meta, logoSrc: dadosGinasio?.logo, onProgresso: setProgressoVideo });
       setProgressoVideo(null);
-      await entregarFicheiro(blob, `corrida-melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.${ext}`);
+      const nomeVid = `corrida-melhor-atleta-${categoria === "F" ? "mulheres" : "homens"}.${ext}`;
+      setFicheiroPronto({ blob, nome: nomeVid, tipo: "video" });
+      await entregarFicheiro(blob, nomeVid);
     } catch (e) {
       setProgressoVideo(null);
       setAvisoMidia("Não foi possível gravar o vídeo neste aparelho.");
@@ -13084,6 +13104,24 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
             <button onClick={onFechar}><X size={20} className="text-slate-400" /></button>
           </div>
         </div>
+
+        {(progressoVideo !== null || avisoMidia) && (
+          <p className={`print:hidden text-sm rounded-lg px-3 py-2 mb-3 ${avisoMidia ? "bg-red-50 text-red-700" : "bg-tema-100 text-tema-700"}`}>
+            {avisoMidia || "A gravar o vídeo (cerca de 1 minuto). Não feches nem mudes de ecrã até acabar."}
+          </p>
+        )}
+        {ficheiroPronto && progressoVideo === null && (
+          <div className="print:hidden bg-emerald-50 ring-1 ring-emerald-200 rounded-xl px-3 py-3 mb-3 flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-emerald-800 w-full">{ficheiroPronto.tipo === "video" ? "Vídeo pronto." : "Imagem pronta."} Envia agora:</p>
+            <button onClick={enviarWhatsApp} className="flex items-center gap-1.5 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-2">
+              <MessageSquare size={15} /> Enviar no WhatsApp
+            </button>
+            <button onClick={() => entregarFicheiro(ficheiroPronto.blob, ficheiroPronto.nome)} className="flex items-center gap-1.5 text-sm font-semibold bg-white ring-1 ring-slate-200 text-slate-700 rounded-lg px-3 py-2">
+              <Download size={15} /> Guardar outra vez
+            </button>
+            <button onClick={() => setFicheiroPronto(null)} className="text-xs text-slate-400 ml-auto">Fechar</button>
+          </div>
+        )}
 
         <div className="flex items-center gap-3 border-b pb-3 mb-4">
           {dadosGinasio?.logo && <img src={dadosGinasio.logo} alt="Logótipo" className="h-10" />}
