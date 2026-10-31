@@ -3,9 +3,9 @@
 
 const W = 1080;
 const H = 1920;
-const NSHOW = 8;
-const ROW_Y0 = 450;
-const ROW_H = 160;
+const NSHOW = 15;
+const ROW_Y0 = 440;
+const ROW_H = 88;
 const BAR_X0 = 180;
 const BAR_MAXW = 690;
 const FONTE = '"Inter", "Helvetica Neue", Arial, sans-serif';
@@ -177,19 +177,20 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
     const y = ROW_Y0 + pos * ROW_H;
     const lider = a.rank[k > 0.5 ? d1 : d0] === 0 && pts > 0 && !taxa;
     const cor = taxa ? "#ef4444" : lider ? "#f59e0b" : corTema(400);
-    caixa(ctx, 50, y, W - 100, 142, 30, "#fff");
-    ctx.beginPath(); ctx.arc(114, y + 71, 36, 0, Math.PI * 2);
+    caixa(ctx, 50, y, W - 100, 78, 22, "#fff");
+    ctx.beginPath(); ctx.arc(104, y + 39, 26, 0, Math.PI * 2);
     ctx.fillStyle = lider ? "#f59e0b" : corTema(100); ctx.fill();
-    texto(ctx, String(Math.round(pos) + 1), 114, y + 72, 38, lider ? "#fff" : corTema(700), 700, "center", "middle");
-    texto(ctx, cortar(ctx, titulo(a.nome), taxa ? 560 : 780, 36, 700), 180, y + 52, 36, "#0f172a", 700);
+    texto(ctx, String(Math.round(pos) + 1), 104, y + 40, 26, lider ? "#fff" : corTema(700), 700, "center", "middle");
+    texto(ctx, cortar(ctx, titulo(a.nome), taxa ? 520 : 700, 26, 700), 150, y + 31, 26, "#0f172a", 700);
     if (taxa) {
-      caixa(ctx, W - 80 - 200, y + 14, 200, 44, 22, "#ef4444", false);
-      texto(ctx, meta.categoria === "Mulheres" ? "TAXADA" : "TAXADO", W - 80 - 100, y + 37, 26, "#fff", 800, "center", "middle");
+      caixa(ctx, W - 80 - 130, y + 8, 130, 30, 15, "#ef4444", false);
+      texto(ctx, meta.categoria === "Mulheres" ? "TAXADA" : "TAXADO", W - 80 - 65, y + 24, 18, "#fff", 800, "center", "middle");
     }
-    caixa(ctx, BAR_X0, y + 80, BAR_MAXW + 70, 42, 21, corTema(100), false);
-    const bw = Math.max(30, (BAR_MAXW * pts) / escala);
-    caixa(ctx, BAR_X0, y + 80, bw, 42, 21, cor, false);
-    texto(ctx, `${Math.round(pts)} pts`, W - 80, y + 102, 32, "#0f172a", 700, "right", "middle");
+    const bx = 150, bmax = W - 80 - bx - 150;
+    caixa(ctx, bx, y + 44, bmax + 40, 20, 10, corTema(100), false);
+    const bw = Math.max(20, (bmax * pts) / escala);
+    caixa(ctx, bx, y + 44, bw, 20, 10, cor, false);
+    texto(ctx, `${Math.round(pts)} pts`, W - 80, y + 54, 26, "#0f172a", 700, "right", "middle");
   });
 
   texto(ctx, "50 pontos por cada dia que veio treinar + 5 por hora (máx. 2 h por visita).", W / 2, 1810, 25, "#64748b", 500, "center");
