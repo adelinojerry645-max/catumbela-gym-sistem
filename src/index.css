@@ -88,3 +88,8 @@ button[class*="bg-[#3F8F87]"]:active:not(:disabled) {
   background-image: radial-gradient(circle at 90% 0%, rgba(63, 143, 135, 0.55), transparent 45%), radial-gradient(circle at 0% 55%, rgba(245, 158, 11, 0.22), transparent 40%), radial-gradient(circle at 100% 100%, rgba(90, 175, 168, 0.4), transparent 45%);
   background-attachment: fixed;
 }
+button[class*="bg-[#3F8F87]"]:disabled {
+  background-color: rgba(63, 143, 135, 0.7);
+  opacity: 0.6;
+  text-shadow: none;
+}
