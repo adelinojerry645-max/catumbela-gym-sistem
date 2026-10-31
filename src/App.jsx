@@ -12919,6 +12919,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
       nomeGinasio: dadosGinasio?.nome || "Catumbela Gym",
       categoria: rotuloCat,
       periodo: nomeMes.charAt(0).toUpperCase() + nomeMes.slice(1),
+      doPeriodo: modoPeriodo === "semana" ? "da Semana" : `do Mês de ${nomeMes.split(" ")[0].charAt(0).toUpperCase() + nomeMes.split(" ")[0].slice(1)}`,
       rotuloDia: (iso) => (modoPeriodo === "semana"
         ? new Date(iso + "T12:00:00").toLocaleDateString("pt-PT", { weekday: "short", day: "numeric" }).replace(".", "")
         : `Dia ${Number(iso.slice(8))}`),

@@ -3,9 +3,9 @@
 
 const W = 1080;
 const H = 1920;
-const NSHOW = 15;
+const NSHOW = 10;
 const ROW_Y0 = 440;
-const ROW_H = 88;
+const ROW_H = 132;
 const BAR_X0 = 180;
 const BAR_MAXW = 690;
 const FONTE = '"Inter", "Helvetica Neue", Arial, sans-serif';
@@ -124,8 +124,8 @@ function quadroIntro(ctx, meta, logo) {
   desenharLogo(ctx, logo, W / 2 - 90, 380, 180);
   texto(ctx, (meta.nomeGinasio || "CATUMBELA GYM").toUpperCase(), W / 2, 650, 48, corTema(700), 800, "center");
   caixa(ctx, 90, 740, W - 180, 520, 44, "#fff");
-  texto(ctx, "Corrida do", W / 2, 880, 92, "#0f172a", 800, "center");
-  texto(ctx, "Melhor Atleta", W / 2, 985, 92, corTema(500), 800, "center");
+  texto(ctx, "Melhor Atleta", W / 2, 855, 92, "#0f172a", 800, "center");
+  texto(ctx, meta.doPeriodo || "do Mês", W / 2, 960, 68, corTema(500), 800, "center");
   caixa(ctx, W / 2 - 170, 1050, 340, 80, 40, corTema(500), false);
   texto(ctx, meta.categoria.toUpperCase(), W / 2, 1092, 44, "#fff", 800, "center", "middle");
   texto(ctx, meta.periodo, W / 2, 1210, 38, "#64748b", 500, "center");
@@ -142,7 +142,7 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
   fundo(ctx);
   desenharLogo(ctx, logo, 60, 56, 96);
   texto(ctx, (meta.nomeGinasio || "CATUMBELA GYM").toUpperCase(), 180, 98, 34, corTema(700), 800);
-  texto(ctx, "Corrida do Melhor Atleta", 180, 146, 36, "#0f172a", 700);
+  texto(ctx, `Melhor Atleta ${meta.doPeriodo || "do Mês"}`, 180, 146, 34, "#0f172a", 700);
   caixa(ctx, 60, 200, meta.categoria === "Mulheres" ? 290 : 250, 56, 28, corTema(500), false);
   texto(ctx, meta.categoria.toUpperCase(), 60 + (meta.categoria === "Mulheres" ? 145 : 125), 228, 30, "#fff", 800, "center", "middle");
 
@@ -177,20 +177,20 @@ function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
     const y = ROW_Y0 + pos * ROW_H;
     const lider = a.rank[k > 0.5 ? d1 : d0] === 0 && pts > 0 && !taxa;
     const cor = taxa ? "#ef4444" : lider ? "#f59e0b" : corTema(400);
-    caixa(ctx, 50, y, W - 100, 78, 22, "#fff");
-    ctx.beginPath(); ctx.arc(104, y + 39, 26, 0, Math.PI * 2);
+    caixa(ctx, 50, y, W - 100, 118, 28, "#fff");
+    ctx.beginPath(); ctx.arc(116, y + 59, 36, 0, Math.PI * 2);
     ctx.fillStyle = lider ? "#f59e0b" : corTema(100); ctx.fill();
-    texto(ctx, String(Math.round(pos) + 1), 104, y + 40, 26, lider ? "#fff" : corTema(700), 700, "center", "middle");
-    texto(ctx, cortar(ctx, titulo(a.nome), taxa ? 520 : 700, 26, 700), 150, y + 31, 26, "#0f172a", 700);
+    texto(ctx, String(Math.round(pos) + 1), 116, y + 60, 36, lider ? "#fff" : corTema(700), 700, "center", "middle");
+    texto(ctx, cortar(ctx, titulo(a.nome), taxa ? 520 : 700, 34, 700), 180, y + 40, 34, "#0f172a", 700);
     if (taxa) {
-      caixa(ctx, W - 80 - 130, y + 8, 130, 30, 15, "#ef4444", false);
-      texto(ctx, meta.categoria === "Mulheres" ? "TAXADA" : "TAXADO", W - 80 - 65, y + 24, 18, "#fff", 800, "center", "middle");
+      caixa(ctx, W - 80 - 140, y + 12, 140, 34, 17, "#ef4444", false);
+      texto(ctx, meta.categoria === "Mulheres" ? "TAXADA" : "TAXADO", W - 80 - 70, y + 29, 20, "#fff", 800, "center", "middle");
     }
-    const bx = 150, bmax = W - 80 - bx - 150;
-    caixa(ctx, bx, y + 44, bmax + 40, 20, 10, corTema(100), false);
-    const bw = Math.max(20, (bmax * pts) / escala);
-    caixa(ctx, bx, y + 44, bw, 20, 10, cor, false);
-    texto(ctx, `${Math.round(pts)} pts`, W - 80, y + 54, 26, "#0f172a", 700, "right", "middle");
+    const bx = 180, bmax = W - 80 - bx - 170;
+    caixa(ctx, bx, y + 74, bmax + 40, 26, 13, corTema(100), false);
+    const bw = Math.max(26, (bmax * pts) / escala);
+    caixa(ctx, bx, y + 74, bw, 26, 13, cor, false);
+    texto(ctx, `${Math.round(pts)} pts`, W - 80, y + 86, 32, "#0f172a", 700, "right", "middle");
   });
 
   texto(ctx, "50 pontos por cada dia que veio treinar + 5 por hora (máx. 2 h por visita).", W / 2, 1810, 25, "#64748b", 500, "center");
@@ -287,7 +287,7 @@ export async function gerarCartaz({ meta, top, logoSrc }) {
   texto(ctx, "MELHOR ATLETA", W / 2, 380, 96, "#0f172a", 800, "center");
   caixa(ctx, W / 2 - 190, 410, 380, 66, 33, corTema(500), false);
   texto(ctx, meta.categoria.toUpperCase(), W / 2, 444, 36, "#fff", 800, "center", "middle");
-  texto(ctx, meta.periodo, W / 2, 530, 36, "#475569", 500, "center");
+  texto(ctx, `${meta.doPeriodo || "do Mês"} de ${(meta.periodo.match(/\d{4}/) || [""])[0]}`.trim(), W / 2, 530, 36, "#475569", 600, "center");
 
   caixa(ctx, 70, 580, W - 140, 330, 44, "#f59e0b");
   texto(ctx, "★", W / 2, 690, 90, "#fff", 800, "center");
