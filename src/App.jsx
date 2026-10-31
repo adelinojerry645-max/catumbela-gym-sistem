@@ -12,7 +12,7 @@ import {
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { prepararCorrida, gerarVideo, gerarCartaz, entregarFicheiro, videoSuportado } from "./videoAtleta.js";
-import { OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
+import { ContasAPagar, ConfigPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
@@ -11950,7 +11950,7 @@ const CHAVES_TODAS_COLECOES = [
   "membros", "planos", "produtos", "trainers", "dadosGinasio", "contas", "acessos",
   "pagamentosFeitos", "movimentosBancarios", "movimentosCaixa", "comprasMembros", "vendasProdutos",
   "auditLog", "pagamentosPendentes", "custos", "faturas", "advertencias", "orcamento",
-  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer", "poupanca", "despesasFixas", "comissoes", "desafios",
+  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer", "poupanca", "despesasFixas", "comissoes", "desafios", "contasPagar", "paginaPublica",
 ];
 
 // O modo de teste só pode ser ligado a partir daqui — de dentro do painel
@@ -15307,6 +15307,7 @@ const MENU_ADMIN = [
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
       { id: "custos", label: "Centro de Custos", icon: TrendingUp },
       { id: "poupanca", label: "Poupança", icon: Wallet },
+      { id: "contas-pagar", label: "Contas a Pagar", icon: Receipt },
       { id: "equilibrio", label: "Ponto de Equilíbrio", icon: TrendingUp },
       { id: "orcamento", label: "Orçamento (plano de compras)", icon: ClipboardList },
       { id: "faturacao", label: "Faturação / Recibos", icon: FileText },
@@ -15333,6 +15334,7 @@ const MENU_ADMIN = [
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
       { id: "avisos", label: "Central de Avisos", icon: Megaphone },
       { id: "opinioes", label: "Opiniões e Reclamações", icon: MessageCircle },
+      { id: "pagina-publica", label: "Página Pública", icon: Megaphone },
     ],
   },
   {
@@ -16459,6 +16461,9 @@ export default function CatumbelaGymApp() {
   const [despesasFixas, setDespesasFixas] = usePersistente("despesasFixas", [], setStatusSync);
   const [comissoes, setComissoes] = usePersistente("comissoes", [], setStatusSync);
   const [desafios, setDesafios] = usePersistente("desafios", [], setStatusSync);
+  const [contasPagar, setContasPagar] = usePersistente("contasPagar", [], setStatusSync);
+  const [paginaPublica, setPaginaPublica] = usePersistente("paginaPublica", [], setStatusSync);
+  const urgentesContas = contasUrgentes(contasPagar);
   const [atividades, setAtividades] = usePersistente("atividades", [], setStatusSync);
   const [reservasAtividades, setReservasAtividades, adicionarReservaSegura, definirReservasSemGravar] = usePersistente("reservasAtividades", [], setStatusSync);
   const [avaliacoesFisicas, setAvaliacoesFisicas] = usePersistente("avaliacoesFisicas", [], setStatusSync);
@@ -18920,6 +18925,9 @@ export default function CatumbelaGymApp() {
                     >
                       <Icon size={17} className="shrink-0" />
                       <span className="flex-1 text-left truncate">{item.label}</span>
+                      {item.id === "contas-pagar" && urgentesContas > 0 && (
+                        <span className="bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0">{urgentesContas}</span>
+                      )}
                       {item.id === "aprovacao" && pagamentosPendentes.length > 0 && (
                         <span className="bg-amber-400 text-slate-900 text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0">
                           {pagamentosPendentes.length}
@@ -19169,6 +19177,26 @@ export default function CatumbelaGymApp() {
           {telaAtual === "custos" && perfil === "administrador" && (
             <CentroCustos custos={custos} onAdicionar={adicionarCusto} onEditar={editarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
           )}
+          {telaAtual === "contas-pagar" && perfil === "administrador" && (
+            <ContasAPagar
+              contas={contasPagar}
+              setContas={setContasPagar}
+              categorias={CATEGORIAS_CUSTO}
+              contasBancarias={obterContasBancarias(dadosGinasio)}
+              onPagar={(c, pagoDe, contaBancariaId) =>
+                adicionarCusto({
+                  categoria: c.categoria,
+                  tipo: "fixo",
+                  descricao: `${c.fornecedor}${c.descricao ? " — " + c.descricao : ""}`,
+                  valor: c.valor,
+                  data: dataLocalISO(new Date()),
+                  pagoDe,
+                  contaBancariaId: pagoDe === "banco" ? contaBancariaId : undefined,
+                })
+              }
+            />
+          )}
+          {telaAtual === "pagina-publica" && perfil === "administrador" && <ConfigPaginaPublica planos={planos} config={paginaPublica} setConfig={setPaginaPublica} siteUrl={dadosGinasio?.siteUrl} />}
           {telaAtual === "opinioes" && perfil === "administrador" && <OpinioesAdmin siteUrl={dadosGinasio?.siteUrl} />}
           {telaAtual === "alertas" && perfil === "administrador" && <AlertasEstranhos auditLog={auditLog} movimentosCaixa={movimentosCaixa} pagamentosFeitos={pagamentosFeitos} />}
           {telaAtual === "equilibrio" && perfil === "administrador" && <PontoEquilibrio membros={membros} planos={planos} despesasFixas={despesasFixas} setDespesasFixas={setDespesasFixas} custos={custos} pagamentosFeitos={pagamentosFeitos} />}

@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
-import { PaginaPublicaOpiniao } from "./extras.jsx";
+import { PaginaPublicaOpiniao, PaginaPublicaGinasio } from "./extras.jsx";
 import "./index.css";
 import { instalarRegistoDeErros, registarErro } from "./lib/registoErros";
 
@@ -28,7 +28,12 @@ class CapturaErros extends React.Component {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <CapturaErros>
-      {new URLSearchParams(window.location.search).get("opiniao") === "1" ? <PaginaPublicaOpiniao /> : <App />}
+      {(() => {
+        const q = new URLSearchParams(window.location.search);
+        if (q.get("opiniao") === "1") return <PaginaPublicaOpiniao />;
+        if (q.get("ginasio") === "1") return <PaginaPublicaGinasio />;
+        return <App />;
+      })()}
     </CapturaErros>
   </React.StrictMode>
 );

@@ -670,3 +670,310 @@ export function DesafiosMes({ desafios, setDesafios, membros, acessos }) {
     </div>
   );
 }
+
+// =====================================================================
+// 7) CONTAS A PAGAR
+// =====================================================================
+const dataISO = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function diasAte(iso) {
+  const a = parseISO(iso); const h = parseISO(hojeStrISO());
+  return a && h ? Math.round((a - h) / 86400000) : 0;
+}
+export function maisUmMes(iso) {
+  const d = parseISO(iso) || new Date();
+  const dia = d.getDate();
+  const r = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  const ultimo = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(dia, ultimo));
+  return dataISO(r);
+}
+export function contasUrgentes(contas) {
+  return (contas || []).filter((c) => c.estado !== "paga" && diasAte(c.vencimento) <= 3).length;
+}
+
+export function ContasAPagar({ contas, setContas, categorias, contasBancarias, onPagar }) {
+  const vazio = () => ({ fornecedor: "", descricao: "", valor: "", vencimento: hojeStrISO(), categoria: categorias[0] || "Outros", repete: false });
+  const [form, setForm] = useState(vazio);
+  const [aPagar, setAPagar] = useState(null); // id
+  const [pagoDe, setPagoDe] = useState("caixa");
+  const [contaBanco, setContaBanco] = useState(contasBancarias[0]?.id || "");
+  const [aviso, setAviso] = useState("");
+
+  const pendentes = (contas || []).filter((c) => c.estado !== "paga").sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+  const pagas = (contas || []).filter((c) => c.estado === "paga").sort((a, b) => (b.dataPagamento || "").localeCompare(a.dataPagamento || "")).slice(0, 10);
+  const soma = (l) => l.reduce((t, c) => t + (+c.valor || 0), 0);
+  const atrasadas = pendentes.filter((c) => diasAte(c.vencimento) < 0);
+  const semana = pendentes.filter((c) => { const d = diasAte(c.vencimento); return d >= 0 && d <= 7; });
+  const mes = pendentes.filter((c) => c.vencimento.startsWith(mesAtual()));
+
+  const adicionar = (e) => {
+    e.preventDefault();
+    if (!form.fornecedor.trim() || !(+form.valor > 0) || !form.vencimento) return;
+    setContas((l) => [...(l || []), { id: `${Date.now()}`, fornecedor: form.fornecedor.trim(), descricao: form.descricao.trim(), valor: +form.valor, vencimento: form.vencimento, categoria: form.categoria, repete: form.repete, estado: "pendente" }]);
+    setForm(vazio());
+  };
+
+  const confirmarPagamento = (c) => {
+    setAviso("");
+    const ok = onPagar(c, pagoDe, contaBanco);
+    if (ok === false) return setAviso("Não foi possível pagar: o saldo não chega. Confirma o Caixa ou o Banco.");
+    setContas((l) => {
+      const nova = (l || []).map((x) => (x.id === c.id ? { ...x, estado: "paga", dataPagamento: hojeStrISO(), pagoDe } : x));
+      if (c.repete) nova.push({ ...c, id: `${Date.now()}-r`, vencimento: maisUmMes(c.vencimento), estado: "pendente", dataPagamento: undefined, pagoDe: undefined });
+      return nova;
+    });
+    setAPagar(null);
+  };
+
+  const chip = (c) => {
+    const d = diasAte(c.vencimento);
+    if (d < 0) return ["bg-red-100 text-red-700", `Atrasada ${-d} dia${d === -1 ? "" : "s"}`];
+    if (d === 0) return ["bg-amber-100 text-amber-700", "Vence hoje"];
+    if (d === 1) return ["bg-amber-100 text-amber-700", "Vence amanhã"];
+    if (d <= 3) return ["bg-amber-100 text-amber-700", `Vence em ${d} dias`];
+    return ["bg-slate-100 text-slate-600", `Em ${d} dias`];
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          ["Em atraso", atrasadas.length ? `${atrasadas.length} · ${kz(soma(atrasadas))}` : "Nenhuma", atrasadas.length ? "text-red-600" : "text-emerald-600"],
+          ["Próximos 7 dias", kz(soma(semana)), "text-slate-900 dark:text-slate-100"],
+          ["A pagar este mês", kz(soma(mes)), "text-slate-900 dark:text-slate-100"],
+        ].map(([t, v, c]) => (
+          <div key={t} className="bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 p-3">
+            <p className="text-[11px] text-slate-400">{t}</p>
+            <p className={`text-sm sm:text-lg font-extrabold ${c}`}>{v}</p>
+          </div>
+        ))}
+      </div>
+
+      <Cartao title="Nova conta a pagar">
+        <form onSubmit={adicionar} className="grid grid-cols-2 gap-2">
+          <input className={inputCls} placeholder="Quem recebe (fornecedor)" value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} />
+          <input className={inputCls} placeholder="Para quê (opcional)" value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} />
+          <input className={inputCls} type="number" inputMode="numeric" placeholder="Valor (Kz)" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
+          <input className={inputCls} type="date" value={form.vencimento} onChange={(e) => setForm({ ...form, vencimento: e.target.value })} />
+          <select className={inputCls} value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
+            {categorias.map((c) => <option key={c}>{c}</option>)}
+          </select>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={form.repete} onChange={(e) => setForm({ ...form, repete: e.target.checked })} /> Repete todos os meses
+          </label>
+          <button className={btnCls + " col-span-2"}>Guardar conta</button>
+        </form>
+      </Cartao>
+
+      <Cartao title={`A pagar (${pendentes.length})`}>
+        {aviso && <p className="text-sm text-red-600 mb-3">{aviso}</p>}
+        {pendentes.length === 0 && <p className="text-sm text-slate-400">Não tens contas por pagar. 🎉</p>}
+        <div className="space-y-3">
+          {pendentes.map((c) => {
+            const [cor, txt] = chip(c);
+            return (
+              <div key={c.id} className="rounded-xl ring-1 ring-slate-100 dark:ring-slate-700 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{c.fornecedor}</p>
+                    <p className="text-xs text-slate-400 truncate">{c.categoria}{c.descricao ? ` · ${c.descricao}` : ""}{c.repete ? " · mensal" : ""}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-extrabold">{kz(c.valor)}</p>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cor}`}>{txt}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Vence a {c.vencimento.split("-").reverse().join("/")}</p>
+                {aPagar === c.id ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <select className={inputCls + " w-auto"} value={pagoDe} onChange={(e) => setPagoDe(e.target.value)}>
+                      <option value="caixa">Pagar do Caixa</option>
+                      <option value="banco">Pagar do Banco</option>
+                    </select>
+                    {pagoDe === "banco" && contasBancarias.length > 0 && (
+                      <select className={inputCls + " w-auto"} value={contaBanco} onChange={(e) => setContaBanco(e.target.value)}>
+                        {contasBancarias.map((b) => <option key={b.id} value={b.id}>{b.banco}</option>)}
+                      </select>
+                    )}
+                    <button className={btnCls} onClick={() => confirmarPagamento(c)}>Confirmar</button>
+                    <button className={btnSuave} onClick={() => setAPagar(null)}>Cancelar</button>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex gap-2">
+                    <button className={btnCls} onClick={() => { setAPagar(c.id); setAviso(""); }}>Pagar</button>
+                    <button className="text-xs font-semibold px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => window.confirm("Apagar esta conta?") && setContas((l) => l.filter((x) => x.id !== c.id))}>Apagar</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Cartao>
+
+      {pagas.length > 0 && (
+        <Cartao title="Pagas recentemente">
+          <div className="space-y-2">
+            {pagas.map((c) => (
+              <div key={c.id} className="flex justify-between text-sm">
+                <span className="text-slate-700 dark:text-slate-200">{c.fornecedor} <span className="text-xs text-slate-400">· {String(c.dataPagamento || "").split("-").reverse().join("/")}</span></span>
+                <span className="font-semibold">{kz(c.valor)}</span>
+              </div>
+            ))}
+          </div>
+        </Cartao>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// 8) PÁGINA PÚBLICA DO GINÁSIO (sem login)
+// =====================================================================
+const HORARIO_PADRAO = "Segunda a sábado\n7h às 10h\n17h às 20h";
+
+function textoPlano(p) {
+  if (p.entradas) return `${p.entradas} entradas`;
+  const d = p.duracaoDias;
+  if (d === 7) return "1 semana";
+  if (d === 15) return "2 semanas";
+  if (d === 30) return "1 mês";
+  return `${d} dias`;
+}
+
+export function PaginaPublicaGinasio() {
+  const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState(false);
+  useEffect(() => {
+    document.title = "Catumbela Gym";
+    supabase.rpc("pagina_publica").then(({ data, error }) => {
+      if (error || !data) setErro(true); else setDados(data);
+    });
+  }, []);
+
+  const g = dados?.ginasio || {};
+  const cfg = dados?.config || {};
+  const planos = (dados?.planos || []).filter((p) => !(cfg.planosOcultos || []).includes(p.id));
+  const tel = String(cfg.whatsapp || g.telefone || "").replace(/\D/g, "");
+  const wa = tel ? `https://wa.me/${tel.length <= 9 ? "244" + tel : tel}?text=${encodeURIComponent("Olá! Gostava de saber mais sobre o Catumbela Gym.")}` : null;
+  const morada = [g.morada, g.cidade, "Angola"].filter(Boolean).join(", ");
+  const base = typeof window !== "undefined" ? window.location.origin : "";
+
+  const Bloco = ({ titulo: t, children }) => (
+    <div className="bg-white/90 backdrop-blur rounded-3xl ring-1 ring-white shadow-lg p-5">
+      <h2 className="font-extrabold text-slate-900 mb-3">{t}</h2>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen fundo-vidro bg-slate-50 font-sans text-slate-800 p-4">
+      <div className="max-w-md mx-auto space-y-4">
+        <div className="text-center pt-4">
+          <img src="/icons/icon-192.png" alt="Catumbela Gym" className="w-24 h-24 rounded-3xl bg-white mx-auto shadow-lg" />
+          <h1 className="text-2xl font-extrabold text-tema-700 mt-3">CATUMBELA GYM</h1>
+          <p className="text-slate-500 text-sm">{cfg.descricao || "Força, foco e resultados."}</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-2">
+          <a href={`${base}/?inscricao=1`} className="bg-tema-500 text-white font-bold py-3.5 rounded-2xl text-center shadow-lg">Quero inscrever-me</a>
+          {wa && <a href={wa} target="_blank" rel="noreferrer" className="bg-white text-tema-700 font-bold py-3.5 rounded-2xl text-center ring-1 ring-tema-300">Falar no WhatsApp</a>}
+        </div>
+
+        {erro && <p className="text-center text-sm text-slate-500">Não foi possível carregar os dados agora. Tenta daqui a pouco.</p>}
+
+        <Bloco titulo="Horário">
+          <p className="whitespace-pre-line text-slate-700">{cfg.horario || HORARIO_PADRAO}</p>
+        </Bloco>
+
+        {planos.length > 0 && (
+          <Bloco titulo="Planos">
+            <div className="divide-y divide-slate-100">
+              {planos.map((p) => (
+                <div key={p.id} className="flex items-center justify-between py-2.5 gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>
+                    <p className="text-xs text-slate-400">{textoPlano(p)}</p>
+                  </div>
+                  {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}
+                </div>
+              ))}
+            </div>
+          </Bloco>
+        )}
+
+        <Bloco titulo="Onde estamos">
+          <p className="text-slate-700 text-sm">{g.morada}{g.cidade ? `, ${g.cidade}` : ""}</p>
+          {g.telefone && <p className="text-slate-500 text-sm mt-1">Tel.: {g.telefone}</p>}
+          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(morada)}`} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-bold text-tema-600 underline">Abrir no mapa</a>
+        </Bloco>
+
+        <div className="text-center pb-6">
+          <a href={`${base}/?opiniao=1`} className="text-sm text-slate-500 underline">Deixar a tua opinião ou reclamação</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Admin: configurar o que aparece na página pública
+export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
+  const c = (config && config[0]) || {};
+  const origem = (siteUrl && siteUrl.trim()) || (typeof window !== "undefined" ? window.location.origin : "");
+  const link = `${origem.replace(/\/$/, "")}/?ginasio=1`;
+  const [copiado, setCopiado] = useState(false);
+  const atualizar = (parte) => setConfig([{ ...c, ...parte }]);
+  const ocultos = c.planosOcultos || [];
+
+  return (
+    <div className="space-y-5">
+      <Cartao title="Link da página pública">
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Põe este link no Instagram, no WhatsApp ou imprime o QR. Mostra o horário, os planos e como chegar, e tem botão para se inscrever.</p>
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
+          <div className="bg-white p-2 rounded-xl ring-1 ring-slate-200 shrink-0"><QRCodeSVG valor={link} tamanho={140} /></div>
+          <div className="flex-1 min-w-0 w-full">
+            <input readOnly value={link} className={inputCls} onFocus={(e) => e.target.select()} />
+            <div className="flex gap-2 mt-2">
+              <button className={btnCls} onClick={() => navigator.clipboard?.writeText(link).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); }).catch(() => {})}>{copiado ? "Copiado!" : "Copiar link"}</button>
+              <a href={link} target="_blank" rel="noreferrer" className={btnSuave + " inline-flex items-center"}>Ver página</a>
+            </div>
+          </div>
+        </div>
+      </Cartao>
+
+      <Cartao title="O que aparece">
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-slate-500">Frase curta</label>
+            <input className={inputCls} value={c.descricao || ""} onChange={(e) => atualizar({ descricao: e.target.value })} placeholder="Força, foco e resultados." />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">Horário (uma linha por linha)</label>
+            <textarea rows={4} className={inputCls} value={c.horario ?? HORARIO_PADRAO} onChange={(e) => atualizar({ horario: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">WhatsApp (se for diferente do telefone do ginásio)</label>
+            <input className={inputCls} value={c.whatsapp || ""} onChange={(e) => atualizar({ whatsapp: e.target.value })} placeholder="9xx xxx xxx" />
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input type="checkbox" checked={c.mostrarPrecos !== false} onChange={(e) => atualizar({ mostrarPrecos: e.target.checked })} /> Mostrar os preços
+          </label>
+        </div>
+      </Cartao>
+
+      <Cartao title="Planos visíveis">
+        <div className="space-y-2">
+          {(planos || []).map((p) => (
+            <label key={p.id} className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+                <input type="checkbox" checked={!ocultos.includes(p.id)} onChange={(e) => atualizar({ planosOcultos: e.target.checked ? ocultos.filter((x) => x !== p.id) : [...ocultos, p.id] })} />
+                {p.nome}
+              </span>
+              <span className="font-semibold text-slate-500">{kz(p.preco)}</span>
+            </label>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-3">Não aparecem na página: contas bancárias, NIF nem dados dos atletas.</p>
+      </Cartao>
+    </div>
+  );
+}
