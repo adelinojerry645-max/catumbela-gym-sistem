@@ -131,6 +131,28 @@ function quadroIntro(ctx, meta, logo) {
   texto(ctx, meta.periodo, W / 2, 1210, 38, "#64748b", 500, "center");
 }
 
+function quadroParabens(ctx, meta, logo) {
+  fundo(ctx);
+  desenharLogo(ctx, logo, W / 2 - 80, 150, 160);
+  texto(ctx, (meta.nomeGinasio || "CATUMBELA GYM").toUpperCase(), W / 2, 380, 44, corTema(700), 800, "center");
+  texto(ctx, "PARABÉNS!", W / 2, 560, 130, "#0f172a", 800, "center");
+  caixa(ctx, 70, 640, W - 140, 520, 48, "#f59e0b");
+  texto(ctx, "★", W / 2, 780, 110, "#fff", 800, "center");
+  let tamNome = 84;
+  const nomeV = titulo(meta.vencedor);
+  ctx.font = `800 ${tamNome}px ${FONTE}`;
+  while (tamNome > 44 && ctx.measureText(nomeV).width > W - 180) { tamNome -= 4; ctx.font = `800 ${tamNome}px ${FONTE}`; }
+  texto(ctx, nomeV, W / 2, 920, tamNome, "#fff", 800, "center");
+  texto(ctx, meta.rotuloVencedor || "MELHOR ATLETA", W / 2, 1000, 40, "#fff", 800, "center");
+  caixa(ctx, W / 2 - 190, 1050, 380, 70, 35, "rgba(255,255,255,0.28)", false);
+  texto(ctx, meta.categoria.toUpperCase(), W / 2, 1086, 36, "#fff", 800, "center", "middle");
+  caixa(ctx, 70, 1230, W - 140, 330, 44, "#fff");
+  texto(ctx, "Passa na receção", W / 2, 1350, 64, corTema(700), 800, "center");
+  texto(ctx, "para receber o teu prémio!", W / 2, 1430, 56, "#0f172a", 800, "center");
+  texto(ctx, "Prémio: plano de treino semanal", W / 2, 1510, 38, "#64748b", 600, "center");
+  texto(ctx, "Continua assim 💪", W / 2, 1700, 48, corTema(700), 800, "center");
+}
+
 function quadroCorrida(ctx, prep, diaF, meta, logo, fracFinal, tTrans) {
   const { lista, n, escala } = prep;
   let d0 = Math.floor(diaF);
@@ -238,7 +260,7 @@ export async function gerarVideo({ prep, meta, logoSrc, onProgresso }) {
   rec.ondataavailable = (e) => { if (e.data && e.data.size) partes.push(e.data); };
   const terminado = new Promise((res) => { rec.onstop = res; });
 
-  const TINTRO = 3, TFINAL = 6;
+  const TINTRO = 3, TFINAL = 10, TCLASSIF = 4; // 4 s a mostrar a classificação final + 6 s de parabéns
   const porDia = Math.min(4, Math.max(1.5, 45 / Math.max(1, prep.n)));
   const tTrans = 1.0 / porDia; // transição dura ~1 s
   const total = TINTRO + prep.n * porDia + TFINAL;
@@ -263,8 +285,16 @@ export async function gerarVideo({ prep, meta, logoSrc, onProgresso }) {
       } else if (t < TINTRO + prep.n * porDia) {
         quadroCorrida(ctx, prep, (t - TINTRO) / porDia, meta, logo, 0, tTrans);
       } else {
-        const f = ease((t - TINTRO - prep.n * porDia) / 0.8);
+        const tf = t - TINTRO - prep.n * porDia;
+        const f = ease(tf / 0.8);
         quadroCorrida(ctx, prep, prep.n, meta, logo, f, tTrans);
+        if (tf > TCLASSIF && meta.vencedor) {
+          // cartão final de parabéns, com aparecimento suave
+          const tmp = document.createElement("canvas"); tmp.width = W; tmp.height = H;
+          quadroParabens(tmp.getContext("2d"), meta, logo);
+          ctx.save(); ctx.globalAlpha = ease(Math.min(1, (tf - TCLASSIF) / 0.7));
+          ctx.drawImage(tmp, 0, 0); ctx.restore();
+        }
       }
       onProgresso && onProgresso(Math.min(1, t / total));
       requestAnimationFrame(passo);
