@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
+import { OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
@@ -11948,7 +11949,7 @@ const CHAVES_TODAS_COLECOES = [
   "membros", "planos", "produtos", "trainers", "dadosGinasio", "contas", "acessos",
   "pagamentosFeitos", "movimentosBancarios", "movimentosCaixa", "comprasMembros", "vendasProdutos",
   "auditLog", "pagamentosPendentes", "custos", "faturas", "advertencias", "orcamento",
-  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer", "poupanca",
+  "atividades", "mensagens", "reservasAtividades", "avaliacoesFisicas", "planosTreino", "fechosTurno", "avisos", "registosPonto", "historicoCargas", "equipamentos", "avaliacoesTrainer", "poupanca", "despesasFixas", "comissoes", "desafios",
 ];
 
 // O modo de teste só pode ser ligado a partir daqui — de dentro do painel
@@ -15203,6 +15204,8 @@ const MENU_ADMIN = [
       { id: "planos", label: "Planos", icon: ClipboardList },
       { id: "atividades", label: "Plano de Atividades", icon: Dumbbell },
       { id: "trainers", label: "Personal Trainers", icon: Dumbbell },
+      { id: "comissoes", label: "Comissão do Personal", icon: Award },
+      { id: "desafios", label: "Desafios do Mês", icon: Target },
       { id: "funcionarios", label: "Funcionários", icon: UserCog },
       { id: "equipamentos", label: "Equipamentos", icon: Wrench },
       { id: "ponto", label: "Ponto (histórico)", icon: Clock },
@@ -15219,6 +15222,7 @@ const MENU_ADMIN = [
       { id: "caixa", label: "Caixa (por funcionário)", icon: Wallet },
       { id: "custos", label: "Centro de Custos", icon: TrendingUp },
       { id: "poupanca", label: "Poupança", icon: Wallet },
+      { id: "equilibrio", label: "Ponto de Equilíbrio", icon: TrendingUp },
       { id: "orcamento", label: "Orçamento (plano de compras)", icon: ClipboardList },
       { id: "faturacao", label: "Faturação / Recibos", icon: FileText },
     ],
@@ -15243,6 +15247,7 @@ const MENU_ADMIN = [
     itens: [
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
       { id: "avisos", label: "Central de Avisos", icon: Megaphone },
+      { id: "opinioes", label: "Opiniões e Reclamações", icon: MessageCircle },
     ],
   },
   {
@@ -15256,6 +15261,7 @@ const MENU_ADMIN = [
       { id: "relatorio-inscricoes", label: "Relatório de Inscrições", icon: Users },
       { id: "automacao", label: "Centro de Automação", icon: Target },
       { id: "relatorios", label: "Relatórios", icon: BarChart3 },
+      { id: "alertas", label: "Coisas Estranhas", icon: AlertTriangle },
       { id: "auditoria", label: "Auditoria", icon: ShieldCheck },
       { id: "recuperar-dados", label: "Recuperar Dados Apagados", icon: History },
     ],
@@ -16365,6 +16371,9 @@ export default function CatumbelaGymApp() {
   const [advertencias, setAdvertencias] = usePersistente("advertencias", [], setStatusSync);
   const [orcamento, setOrcamento] = usePersistente("orcamento", [], setStatusSync);
   const [poupanca, setPoupanca] = usePersistente("poupanca", [], setStatusSync);
+  const [despesasFixas, setDespesasFixas] = usePersistente("despesasFixas", [], setStatusSync);
+  const [comissoes, setComissoes] = usePersistente("comissoes", [], setStatusSync);
+  const [desafios, setDesafios] = usePersistente("desafios", [], setStatusSync);
   const [atividades, setAtividades] = usePersistente("atividades", [], setStatusSync);
   const [reservasAtividades, setReservasAtividades, adicionarReservaSegura, definirReservasSemGravar] = usePersistente("reservasAtividades", [], setStatusSync);
   const [avaliacoesFisicas, setAvaliacoesFisicas] = usePersistente("avaliacoesFisicas", [], setStatusSync);
@@ -19075,6 +19084,11 @@ export default function CatumbelaGymApp() {
           {telaAtual === "custos" && perfil === "administrador" && (
             <CentroCustos custos={custos} onAdicionar={adicionarCusto} onEditar={editarCusto} onRemover={removerCusto} dadosGinasio={dadosGinasio} />
           )}
+          {telaAtual === "opinioes" && perfil === "administrador" && <OpinioesAdmin siteUrl={dadosGinasio?.siteUrl} />}
+          {telaAtual === "alertas" && perfil === "administrador" && <AlertasEstranhos auditLog={auditLog} movimentosCaixa={movimentosCaixa} pagamentosFeitos={pagamentosFeitos} />}
+          {telaAtual === "equilibrio" && perfil === "administrador" && <PontoEquilibrio membros={membros} planos={planos} despesasFixas={despesasFixas} setDespesasFixas={setDespesasFixas} custos={custos} pagamentosFeitos={pagamentosFeitos} />}
+          {telaAtual === "comissoes" && perfil === "administrador" && <ComissoesPersonal trainers={trainers} membros={membros} faturas={faturas} comissoes={comissoes} setComissoes={setComissoes} />}
+          {telaAtual === "desafios" && perfil === "administrador" && <DesafiosMes desafios={desafios} setDesafios={setDesafios} membros={membros} acessos={acessos} />}
           {telaAtual === "poupanca" && perfil === "administrador" && (
             <Poupanca itens={poupanca} saldoCaixa={saldoCaixaAtual} dadosGinasio={dadosGinasio} onMovimento={registarMovimentoPoupanca} onRemoverMovimento={removerMovimentoPoupanca} onNovaMeta={criarMetaPoupanca} onRemoverMeta={removerMetaPoupanca} />
           )}
