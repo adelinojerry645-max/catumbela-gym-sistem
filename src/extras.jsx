@@ -869,7 +869,7 @@ export function PaginaPublicaGinasio() {
     <div className="min-h-screen fundo-vidro bg-slate-50 font-sans text-slate-800 p-4">
       <div className="max-w-md mx-auto space-y-4">
         <div className="relative overflow-hidden rounded-3xl -mx-1 text-center pt-6 pb-5 px-4 bg-slate-900">
-          <img src="https://images.unsplash.com/photo-1526405098960-78ccf7a1dbd6?ixlib=rb-4.1.0&q=70&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-50" />
+          <img src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8MXx8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=1080" alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-50" />
           <div className="absolute inset-0 bg-gradient-to-b from-tema-700/40 to-slate-900/80" />
           <div className="relative">
           <img src="/icons/icon-192.png" alt="Catumbela Gym" className="w-24 h-24 rounded-3xl bg-white mx-auto shadow-lg" />
