@@ -1538,7 +1538,7 @@ function CapaDashboard({ nome, checkins, ativos, vencidos }) {
   const saudacao = h < 12 ? "Bom dia" : h < 19 ? "Boa tarde" : "Boa noite";
   return (
     <div className="anim-sobe relative overflow-hidden rounded-3xl text-white min-h-[150px] sm:min-h-[190px] shadow-[0_20px_40px_-18px_rgba(36,86,80,0.7)] bg-gradient-to-br from-tema-500 via-tema-600 to-tema-700">
-      <img src="/fotos/capa.jpg" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover" />
+      <img src="https://images.unsplash.com/photo-1526403223670-2aa44aaface2?ixlib=rb-4.1.0&q=70&fm=jpg&crop=entropy&cs=srgb&w=1600" alt="" loading="lazy" onError={(e) => { if (!e.currentTarget.dataset.t) { e.currentTarget.dataset.t = "1"; e.currentTarget.src = "/fotos/capa.jpg"; } else { e.currentTarget.style.display = "none"; } }} className="absolute inset-0 w-full h-full object-cover" />
       <div className="absolute inset-0 bg-gradient-to-r from-tema-700/95 via-tema-600/75 to-tema-500/20" />
       <div className="capa-brilho absolute -right-10 -top-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
       <svg className="absolute right-4 bottom-0 w-44 sm:w-64 text-white/10" viewBox="0 0 200 80" fill="currentColor" aria-hidden="true">
@@ -15731,7 +15731,9 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-6 relative overflow-hidden">
+      <img src="https://images.unsplash.com/photo-1526408984842-5f1323d42469?ixlib=rb-4.1.0&q=70&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-30 dark:opacity-25 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-white/70 via-white/60 to-white/90 dark:from-slate-900/70 dark:via-slate-900/70 dark:to-slate-900/95 pointer-events-none" />
       <button
         onClick={() => setEscuro(!escuro)}
         aria-label="Mudar entre tema claro e escuro"
@@ -15739,7 +15741,7 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
       >
         {escuro ? <Sun size={20} /> : <Moon size={20} />}
       </button>
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm relative z-10">
         <div className="flex flex-col items-center mb-8">
           <img src={dadosGinasio.logo || LOGO_BASE64} alt={dadosGinasio.nome} className="h-20 w-auto object-contain" />
           <p className="text-tema-300 text-xs font-semibold tracking-[0.2em] mt-3">

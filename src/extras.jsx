@@ -868,10 +868,14 @@ export function PaginaPublicaGinasio() {
   return (
     <div className="min-h-screen fundo-vidro bg-slate-50 font-sans text-slate-800 p-4">
       <div className="max-w-md mx-auto space-y-4">
-        <div className="text-center pt-4">
+        <div className="relative overflow-hidden rounded-3xl -mx-1 text-center pt-6 pb-5 px-4 bg-slate-900">
+          <img src="https://images.unsplash.com/photo-1526405098960-78ccf7a1dbd6?ixlib=rb-4.1.0&q=70&fm=jpg&crop=entropy&cs=srgb&w=1200" alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-50" />
+          <div className="absolute inset-0 bg-gradient-to-b from-tema-700/40 to-slate-900/80" />
+          <div className="relative">
           <img src="/icons/icon-192.png" alt="Catumbela Gym" className="w-24 h-24 rounded-3xl bg-white mx-auto shadow-lg" />
-          <h1 className="text-2xl font-extrabold text-tema-700 mt-3">CATUMBELA GYM</h1>
-          <p className="text-slate-500 text-sm">{cfg.descricao || "Força, foco e resultados."}</p>
+          <h1 className="text-2xl font-extrabold text-white mt-3">CATUMBELA GYM</h1>
+          <p className="text-slate-200 text-sm">{cfg.descricao || "Força, foco e resultados."}</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-2">
