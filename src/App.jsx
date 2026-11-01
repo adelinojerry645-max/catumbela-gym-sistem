@@ -1531,6 +1531,33 @@ function Pill({ estado }) {
 }
 
 // Cartão grande do Dashboard — título, subtítulo, ícone destacado à direita, número grande por baixo
+// Capa do Dashboard: foto do ginásio (coloca a foto em public/fotos/capa.jpg;
+// se não existir, mostra só o degradê com os halteres desenhados).
+function CapaDashboard({ nome, checkins, ativos, vencidos }) {
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? "Bom dia" : h < 19 ? "Boa tarde" : "Boa noite";
+  return (
+    <div className="anim-sobe relative overflow-hidden rounded-3xl text-white min-h-[150px] sm:min-h-[190px] shadow-[0_20px_40px_-18px_rgba(36,86,80,0.7)] bg-gradient-to-br from-tema-500 via-tema-600 to-tema-700">
+      <img src="/fotos/capa.jpg" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover" />
+      <div className="absolute inset-0 bg-gradient-to-r from-tema-700/95 via-tema-600/75 to-tema-500/20" />
+      <div className="capa-brilho absolute -right-10 -top-16 w-64 h-64 rounded-full bg-white/10 blur-2xl" />
+      <svg className="absolute right-4 bottom-0 w-44 sm:w-64 text-white/10" viewBox="0 0 200 80" fill="currentColor" aria-hidden="true">
+        <rect x="6" y="22" width="14" height="36" rx="4" /><rect x="24" y="12" width="14" height="56" rx="4" /><rect x="42" y="34" width="116" height="12" rx="6" />
+        <rect x="162" y="12" width="14" height="56" rx="4" /><rect x="180" y="22" width="14" height="36" rx="4" />
+      </svg>
+      <div className="relative p-5 sm:p-7 flex flex-col justify-end h-full min-h-[150px] sm:min-h-[190px]">
+        <p className="text-sm font-medium text-white/85">{saudacao} 👋</p>
+        <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight drop-shadow">{nome || "Catumbela Gym"}</h1>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <span className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-xs font-semibold">{checkins} check-in{checkins === 1 ? "" : "s"} hoje</span>
+          <span className="bg-white/20 backdrop-blur-sm rounded-full px-3 py-1 text-xs font-semibold">{ativos} ativos</span>
+          {vencidos > 0 && <span className="bg-red-500/80 rounded-full px-3 py-1 text-xs font-semibold">{vencidos} vencidos</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CartaoDashboard({ icon: Icon, tone, titulo, subtitulo, valor }) {
   const tones = {
     red: "bg-gradient-to-br from-red-50 to-red-100 text-red-500",
@@ -1540,7 +1567,7 @@ function CartaoDashboard({ icon: Icon, tone, titulo, subtitulo, valor }) {
     violet: "bg-gradient-to-br from-violet-50 to-violet-100 text-violet-600",
   };
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 ring-1 ring-slate-100 dark:ring-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-8px_rgba(15,23,42,0.12)] hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_14px_28px_-10px_rgba(15,23,42,0.18)] hover:-translate-y-0.5 transition-all duration-200">
+    <div className="card-viva anim-sobe bg-white dark:bg-slate-800 rounded-2xl p-5 ring-1 ring-slate-100 dark:ring-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_-8px_rgba(15,23,42,0.12)] hover:shadow-[0_1px_2px_rgba(15,23,42,0.06),0_14px_28px_-10px_rgba(15,23,42,0.18)] hover:-translate-y-0.5 transition-all duration-200">
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{titulo}</p>
@@ -1746,7 +1773,7 @@ function SeletorMembroPesquisavel({ membros, valor, onEscolher, placeholder = "P
 
 function Card({ title, action, children, className = "" }) {
   return (
-    <div className={`bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_6px_16px_-8px_rgba(15,23,42,0.10)] ${className}`}>
+    <div className={`card-viva anim-sobe bg-white dark:bg-slate-800 rounded-2xl ring-1 ring-slate-100 dark:ring-slate-700 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_6px_16px_-8px_rgba(15,23,42,0.10)] ${className}`}>
       {title && (
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-slate-900 dark:text-slate-100 tracking-tight">{title}</h3>
@@ -1892,6 +1919,7 @@ function Dashboard({ aSincronizar: aLigar, membros, produtos, pagamentosFeitos, 
 
   return (
     <div className="space-y-5">
+      <CapaDashboard nome={dadosGinasio?.nome} checkins={checkinsHoje.length} ativos={aSincronizar ? "…" : ativos} vencidos={aSincronizar ? 0 : vencidos} />
       {/* Cartões principais — estilo grande, empilhado */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 ${perfil === "administrador" ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
         <CartaoDashboard icon={Users} tone="violet" titulo="Total de Membros" subtitulo="Total de membros cadastrados" valor={aSincronizar ? "…" : total} />
