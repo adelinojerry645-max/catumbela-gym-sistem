@@ -17,7 +17,7 @@ const DIAS = [
 ];
 
 // essencial = fica no treino curto de 30 minutos
-const TREINOS = {
+const TREINOS_M = {
   1: {
     titulo: "Peito + Tríceps",
     icone: "💪",
@@ -96,6 +96,101 @@ const TREINOS = {
   0: { descanso: true, titulo: "Descanso", icone: "😴" },
 };
 
+// Plano feminino do ginásio. "Livre" = exercícios com peso do corpo, halteres, kettlebell e banda;
+// "Carga" = com máquinas e peso mais pesado.
+const TREINOS_F = {
+  1: {
+    titulo: "Pernas e glúteos (livre)",
+    icone: "🍑",
+    cor: "from-pink-600 to-rose-400",
+    minutos: 55,
+    exercicios: [
+      { nome: "Agachamento sumô com kettlebell", eq: "Kettlebell", series: "4 × 12", essencial: true, dica: "Pernas bem abertas, pontas dos pés para fora. Segura o kettlebell com as duas mãos, desce com as costas direitas e aperta o rabo ao subir." },
+      { nome: "Afundo com halteres", eq: "Halteres", series: "3 × 10 cada perna", essencial: true, dica: "Passo grande à frente, desce até o joelho de trás quase tocar no chão. Tronco direito." },
+      { nome: "Elevação de anca (ponte de glúteos)", eq: "Tapete + disco ou halter", series: "4 × 15", essencial: true, dica: "Deitada de costas, pés no chão. Sobe a anca e aperta o rabo 1 segundo em cima. Podes pôr um disco ou halter sobre a anca." },
+      { nome: "Agachamento búlgaro", eq: "Halteres + cama para peito", series: "3 × 10 cada perna", dica: "Pé de trás apoiado na cama para peito. Desce com o tronco ligeiramente inclinado para a frente para trabalhar mais o glúteo." },
+      { nome: "Abdução com banda elástica", eq: "Banda elástica", series: "3 × 20", dica: "Banda acima dos joelhos. Abre as pernas contra a banda, devagar, sem mexer o tronco." },
+      { nome: "Chute para trás com carneleira", eq: "Carneleiras (pesos para os pés)", series: "3 × 15 cada perna", dica: "De quatro apoios, sobe a perna dobrada em direção ao teto e aperta o rabo. Sem arquear as costas." },
+      { nome: "Subida ao step", eq: "Step", series: "3 × 12 cada perna", dica: "Sobe com o pé todo apoiado no step e desce a controlar." },
+    ],
+  },
+  2: {
+    titulo: "Glúteos e posterior (carga)",
+    icone: "🔥",
+    cor: "from-rose-600 to-orange-500",
+    minutos: 60,
+    exercicios: [
+      { nome: "Stiff", eq: "Halteres ou Smith", series: "4 × 10", essencial: true, dica: "Joelhos ligeiramente dobrados, costas direitas. Leva a anca para trás e desce o peso junto às pernas até sentires a parte de trás da coxa esticar." },
+      { nome: "Elevação de anca com carga", eq: "Smith ou disco, mais a cama para peito", series: "4 × 10", essencial: true, dica: "Costas apoiadas na cama para peito, peso sobre a anca. Sobe até o corpo ficar reto e aperta o rabo 1 segundo." },
+      { nome: "Mesa flexora (deitada)", eq: "Cama flexora", series: "4 × 12", essencial: true, dica: "Puxa os calcanhares até ao rabo sem levantar a anca da cama. Desce devagar." },
+      { nome: "Glúteo na máquina", eq: "Máquina para glúteo", series: "4 × 12", dica: "Empurra com o calcanhar e aperta o rabo no fim do movimento." },
+      { nome: "Leg press (pés altos e afastados)", eq: "Leg press", series: "3 × 12", dica: "Pés no alto da plataforma e um pouco abertos para puxar mais o glúteo e o posterior. Não estiques os joelhos por completo." },
+      { nome: "Agachamento sumô", eq: "Smith ou kettlebell pesado", series: "3 × 12", dica: "Pernas abertas, pontas dos pés para fora. Desce com as costas direitas." },
+    ],
+  },
+  3: {
+    titulo: "Superior",
+    icone: "💪",
+    cor: "from-tema-700 to-tema-500",
+    minutos: 50,
+    exercicios: [
+      { nome: "Puxada alta", eq: "Multifuncional (cabo em cima)", series: "3 × 12", essencial: true, dica: "Puxa a barra até ao peito, juntando as omoplatas. Sem balançar o corpo." },
+      { nome: "Supino na cama para peito", eq: "Cama para peito", series: "3 × 12", essencial: true, dica: "Pés bem apoiados. Desce até à altura do peito e empurra para cima a expirar. Escolhe um peso leve a moderado." },
+      { nome: "Desenvolvimento de ombros", eq: "Cadeira para ombro", series: "3 × 12", essencial: true, dica: "Costas encostadas. Empurra para cima sem arquear as costas e desce devagar." },
+      { nome: "Remada baixa no cabo", eq: "Multifuncional (cabo em baixo)", series: "3 × 12", dica: "Peito para fora, costas direitas. Puxa os cotovelos para trás e aperta as costas." },
+      { nome: "Elevação lateral", eq: "Halteres leves", series: "3 × 15", dica: "Sobe os braços até à altura dos ombros, cotovelos ligeiramente dobrados. Sem balançar." },
+      { nome: "Rosca direta", eq: "Halteres", series: "3 × 12", dica: "Cotovelos colados ao corpo. Sobe sem balançar as costas e desce devagar." },
+      { nome: "Tríceps na corda", eq: "Multifuncional ou cross over (corda de tríceps)", series: "3 × 12", dica: "Cotovelos presos ao corpo. Estica os braços para baixo e abre a corda no fim." },
+    ],
+  },
+  4: {
+    titulo: "Quadríceps e panturrilha (carga)",
+    icone: "🦵",
+    cor: "from-violet-700 to-fuchsia-500",
+    minutos: 60,
+    exercicios: [
+      { nome: "Agachamento", eq: "Smith ou squat rack", series: "4 × 10", essencial: true, dica: "Pés na largura dos ombros, costas direitas. Desce até as coxas ficarem paralelas ao chão e sobe a empurrar o chão." },
+      { nome: "Leg press", eq: "Leg press", series: "4 × 12", essencial: true, dica: "Pés ao meio da plataforma, à largura dos ombros. Não estiques os joelhos por completo no fim." },
+      { nome: "Hack", eq: "Hack fixa ou hack móvel", series: "3 × 10", dica: "Costas bem encostadas. Desce até aos 90° e sobe sem bloquear os joelhos." },
+      { nome: "Cadeira extensora", eq: "Chute (cadeira extensora)", series: "3 × 12", essencial: true, dica: "Sobe as pernas devagar até esticar, pára 1 segundo em cima e desce a controlar." },
+      { nome: "Elevação de gémeos (panturrilha)", eq: "Máquina de panturrilha", series: "4 × 15", essencial: true, dica: "Sobe o mais alto que conseguires, pára 1 segundo e desce devagar." },
+      { nome: "Gémeos em pé no step", eq: "Step + halteres", series: "3 × 20", dica: "Pontas dos pés no step, calcanhares no ar. Sobe e desce devagar, com um halter em cada mão." },
+    ],
+  },
+  5: {
+    titulo: "Glúteos",
+    icone: "🍑",
+    cor: "from-pink-600 to-rose-400",
+    minutos: 50,
+    exercicios: [
+      { nome: "Elevação de anca (hip thrust)", eq: "Cama para peito + disco ou Smith", series: "4 × 12", essencial: true, dica: "Costas apoiadas na cama para peito, peso sobre a anca. Sobe até o corpo ficar reto e aperta o rabo 1 segundo." },
+      { nome: "Glúteo na máquina", eq: "Máquina para glúteo", series: "4 × 15", essencial: true, dica: "Empurra com o calcanhar e aperta o rabo no fim do movimento." },
+      { nome: "Agachamento sumô com kettlebell", eq: "Kettlebell", series: "3 × 12", dica: "Pernas bem abertas, pontas dos pés para fora. Desce com as costas direitas e aperta o rabo ao subir." },
+      { nome: "Abdução com banda elástica", eq: "Banda elástica", series: "3 × 20", essencial: true, dica: "Banda acima dos joelhos. Abre as pernas contra a banda, devagar, sem mexer o tronco." },
+      { nome: "Chute para trás com carneleira", eq: "Carneleiras (pesos para os pés)", series: "3 × 15 cada perna", dica: "De quatro apoios, sobe a perna dobrada em direção ao teto e aperta o rabo. Sem arquear as costas." },
+      { nome: "Ponte de glúteos com uma perna", eq: "Tapete", series: "3 × 12 cada perna", dica: "Deitada, uma perna esticada no ar. Sobe a anca só com a outra e aperta o rabo." },
+    ],
+  },
+  6: {
+    titulo: "Alongamento (yoga)",
+    icone: "🧘",
+    cor: "from-teal-600 to-emerald-400",
+    minutos: 40,
+    exercicios: [
+      { nome: "Respiração profunda", eq: "Tapete", series: "2 minutos", essencial: true, dica: "Sentada ou deitada. Inspira pelo nariz contando até 4 e expira devagar pela boca contando até 6." },
+      { nome: "Gato e vaca", eq: "Tapete", series: "10 repetições lentas", dica: "De quatro apoios, arredonda as costas a expirar e abre o peito a inspirar." },
+      { nome: "Cão a olhar para baixo", eq: "Tapete", series: "3 × 30 segundos", essencial: true, dica: "Anca para o teto, costas esticadas. Podes dobrar os joelhos se a parte de trás da coxa puxar muito." },
+      { nome: "Postura da criança", eq: "Tapete", series: "1 minuto", dica: "Senta-te sobre os calcanhares e estica os braços à frente, com a testa no chão." },
+      { nome: "Postura do pombo", eq: "Tapete", series: "45 segundos cada lado", essencial: true, dica: "Alonga o glúteo. Perna da frente dobrada, a de trás esticada. Desce o tronco devagar." },
+      { nome: "Borboleta", eq: "Tapete", series: "1 minuto", dica: "Sentada, plantas dos pés juntas e joelhos abertos. Inclina o tronco para a frente, sem forçar." },
+      { nome: "Alongamento da coxa (posterior)", eq: "Tapete", series: "45 segundos cada perna", dica: "Sentada com uma perna esticada. Inclina o tronco em direção ao pé, com as costas direitas." },
+      { nome: "Torção deitada", eq: "Tapete", series: "45 segundos cada lado", dica: "Deitada de costas, leva os joelhos dobrados para um lado e olha para o lado contrário." },
+      { nome: "Relaxamento final", eq: "Tapete ou bola de yoga", series: "3 minutos", essencial: true, dica: "Deitada de costas, braços ao lado do corpo, olhos fechados. Respira devagar e solta o corpo todo." },
+    ],
+  },
+  0: { descanso: true, titulo: "Descanso", icone: "😴" },
+};
+
 const EQUIPAMENTOS = [
   { grupo: "Máquinas", itens: ["Leg press", "Hack fixa e hack móvel", "Chute (cadeira extensora)", "Smith", "Squat rack", "Cross over", "Multifuncional", "Cama flexora", "Adutora", "Máquina de glúteo", "Máquina de panturrilha", "Cadeira para ombro", "Camas para peito", "Paralela", "Banco romano"] },
   { grupo: "Pesos livres", itens: ["Halteres de 1 a 20 kg", "Halteres de discos", "Discos de 1 a 25 kg", "Kettlebells", "Carneleiras (pesos para os pés)", "Cordas de bíceps e tríceps", "Puxadores"] },
@@ -128,6 +223,20 @@ function CartaoExercicio({ e, numero, aberto, aoAlternar }) {
 
 export default function PaginaTreino() {
   const hoje = new Date().getDay();
+  // Plano masculino ou feminino (lembra a escolha; o link também aceita ?plano=f)
+  const [sexo, setSexo] = useState(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("plano");
+      if (q === "f" || q === "m") return q;
+      return localStorage.getItem("catumbela_treino_sexo") === "f" ? "f" : "m";
+    } catch { return "m"; }
+  });
+  const escolherSexo = (v) => {
+    setSexo(v);
+    setAberto(null);
+    try { localStorage.setItem("catumbela_treino_sexo", v); } catch {}
+  };
+  const TREINOS = sexo === "f" ? TREINOS_F : TREINOS_M;
   const [dia, setDia] = useState(hoje);
   const [curto, setCurto] = useState(false); // false = 60 min, true = só 30 min
   const [aberto, setAberto] = useState(null);
@@ -172,6 +281,14 @@ export default function PaginaTreino() {
       </header>
 
       <main className="max-w-xl mx-auto px-4 -mt-5 pb-16">
+        <div className="bg-white rounded-2xl shadow-md p-1.5 flex gap-1.5 mb-2">
+          {[["m", "Plano masculino"], ["f", "Plano feminino"]].map(([id, nome]) => (
+            <button key={id} onClick={() => escolherSexo(id)}
+              className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${sexo === id ? "bg-tema-600 text-white shadow" : "text-slate-500"}`}>
+              {nome}
+            </button>
+          ))}
+        </div>
         <div className="bg-white rounded-2xl shadow-md p-1.5 flex gap-1 mb-4">
           {DIAS.map((d) => (
             <button key={d.id} onClick={() => { setDia(d.id); setAberto(null); }}
