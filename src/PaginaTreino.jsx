@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import FiguraExercicio, { tipoDe } from "./FiguraExercicio.jsx";
 
 // Página pública (sem entrar no sistema): treino do dia para quando o personal não vem.
 // Abre com /?treino=1 — o link vai para o grupo do WhatsApp.
@@ -217,7 +218,23 @@ const EQUIPAMENTOS = [
   { grupo: "Abdómen e chão", itens: ["Cama de abdómen", "Rodas de abdómen", "Suporte de flexões", "Bola de yoga", "Banda elástica", "Tapetes", "Cones"] },
 ];
 
+const AQUECIMENTO_M = [
+  { nome: "Polichinelos", eq: "Sem aparelho", series: "1 min", dica: "Salta abrindo pernas e braços ao mesmo tempo, depois fecha. Ritmo leve para subir o batimento." },
+  { nome: "Rotação de braços", eq: "Sem aparelho", series: "20 voltas", dica: "Braços abertos, faz círculos grandes para trás e depois para a frente. Aquece os ombros." },
+  { nome: "Flexões", eq: "Chão ou suporte de flexões", series: "2 x 10", dica: "Mãos na largura dos ombros, corpo reto. Desce o peito até quase ao chão e sobe. Se for difícil, apoia os joelhos.", alt: "Aqui é só para aquecer: faz leve, sem chegar à falha." },
+  { nome: "Agachamento livre", eq: "Sem aparelho", series: "2 x 15", dica: "Pés na largura dos ombros, senta para trás como numa cadeira, costas direitas, e sobe." },
+  { nome: "Bike leve", eq: "Bike", series: "3 min", dica: "Pedala devagar, só para aquecer pernas e coração." },
+];
+const AQUECIMENTO_F = [
+  { nome: "Polichinelos", eq: "Sem aparelho", series: "1 min", dica: "Salta abrindo pernas e braços ao mesmo tempo, depois fecha. Ritmo leve." },
+  { nome: "Rotação de braços", eq: "Sem aparelho", series: "20 voltas", dica: "Braços abertos, faz círculos grandes para trás e depois para a frente." },
+  { nome: "Agachamento livre", eq: "Sem aparelho", series: "2 x 15", dica: "Pés na largura dos ombros, senta para trás como numa cadeira, costas direitas, e sobe." },
+  { nome: "Ponte de glúteos", eq: "Tapete", series: "2 x 15", dica: "Deitada de barriga para cima, joelhos dobrados. Sobe a anca apertando o glúteo e desce devagar." },
+  { nome: "Bike leve", eq: "Bike", series: "3 min", dica: "Pedala devagar, só para aquecer pernas e coração." },
+];
+
 function CartaoExercicio({ e, numero, aberto, aoAlternar }) {
+  const tipo = tipoDe(e.nome);
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       <button onClick={aoAlternar} className="w-full flex items-center gap-3 p-3.5 text-left">
@@ -226,10 +243,21 @@ function CartaoExercicio({ e, numero, aberto, aoAlternar }) {
           <p className="font-semibold text-slate-900 leading-tight">{e.nome}</p>
           <p className="text-xs text-slate-500 mt-0.5">🛠 {e.eq}</p>
         </div>
+        {tipo && !aberto && (
+          <span className="shrink-0 w-16 h-11 rounded-lg bg-slate-50 border border-slate-100 overflow-hidden">
+            <FiguraExercicio tipo={tipo} quadro={1} className="w-full h-full" />
+          </span>
+        )}
         <span className="shrink-0 text-xs font-bold text-tema-700 bg-tema-100 rounded-full px-2.5 py-1 text-right">{e.series}</span>
       </button>
       {aberto && (
         <div className="px-4 pb-4 -mt-1 space-y-2">
+          {tipo && (
+            <div className="rounded-xl bg-slate-50 border border-slate-100 p-2">
+              <FiguraExercicio tipo={tipo} animar className="w-full max-h-44" />
+              <p className="text-center text-[11px] text-slate-400">Desenho do movimento</p>
+            </div>
+          )}
           <div className="rounded-xl bg-tema-100/70 p-3 text-sm text-slate-700 leading-relaxed">
             <span className="font-semibold text-tema-700">Como fazer: </span>{e.dica}
           </div>
@@ -341,13 +369,22 @@ export default function PaginaTreino() {
             <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-sm text-amber-900 mt-3">
               <p className="font-bold mb-1">Antes de começar</p>
               <ul className="list-disc pl-5 space-y-0.5">
-                <li>Aquece 5 minutos (bike ou passadeira leve).</li>
+                <li>Faz primeiro o aquecimento (aqui em baixo): 5 a 8 minutos.</li>
                 <li>Descansa 1 minuto entre as séries e bebe água.</li>
                 <li>Se o aparelho estiver ocupado, passa ao seguinte e volta depois.</li>
                 <li>Se sentires dor, pára e fala com a receção.</li>
               </ul>
             </div>
 
+            <p className="text-sm font-bold text-slate-900 mt-4 mb-1">🔥 Aquecimento <span className="font-normal text-slate-500">(5 a 8 min)</span></p>
+            <div className="space-y-2.5">
+              {(sexo === "f" ? AQUECIMENTO_F : AQUECIMENTO_M).map((e, i) => {
+                const chave = `aq-${sexo}-${i}`;
+                return <CartaoExercicio key={chave} e={e} numero={i + 1} aberto={aberto === chave} aoAlternar={() => setAberto(aberto === chave ? null : chave)} />;
+              })}
+            </div>
+
+            <p className="text-sm font-bold text-slate-900 mt-6 mb-1">💪 Treino</p>
             <p className="text-xs text-slate-400 mt-4 mb-2">Toca num exercício para ver como se faz.</p>
             <div className="space-y-2.5">
               {lista.map((e, i) => {
