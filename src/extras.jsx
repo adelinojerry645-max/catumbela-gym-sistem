@@ -912,6 +912,7 @@ export function PaginaPublicaGinasio() {
         </Bloco>
 
         <div className="text-center pb-6">
+          <a href={`${base}/?treino=1`} className="block text-sm font-semibold text-tema-700 underline mb-2">Treinos e exercícios para fazer hoje</a>
           <a href={`${base}/?opiniao=1`} className="text-sm text-slate-500 underline">Deixar a tua opinião ou reclamação</a>
         </div>
       </div>

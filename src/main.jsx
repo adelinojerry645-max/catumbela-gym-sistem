@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { PaginaPublicaOpiniao, PaginaPublicaGinasio } from "./extras.jsx";
+import PaginaTreino from "./PaginaTreino.jsx";
 import "./index.css";
 import { instalarRegistoDeErros, registarErro } from "./lib/registoErros";
 
@@ -32,6 +33,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         const q = new URLSearchParams(window.location.search);
         if (q.get("opiniao") === "1") return <PaginaPublicaOpiniao />;
         if (q.get("ginasio") === "1") return <PaginaPublicaGinasio />;
+        if (q.get("treino") === "1") return <PaginaTreino />;
         return <App />;
       })()}
     </CapturaErros>
