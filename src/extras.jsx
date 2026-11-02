@@ -856,6 +856,8 @@ export function PaginaPublicaGinasio() {
   const tel = String(cfg.whatsapp || g.telefone || "").replace(/\D/g, "");
   const wa = tel ? `https://wa.me/${tel.length <= 9 ? "244" + tel : tel}?text=${encodeURIComponent("Olá! Gostava de saber mais sobre o Catumbela Gym.")}` : null;
   const morada = [g.morada, g.cidade, "Angola"].filter(Boolean).join(", ");
+  const temPonto = Number.isFinite(cfg.lat) && Number.isFinite(cfg.lng);
+  const destinoMapa = temPonto ? `${cfg.lat},${cfg.lng}` : morada;
   const base = typeof window !== "undefined" ? window.location.origin : "";
 
   const Bloco = ({ titulo: t, children }) => (
@@ -908,7 +910,7 @@ export function PaginaPublicaGinasio() {
         <Bloco titulo="Onde estamos">
           <p className="text-slate-700 text-sm">{g.morada}{g.cidade ? `, ${g.cidade}` : ""}</p>
           {g.telefone && <p className="text-slate-500 text-sm mt-1">Tel.: {g.telefone}</p>}
-          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(morada)}`} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-bold text-tema-600 underline">Abrir no mapa</a>
+          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destinoMapa)}`} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-bold text-tema-600 underline">Abrir no mapa</a>
         </Bloco>
 
         <div className="text-center pb-6">
@@ -972,9 +974,51 @@ export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
   const [copiado, setCopiado] = useState(false);
   const atualizar = (parte) => setConfig([{ ...c, ...parte }]);
   const ocultos = c.planosOcultos || [];
+  const [aLocalizar, setALocalizar] = useState(false);
+  const [erroLocal, setErroLocal] = useState("");
+  const temPonto = Number.isFinite(c.lat) && Number.isFinite(c.lng);
+
+  const usarLocalizacao = () => {
+    setErroLocal("");
+    if (!navigator.geolocation) { setErroLocal("Este aparelho não consegue dar a localização."); return; }
+    setALocalizar(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setALocalizar(false);
+        atualizar({
+          lat: Number(coords.latitude.toFixed(6)),
+          lng: Number(coords.longitude.toFixed(6)),
+          precisaoMetros: Math.round(coords.accuracy),
+        });
+      },
+      (e) => {
+        setALocalizar(false);
+        setErroLocal(e.code === 1
+          ? "O navegador não tem autorização. Permite a localização para este site e liga o GPS do telemóvel."
+          : "Não foi possível obter a localização. Liga o GPS e tenta outra vez, de preferência junto à porta.");
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  };
 
   return (
     <div className="space-y-5">
+      <Cartao title="Localização exata">
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Faz isto estando no ginásio, com o GPS ligado. O botão "Abrir no mapa" da página pública passa a levar os clientes a este ponto.</p>
+        {temPonto && (
+          <div className="text-sm text-slate-700 dark:text-slate-200 mb-3">
+            <p className="font-semibold">{c.lat}, {c.lng}</p>
+            {c.precisaoMetros != null && <p className="text-xs text-slate-500">Precisão: cerca de {c.precisaoMetros} m{c.precisaoMetros > 50 ? " — pouco exata, tenta outra vez ao ar livre" : ""}</p>}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 items-center">
+          <button className={btnCls} disabled={aLocalizar} onClick={usarLocalizacao}>{aLocalizar ? "A localizar…" : temPonto ? "Atualizar com este telemóvel" : "Usar a localização deste telemóvel"}</button>
+          {temPonto && <a href={`https://www.google.com/maps/search/?api=1&query=${c.lat},${c.lng}`} target="_blank" rel="noreferrer" className={btnSuave + " inline-flex items-center"}>Ver no mapa</a>}
+          {temPonto && <button className={btnSuave} onClick={() => atualizar({ lat: undefined, lng: undefined, precisaoMetros: undefined })}>Remover</button>}
+        </div>
+        {erroLocal && <p className="text-sm text-red-600 mt-2">{erroLocal}</p>}
+      </Cartao>
+
       <Cartao title="Link da página pública">
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Põe este link no Instagram, no WhatsApp ou imprime o QR. Mostra o horário, os planos e como chegar, e tem botão para se inscrever.</p>
         <div className="flex flex-col sm:flex-row gap-4 items-start">
