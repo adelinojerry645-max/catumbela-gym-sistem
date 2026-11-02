@@ -403,7 +403,7 @@ export function PontoEquilibrio({ membros, planos, despesasFixas, setDespesasFix
   const hoje = hojeStrISO();
 
   const calc = useMemo(() => {
-    const ativos = (membros || []).filter((m) => m.vencimento && m.vencimento >= hoje && !["suspenso", "pausada", "cancelado"].includes(m.estado));
+    const ativos = (membros || []).filter((m) => m.vencimento && m.vencimento > hoje && !["suspenso", "pausada", "cancelado"].includes(m.estado));
     const mensalDoPlano = (nomePlano) => {
       const p = (planos || []).find((x) => x.nome === nomePlano);
       if (!p || p.entradas) return null;
