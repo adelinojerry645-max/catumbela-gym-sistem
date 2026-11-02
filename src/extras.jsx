@@ -920,6 +920,50 @@ export function PaginaPublicaGinasio() {
   );
 }
 
+// Recepção: enviar a página pública aos clientes. Só partilha o link — o que
+// aparece na página continua a ser escolhido pelo administrador.
+export function EnviarPaginaPublica({ siteUrl }) {
+  const origem = (siteUrl && siteUrl.trim()) || (typeof window !== "undefined" ? window.location.origin : "");
+  const link = `${origem.replace(/\/$/, "")}/?ginasio=1`;
+  const [numero, setNumero] = useState("");
+  const [copiado, setCopiado] = useState(false);
+  const texto = `Olá! Este é o Catumbela Gym 💪\nVê o horário, os planos e como chegar, e inscreve-te por aqui:\n${link}`;
+
+  const copiar = () => navigator.clipboard?.writeText(link)
+    .then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); })
+    .catch(() => window.prompt("Copia o link:", link));
+
+  const enviarWhatsApp = () => {
+    const tel = numero.replace(/\D/g, "").replace(/^00/, "");
+    // Sem número, o WhatsApp deixa escolher o contacto.
+    const destino = tel ? (tel.length <= 9 ? "244" + tel : tel) : "";
+    window.open(`https://wa.me/${destino}?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+  };
+
+  return (
+    <div className="space-y-5">
+      <Cartao title="Enviar aos clientes">
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Mostra o horário, os planos e como chegar, e tem botão para se inscrever. Envia pelo WhatsApp ou mostra o QR ao cliente no balcão.</p>
+        <div className="flex flex-col sm:flex-row gap-4 items-start">
+          <div className="bg-white p-2 rounded-xl ring-1 ring-slate-200 shrink-0"><QRCodeSVG valor={link} tamanho={140} /></div>
+          <div className="flex-1 min-w-0 w-full space-y-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-500">Número do cliente (opcional)</label>
+              <input className={inputCls} type="tel" inputMode="tel" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="9xx xxx xxx" />
+            </div>
+            <button className={btnCls + " w-full"} onClick={enviarWhatsApp}>Enviar no WhatsApp</button>
+            <input readOnly value={link} className={inputCls} onFocus={(e) => e.target.select()} />
+            <div className="flex gap-2">
+              <button className={btnSuave} onClick={copiar}>{copiado ? "Copiado!" : "Copiar link"}</button>
+              <a href={link} target="_blank" rel="noreferrer" className={btnSuave + " inline-flex items-center"}>Ver página</a>
+            </div>
+          </div>
+        </div>
+      </Cartao>
+    </div>
+  );
+}
+
 // Admin: configurar o que aparece na página pública
 export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
   const c = (config && config[0]) || {};

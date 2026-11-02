@@ -12,7 +12,7 @@ import {
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { prepararCorrida, gerarVideo, gerarCartaz, entregarFicheiro, videoSuportado } from "./videoAtleta.js";
-import { PainelDono, ContasAPagar, ConfigPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
+import { PainelDono, ContasAPagar, ConfigPaginaPublica, EnviarPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
@@ -15475,6 +15475,7 @@ const MENU_RECEPCAO = [
       { id: "caixa", label: "O meu turno", icon: Wallet },
       { id: "relatorio-inscricoes", label: "Inscrições (novos)", icon: Users },
       { id: "mensagens", label: "Mensagens", icon: MessageSquare },
+      { id: "pagina-publica", label: "Página Pública", icon: Megaphone },
       { id: "meu-perfil", label: "Meu Perfil", icon: UserIcon },
     ],
   },
@@ -19302,6 +19303,7 @@ export default function CatumbelaGymApp() {
             />
           )}
           {telaAtual === "pagina-publica" && perfil === "administrador" && <ConfigPaginaPublica planos={planos} config={paginaPublica} setConfig={setPaginaPublica} siteUrl={dadosGinasio?.siteUrl} />}
+          {telaAtual === "pagina-publica" && perfil === "recepcionista" && <EnviarPaginaPublica siteUrl={dadosGinasio?.siteUrl} />}
           {telaAtual === "opinioes" && perfil === "administrador" && <OpinioesAdmin siteUrl={dadosGinasio?.siteUrl} />}
           {telaAtual === "painel-dono" && perfil === "administrador" && <PainelDono membros={membros} planos={planos} historicoSubscricoes={historicoSubscricoes} faturas={faturas} />}
           {telaAtual === "alertas" && perfil === "administrador" && <AlertasEstranhos auditLog={auditLog} movimentosCaixa={movimentosCaixa} pagamentosFeitos={pagamentosFeitos} />}
