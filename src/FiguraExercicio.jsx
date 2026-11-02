@@ -462,6 +462,7 @@ export const TIPOS_FIGURA = Object.keys(TIPOS);
 
 const COR = "rgb(var(--tema-600))";
 const COR_FUNDO = "rgb(var(--tema-300))";
+const COR_BRACO = "rgb(var(--tema-450))";
 const CINZA = "#94a3b8";
 const CINZA_ESCURO = "#475569";
 
@@ -491,8 +492,9 @@ function Desenho({ tipo, j }) {
     const { joelho, tornozelo } = j.pernas[i];
     const toe = pe(i);
     return (
-      <g key={`p${i}`} stroke={cor} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <polyline points={`${j.ancas[i][0]},${j.ancas[i][1]} ${joelho[0]},${joelho[1]} ${tornozelo[0]},${tornozelo[1]} ${toe[0]},${toe[1]}`} />
+      <g key={`p${i}`} strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <polyline stroke="#fff" strokeWidth={w + 3} points={`${j.ancas[i][0]},${j.ancas[i][1]} ${joelho[0]},${joelho[1]} ${tornozelo[0]},${tornozelo[1]} ${toe[0]},${toe[1]}`} />
+        <polyline stroke={cor} strokeWidth={w} points={`${j.ancas[i][0]},${j.ancas[i][1]} ${joelho[0]},${joelho[1]} ${tornozelo[0]},${tornozelo[1]} ${toe[0]},${toe[1]}`} />
       </g>
     );
   };
@@ -500,8 +502,10 @@ function Desenho({ tipo, j }) {
     const b = j.bracos[i];
     if (!b) return null;
     return (
-      <g key={`b${i}`} stroke={cor} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <polyline points={`${j.ombros[i][0]},${j.ombros[i][1]} ${b.cotovelo[0]},${b.cotovelo[1]} ${b.mao[0]},${b.mao[1]}`} />
+      <g key={`b${i}`} strokeLinecap="round" strokeLinejoin="round" fill="none">
+        <polyline stroke="#fff" strokeWidth={w + 4} points={`${j.ombros[i][0]},${j.ombros[i][1]} ${b.cotovelo[0]},${b.cotovelo[1]} ${b.mao[0]},${b.mao[1]}`} />
+        <polyline stroke={cor} strokeWidth={w} points={`${j.ombros[i][0]},${j.ombros[i][1]} ${b.cotovelo[0]},${b.cotovelo[1]} ${b.mao[0]},${b.mao[1]}`} />
+        <circle cx={b.mao[0]} cy={b.mao[1]} r={w * 0.62} fill={cor} stroke="none" />
       </g>
     );
   };
@@ -513,13 +517,13 @@ function Desenho({ tipo, j }) {
   let n = [d[1], -d[0]];
   if (n[1] > 0) n = [-n[0], -n[1]];
   const m = [(j.hip[0] + j.sh[0]) / 2 + n[0] * j.bow * 2, (j.hip[1] + j.sh[1]) / 2 + n[1] * j.bow * 2];
-  el.push(<path key="tronco" d={`M${j.hip[0]},${j.hip[1]} Q${m[0]},${m[1]} ${j.sh[0]},${j.sh[1]}`} stroke={COR} strokeWidth="10" strokeLinecap="round" fill="none" />);
+  el.push(<path key="tronco" d={`M${j.hip[0]},${j.hip[1]} Q${m[0]},${m[1]} ${j.sh[0]},${j.sh[1]}`} stroke={COR} strokeWidth="12" strokeLinecap="round" fill="none" />);
   if (f) {
     el.push(<line key="ombros" x1={j.ombros[0][0]} y1={j.ombros[0][1]} x2={j.ombros[1][0]} y2={j.ombros[1][1]} stroke={COR} strokeWidth="8" strokeLinecap="round" />);
     el.push(<line key="ancas" x1={j.ancas[0][0]} y1={j.ancas[0][1]} x2={j.ancas[1][0]} y2={j.ancas[1][1]} stroke={COR} strokeWidth="8" strokeLinecap="round" />);
   }
   el.push(perna(0, COR, 8));
-  el.push(braco(0, COR, 7));
+  el.push(braco(0, COR_BRACO, 7));
   // cabeça
   el.push(<circle key="cab" cx={j.cabeca[0]} cy={j.cabeca[1]} r="9" fill="#fff" stroke={COR} strokeWidth="4" />);
   // pesos / material
@@ -591,7 +595,7 @@ export default function FiguraExercicio({ tipo, animar = false, quadro = 0, clas
   if (!TIPOS[tipo]) return null;
   const j = juntas(tipo, k);
   return (
-    <svg viewBox="0 -26 240 176" className={className} role="img" aria-label="Desenho do exercício" style={{ display: "block" }}>
+    <svg viewBox="0 -36 240 186" className={className} role="img" aria-label="Desenho do exercício" style={{ display: "block" }}>
       <Desenho tipo={tipo} j={j} />
     </svg>
   );
