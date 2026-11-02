@@ -930,16 +930,18 @@ export function EnviarPaginaPublica({ siteUrl }) {
   const [numero, setNumero] = useState("");
   const [copiado, setCopiado] = useState(false);
   const texto = `Olá! Este é o Catumbela Gym 💪\nVê o horário, os planos e como chegar, e inscreve-te por aqui:\n${link}`;
+  const linkTreino = `${origem.replace(/\/$/, "")}/treino/`;
+  const textoTreino = `🏋️ Treino de hoje — Catumbela Gym\nVê o treino do dia, com os aparelhos do ginásio:\n${linkTreino}`;
 
   const copiar = () => navigator.clipboard?.writeText(link)
     .then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 1500); })
     .catch(() => window.prompt("Copia o link:", link));
 
-  const enviarWhatsApp = () => {
+  const enviarWhatsApp = (mensagem) => {
     const tel = numero.replace(/\D/g, "").replace(/^00/, "");
     // Sem número, o WhatsApp deixa escolher o contacto.
     const destino = tel ? (tel.length <= 9 ? "244" + tel : tel) : "";
-    window.open(`https://wa.me/${destino}?text=${encodeURIComponent(texto)}`, "_blank", "noopener");
+    window.open(`https://wa.me/${destino}?text=${encodeURIComponent(mensagem)}`, "_blank", "noopener");
   };
 
   return (
@@ -953,7 +955,8 @@ export function EnviarPaginaPublica({ siteUrl }) {
               <label className="text-xs font-semibold text-slate-500">Número do cliente (opcional)</label>
               <input className={inputCls} type="tel" inputMode="tel" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="9xx xxx xxx" />
             </div>
-            <button className={btnCls + " w-full"} onClick={enviarWhatsApp}>Enviar no WhatsApp</button>
+            <button className={btnCls + " w-full"} onClick={() => enviarWhatsApp(texto)}>Enviar página no WhatsApp</button>
+            <button className={btnCls + " w-full"} onClick={() => enviarWhatsApp(textoTreino)}>Enviar treinos no WhatsApp</button>
             <input readOnly value={link} className={inputCls} onFocus={(e) => e.target.select()} />
             <div className="flex gap-2">
               <button className={btnSuave} onClick={copiar}>{copiado ? "Copiado!" : "Copiar link"}</button>
