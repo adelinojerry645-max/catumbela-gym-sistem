@@ -18981,7 +18981,7 @@ export default function CatumbelaGymApp() {
 
       {/* SIDEBAR — fixa em ecrã grande, menu deslizante no telemóvel */}
       <aside
-        className={`vidro-lateral w-64 text-slate-300 flex flex-col shrink-0 fixed md:static inset-y-0 left-0 z-50 transform transition-transform duration-200 shadow-[4px_0_24px_rgba(0,0,0,0.35)] ${
+        className={`vidro-lateral menu-desenho w-64 text-slate-300 flex flex-col shrink-0 fixed md:static inset-y-0 left-0 z-50 transform transition-transform duration-200 shadow-[4px_0_24px_rgba(0,0,0,0.35)] ${
           menuAberto ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
@@ -19001,7 +19001,7 @@ export default function CatumbelaGymApp() {
             <X size={20} />
           </button>
         </div>
-        <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto menu-fundo-gym">
+        <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto">
           {MENU.map((grupo) => (
             <div key={grupo.grupo || "geral"}>
               {grupo.grupo && (

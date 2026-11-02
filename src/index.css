@@ -124,13 +124,26 @@ button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):disabled {
 .vidro-lateral nav a:hover, .vidro-lateral nav button:hover { transform: translateX(4px); }
 @media (prefers-reduced-motion: reduce) { .menu-topo::after { animation: none; } }
 
-/* Fundo do menu lateral: desenho de ginásio (halteres e kettlebells) com a cor do tema */
-.menu-fundo-gym {
+/* Desenho de ginásio em todo o menu lateral (até ao rodapé), na cor do tema */
+html:not(.dark) .vidro-lateral.menu-desenho {
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120' fill='none' stroke='white' stroke-opacity='0.13' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg transform='rotate%28-35 30 30%29'%3E%3Cpath d='M12 30h36M16 20v20M22 15v30M38 15v30M44 20v20'/%3E%3C/g%3E%3Cg transform='translate%2870 70%29'%3E%3Ccircle cx='14' cy='22' r='13'/%3E%3Cpath d='M7 10c0-9 14-9 14 0'/%3E%3C/g%3E%3Cpath d='M78 22l10-10M84 28l10-10M74 26l14 14'/%3E%3C/svg%3E"),
-    radial-gradient(circle at 100% 0%, rgb(var(--tema-400) / 0.40), transparent 55%),
-    radial-gradient(circle at 0% 100%, rgb(var(--tema-500) / 0.45), transparent 55%),
-    repeating-linear-gradient(135deg, rgb(var(--tema-300) / 0.07) 0 2px, transparent 2px 22px);
-  background-size: 120px 120px, auto, auto, auto;
-  background-repeat: repeat, no-repeat, no-repeat, repeat;
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='640' viewBox='0 0 256 640' fill='none' stroke='white' stroke-opacity='0.16' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M-10 120 C40 60 80 180 130 120 S220 60 270 120'/%3E%3Cpath d='M-10 150 C40 90 80 210 130 150 S220 90 270 150' stroke-opacity='0.09'/%3E%3Cg transform='translate%28150 250%29 rotate%28-30%29'%3E%3Crect x='0' y='-9' width='14' height='18' rx='3'/%3E%3Crect x='14' y='-14' width='10' height='28' rx='3'/%3E%3Cpath d='M24 0h52'/%3E%3Crect x='76' y='-14' width='10' height='28' rx='3'/%3E%3Crect x='86' y='-9' width='14' height='18' rx='3'/%3E%3C/g%3E%3Cpath d='M-10 400 C40 340 80 460 130 400 S220 340 270 400'/%3E%3Cpath d='M-10 430 C40 370 80 490 130 430 S220 370 270 430' stroke-opacity='0.09'/%3E%3Cg transform='translate%2840 520%29 rotate%28-30%29'%3E%3Crect x='0' y='-9' width='14' height='18' rx='3'/%3E%3Crect x='14' y='-14' width='10' height='28' rx='3'/%3E%3Cpath d='M24 0h52'/%3E%3Crect x='76' y='-14' width='10' height='28' rx='3'/%3E%3Crect x='86' y='-9' width='14' height='18' rx='3'/%3E%3C/g%3E%3Ccircle cx='215' cy='600' r='22'/%3E%3Cpath d='M203 582c0-14 24-14 24 0'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 100% 0%, rgb(var(--tema-300) / 0.35), transparent 50%),
+    radial-gradient(circle at 0% 100%, rgb(var(--tema-400) / 0.45), transparent 55%),
+    radial-gradient(circle at 100% 55%, rgb(var(--tema-400) / 0.35), transparent 45%),
+    radial-gradient(circle at 0% 25%, rgb(var(--acento) / 0.22), transparent 45%),
+    linear-gradient(180deg, rgb(var(--lat-topo) / 0.97) 0%, rgb(var(--lat-meio) / 0.98) 45%, rgb(var(--lat-fundo) / 0.98) 100%);
+  background-size: 256px 640px, auto, auto, auto, auto, auto;
+  background-repeat: repeat-y, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+  background-position: center top, 0 0, 0 0, 0 0, 0 0, 0 0;
+}
+.dark .vidro-lateral.menu-desenho {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='640' viewBox='0 0 256 640' fill='none' stroke='white' stroke-opacity='0.16' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M-10 120 C40 60 80 180 130 120 S220 60 270 120'/%3E%3Cpath d='M-10 150 C40 90 80 210 130 150 S220 90 270 150' stroke-opacity='0.09'/%3E%3Cg transform='translate%28150 250%29 rotate%28-30%29'%3E%3Crect x='0' y='-9' width='14' height='18' rx='3'/%3E%3Crect x='14' y='-14' width='10' height='28' rx='3'/%3E%3Cpath d='M24 0h52'/%3E%3Crect x='76' y='-14' width='10' height='28' rx='3'/%3E%3Crect x='86' y='-9' width='14' height='18' rx='3'/%3E%3C/g%3E%3Cpath d='M-10 400 C40 340 80 460 130 400 S220 340 270 400'/%3E%3Cpath d='M-10 430 C40 370 80 490 130 430 S220 370 270 430' stroke-opacity='0.09'/%3E%3Cg transform='translate%2840 520%29 rotate%28-30%29'%3E%3Crect x='0' y='-9' width='14' height='18' rx='3'/%3E%3Crect x='14' y='-14' width='10' height='28' rx='3'/%3E%3Cpath d='M24 0h52'/%3E%3Crect x='76' y='-14' width='10' height='28' rx='3'/%3E%3Crect x='86' y='-9' width='14' height='18' rx='3'/%3E%3C/g%3E%3Ccircle cx='215' cy='600' r='22'/%3E%3Cpath d='M203 582c0-14 24-14 24 0'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 100% 0%, rgb(var(--tema-400) / 0.30), transparent 50%),
+    radial-gradient(circle at 0% 100%, rgb(var(--tema-500) / 0.35), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  background-size: 256px 640px, auto, auto, auto;
+  background-repeat: repeat-y, no-repeat, no-repeat, no-repeat;
+  background-position: center top, 0 0, 0 0, 0 0;
 }
