@@ -19037,9 +19037,11 @@ export default function CatumbelaGymApp() {
           ))}
         </nav>
         <button onClick={() => setMostrarPrivacidadeApp(true)} className="mx-4 mb-2 text-left text-[11px] text-slate-500 hover:text-white underline">Privacidade e termos</button>
-        <div className="px-4 py-4 border-t border-slate-800 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-slate-700 shrink-0" />
-          <div className="flex-1 min-w-0">
+        <div className="relative overflow-hidden px-4 py-5 border-t border-slate-800 flex items-center gap-2.5">
+          <img src="https://images.unsplash.com/photo-1778828494354-9b717d36dc99?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8M3x8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=600" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-40 pointer-events-none" style={{ transform: "scaleY(-1)" }} />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900/70 to-tema-700/40 pointer-events-none" />
+          <div className="relative w-8 h-8 rounded-full bg-slate-700 shrink-0" />
+          <div className="relative flex-1 min-w-0">
             <p className="text-white text-xs font-semibold truncate">{contaAtual?.nome}</p>
             <p className="text-slate-500 dark:text-slate-400 dark:text-slate-500 text-[11px] truncate">{contaAtual?.email}</p>
           </div>
@@ -19047,7 +19049,7 @@ export default function CatumbelaGymApp() {
             onClick={sair}
             title="Sair"
             aria-label="Sair"
-            className="text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-white shrink-0"
+            className="text-slate-500 dark:text-slate-400 dark:text-slate-500 hover:text-white shrink-0 relative"
           >
             <LogOut size={16} />
           </button>
