@@ -100,18 +100,18 @@ const TREINOS_M = {
 // "Carga" = com máquinas e peso mais pesado.
 const TREINOS_F = {
   1: {
-    titulo: "Pernas e glúteos (livre)",
-    icone: "🍑",
+    titulo: "Pernas e quadríceps (livre)",
+    icone: "🦵",
     cor: "from-pink-600 to-rose-400",
     minutos: 55,
     exercicios: [
-      { nome: "Agachamento sumô com kettlebell", eq: "Kettlebell", series: "4 × 12", essencial: true, dica: "Pernas bem abertas, pontas dos pés para fora. Segura o kettlebell com as duas mãos, desce com as costas direitas e aperta o rabo ao subir." },
+      { nome: "Agachamento com kettlebell (goblet)", eq: "Kettlebell", series: "4 × 12", essencial: true, dica: "Segura o kettlebell junto ao peito, pés na largura dos ombros. Desce com as costas direitas e os joelhos na direção dos pés, e sobe a empurrar o chão." },
       { nome: "Afundo com halteres", eq: "Halteres", series: "3 × 10 cada perna", essencial: true, dica: "Passo grande à frente, desce até o joelho de trás quase tocar no chão. Tronco direito." },
-      { nome: "Elevação de anca (ponte de glúteos)", eq: "Tapete + disco ou halter", series: "4 × 15", essencial: true, dica: "Deitada de costas, pés no chão. Sobe a anca e aperta o rabo 1 segundo em cima. Podes pôr um disco ou halter sobre a anca." },
-      { nome: "Agachamento búlgaro", eq: "Halteres + cama para peito", series: "3 × 10 cada perna", dica: "Pé de trás apoiado na cama para peito. Desce com o tronco ligeiramente inclinado para a frente para trabalhar mais o glúteo." },
-      { nome: "Abdução com banda elástica", eq: "Banda elástica", series: "3 × 20", dica: "Banda acima dos joelhos. Abre as pernas contra a banda, devagar, sem mexer o tronco." },
-      { nome: "Chute para trás com carneleira", eq: "Carneleiras (pesos para os pés)", series: "3 × 15 cada perna", dica: "De quatro apoios, sobe a perna dobrada em direção ao teto e aperta o rabo. Sem arquear as costas." },
-      { nome: "Subida ao step", eq: "Step", series: "3 × 12 cada perna", dica: "Sobe com o pé todo apoiado no step e desce a controlar." },
+      { nome: "Agachamento búlgaro", eq: "Halteres + cama para peito", series: "3 × 10 cada perna", essencial: true, dica: "Pé de trás apoiado na cama para peito. Desce com o tronco direito para trabalhar mais a frente da coxa (quadríceps)." },
+      { nome: "Subida ao step", eq: "Step + halteres", series: "3 × 12 cada perna", dica: "Sobe com o pé todo apoiado no step, sem impulso da perna de trás, e desce a controlar." },
+      { nome: "Agachamento isométrico na parede", eq: "Parede", series: "3 × 30 a 45 segundos", dica: "Costas na parede, coxas paralelas ao chão e joelhos a 90°. Aguenta a posição a respirar." },
+      { nome: "Afundo lateral", eq: "Halter ou kettlebell", series: "3 × 10 cada lado", dica: "Dá um passo grande para o lado e dobra só essa perna, com a outra esticada. Volta empurrando o chão." },
+      { nome: "Elevação de anca (ponte de glúteos)", eq: "Tapete + disco ou halter", series: "3 × 15", dica: "Deitada de costas, pés no chão. Sobe a anca e aperta o rabo 1 segundo em cima." },
     ],
   },
   2: {
