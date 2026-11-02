@@ -123,3 +123,14 @@ button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):disabled {
 .vidro-lateral nav a, .vidro-lateral nav button { transition: transform .18s ease, background-color .18s ease; }
 .vidro-lateral nav a:hover, .vidro-lateral nav button:hover { transform: translateX(4px); }
 @media (prefers-reduced-motion: reduce) { .menu-topo::after { animation: none; } }
+
+/* Fundo do menu lateral: desenho de ginásio (halteres e kettlebells) com a cor do tema */
+.menu-fundo-gym {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120' fill='none' stroke='white' stroke-opacity='0.13' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg transform='rotate%28-35 30 30%29'%3E%3Cpath d='M12 30h36M16 20v20M22 15v30M38 15v30M44 20v20'/%3E%3C/g%3E%3Cg transform='translate%2870 70%29'%3E%3Ccircle cx='14' cy='22' r='13'/%3E%3Cpath d='M7 10c0-9 14-9 14 0'/%3E%3C/g%3E%3Cpath d='M78 22l10-10M84 28l10-10M74 26l14 14'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 100% 0%, rgb(var(--tema-400) / 0.40), transparent 55%),
+    radial-gradient(circle at 0% 100%, rgb(var(--tema-500) / 0.45), transparent 55%),
+    repeating-linear-gradient(135deg, rgb(var(--tema-300) / 0.07) 0 2px, transparent 2px 22px);
+  background-size: 120px 120px, auto, auto, auto;
+  background-repeat: repeat, no-repeat, no-repeat, repeat;
+}

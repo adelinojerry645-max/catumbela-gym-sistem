@@ -19001,7 +19001,7 @@ export default function CatumbelaGymApp() {
             <X size={20} />
           </button>
         </div>
-        <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto menu-fundo-gym" style={{ backgroundImage: `linear-gradient(180deg, rgba(8,20,22,0.78), rgba(8,20,22,0.88)), url("https://images.unsplash.com/photo-1521805103424-d8f8430e8933?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8Mnx8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=70&w=700")`, backgroundSize: "cover", backgroundPosition: "center" }}>
+        <nav className="flex-1 py-3 px-3 space-y-4 overflow-y-auto menu-fundo-gym">
           {MENU.map((grupo) => (
             <div key={grupo.grupo || "geral"}>
               {grupo.grupo && (
