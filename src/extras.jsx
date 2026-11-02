@@ -829,7 +829,7 @@ export function ContasAPagar({ contas, setContas, categorias, contasBancarias, o
 // =====================================================================
 // 8) PÁGINA PÚBLICA DO GINÁSIO (sem login)
 // =====================================================================
-const HORARIO_PADRAO = "Segunda a sexta: 5h às 21h\nSábado: 5h às 13h\n\nPersonal Edy: 5h30 às 10h\nPersonal João: 15h às 21h (segunda a sexta)\nPersonal KC: segunda, quinta e sexta";
+const HORARIO_PADRAO = "Segunda a sexta: 5h às 21h\nSábado: 5h às 13h\n\nSegunda a sexta:\nPersonal Edy: 5h30 às 10h\nPersonal João: 15h às 21h\n\nPersonal KC: segunda, quinta e sexta\n\nSábado: Edy e João revezam-se, um em cada semana";
 
 function textoPlano(p) {
   if (p.entradas) return `${p.entradas} entradas`;
@@ -997,7 +997,7 @@ export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">Horário (uma linha por linha)</label>
-            <textarea rows={6} className={inputCls} value={c.horario ?? HORARIO_PADRAO} onChange={(e) => atualizar({ horario: e.target.value })} />
+            <textarea rows={10} className={inputCls} value={c.horario ?? HORARIO_PADRAO} onChange={(e) => atualizar({ horario: e.target.value })} />
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-500">WhatsApp (se for diferente do telefone do ginásio)</label>
