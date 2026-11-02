@@ -296,7 +296,7 @@ export default function PaginaTreino() {
   const lista = t.descanso ? [] : t.exercicios.filter((e) => !curto || e.essencial);
   const minutos = t.descanso ? 0 : curto ? 30 : t.minutos;
 
-  const link = typeof window !== "undefined" ? `${window.location.origin}/?treino=1` : "";
+  const link = typeof window !== "undefined" ? `${window.location.origin}/treino/` : "";
   const copiar = async () => {
     try {
       await navigator.clipboard.writeText(link);
@@ -314,11 +314,13 @@ export default function PaginaTreino() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
       <header className="relative overflow-hidden bg-gradient-to-br from-tema-700 to-tema-500 text-white px-5 pt-8 pb-10">
+        <img src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8MXx8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=1080" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-luminosity" />
+        <div className="absolute inset-0 bg-gradient-to-t from-tema-700/80 via-transparent to-transparent" />
         <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/10" />
         <div className="absolute -left-6 bottom-0 w-24 h-24 rounded-full bg-white/10" />
         <div className="relative max-w-xl mx-auto">
           <p className="text-xs font-bold tracking-widest text-white/80">CATUMBELA GYM</p>
-          <h1 className="text-3xl font-extrabold mt-1 leading-tight">Treino de hoje</h1>
+          <h1 className="text-4xl font-extrabold mt-1 leading-tight drop-shadow">Treino de hoje</h1>
           <p className="text-white/90 text-sm mt-2">O personal não veio? Segue o treino do dia, feito com os aparelhos do nosso ginásio.</p>
           <div className="flex gap-2 mt-4">
             <button onClick={partilharWhatsApp} className="flex-1 bg-white text-tema-700 font-bold text-sm rounded-xl py-2.5 shadow">Enviar no WhatsApp</button>
