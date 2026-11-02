@@ -96,7 +96,22 @@ const TREINOS_M = {
       { nome: "Elevação de gémeos (panturrilha)", eq: "Máquina de panturrilha", series: "4 × 15", essencial: true, dica: "Sobe o mais alto que conseguires, pára 1 segundo e desce devagar." },
     ],
   },
-  6: { descanso: true, titulo: "Descanso", icone: "😴" },
+  6: {
+    titulo: "Costas + Trapézio + Bíceps",
+    icone: "🔙",
+    cor: "from-sky-700 to-sky-500",
+    minutos: 60,
+    exercicios: [
+      { nome: "Remada curvada com halteres", eq: "Halteres", series: "4 × 10", essencial: true, dica: "Tronco inclinado, costas direitas. Puxa os halteres até à anca, juntando as omoplatas." },
+      { nome: "Puxada alta (pegada fechada)", eq: "Multifuncional (cabo em cima)", series: "3 × 12", essencial: true, dica: "Pegada estreita, mãos viradas uma para a outra. Puxa até ao peito, sem balançar o corpo." },
+      { nome: "Remada baixa no cabo", eq: "Multifuncional (cabo em baixo)", series: "3 × 12", dica: "Peito para fora, costas direitas. Puxa os cotovelos para trás e aperta as costas." },
+      { nome: "Pullover com halter", eq: "Halter + cama para peito", series: "3 × 12", dica: "Deitado na cama para peito, leva o halter por trás da cabeça com os braços quase esticados e volta devagar." },
+      { nome: "Encolhimento de ombros (trapézio)", eq: "Halteres", series: "4 × 15", essencial: true, dica: "Sobe os ombros em direção às orelhas, pára 1 segundo e desce. Sem rodar os ombros." },
+      { nome: "Rosca martelo", eq: "Halteres", series: "3 × 12", essencial: true, dica: "Palmas das mãos viradas uma para a outra, como a segurar um martelo." },
+      { nome: "Rosca no cabo com corda", eq: "Multifuncional (corda de bíceps)", series: "3 × 12", dica: "Cotovelos colados ao corpo. Puxa a corda até ao peito e desce devagar." },
+      { nome: "Rosca concentrada", eq: "Halter", series: "3 × 12 cada braço", essencial: true, dica: "Sentado, cotovelo apoiado na coxa. Sobe o halter devagar e aperta o bíceps em cima." },
+    ],
+  },
   0: { descanso: true, titulo: "Descanso", icone: "😴" },
 };
 
