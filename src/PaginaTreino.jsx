@@ -55,6 +55,7 @@ const TREINOS = {
       { nome: "Agachamento", eq: "Smith ou squat rack", series: "4 × 10", essencial: true, dica: "Pés na largura dos ombros, costas direitas. Desce até as coxas ficarem paralelas ao chão e sobe a empurrar o chão.", alt: "Se estiver ocupado: agachamento com halter (goblet)." },
       { nome: "Leg press", eq: "Leg press", series: "4 × 12", essencial: true, dica: "Não estiques os joelhos por completo no fim. Desce devagar." },
       { nome: "Hack", eq: "Hack fixa ou hack móvel", series: "3 × 10", dica: "Costas bem encostadas. Desce até aos 90° e sobe sem bloquear os joelhos." },
+      { nome: "Cadeira extensora", eq: "Chute (cadeira extensora)", series: "3 × 12", dica: "Sobe as pernas devagar até esticar, pára 1 segundo em cima e desce a controlar. Sem balançar o corpo." },
       { nome: "Mesa flexora (deitado)", eq: "Cama flexora", series: "3 × 12", essencial: true, dica: "Puxa os calcanhares até ao rabo sem levantar a anca da cama." },
       { nome: "Adutora", eq: "Adutora", series: "3 × 15", dica: "Fecha as pernas devagar e aperta 1 segundo no fim." },
       { nome: "Glúteo na máquina", eq: "Máquina para glúteo", series: "3 × 12", dica: "Empurra com o calcanhar e aperta o rabo no fim do movimento." },
@@ -96,7 +97,7 @@ const TREINOS = {
 };
 
 const EQUIPAMENTOS = [
-  { grupo: "Máquinas", itens: ["Leg press", "Hack fixa e hack móvel", "Smith", "Squat rack", "Cross over", "Multifuncional", "Cama flexora", "Adutora", "Máquina de glúteo", "Máquina de panturrilha", "Cadeira para ombro", "Camas para peito", "Paralela", "Banco romano"] },
+  { grupo: "Máquinas", itens: ["Leg press", "Hack fixa e hack móvel", "Chute (cadeira extensora)", "Smith", "Squat rack", "Cross over", "Multifuncional", "Cama flexora", "Adutora", "Máquina de glúteo", "Máquina de panturrilha", "Cadeira para ombro", "Camas para peito", "Paralela", "Banco romano"] },
   { grupo: "Pesos livres", itens: ["Halteres de 1 a 20 kg", "Halteres de discos", "Discos de 1 a 25 kg", "Kettlebells", "Carneleiras (pesos para os pés)", "Cordas de bíceps e tríceps", "Puxadores"] },
   { grupo: "Cardio", itens: ["Passadeiras", "Bikes", "Cordas de saltar", "Corda naval", "Steps"] },
   { grupo: "Abdómen e chão", itens: ["Cama de abdómen", "Rodas de abdómen", "Suporte de flexões", "Bola de yoga", "Banda elástica", "Tapetes", "Cones"] },
