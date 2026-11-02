@@ -2619,7 +2619,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                 <th className="pb-2 font-medium">Nome</th>
                 <th className="pb-2 font-medium">Telefone</th>
                 <th className="pb-2 font-medium">Plano</th>
-                <th className="pb-2 font-medium">Vencimento</th>
+                <th className="pb-2 font-medium">Último dia</th>
                 <th className="pb-2 font-medium">Estado</th>
                 <th className="pb-2 font-medium"></th>
               </tr>
@@ -2647,7 +2647,7 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                   </td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{m.telefone}</td>
                   <td className="py-2.5 text-slate-600 dark:text-slate-300">{m.plano}</td>
-                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{m.vencimento || <span className="text-slate-400 dark:text-slate-500 italic text-xs">—</span>}</td>
+                  <td className="py-2.5 text-slate-600 dark:text-slate-300">{m.vencimento ? ultimoDiaDeTreino(m.vencimento) : <span className="text-slate-400 dark:text-slate-500 italic text-xs">—</span>}</td>
                   <td className="py-2.5"><Pill estado={m.estado} /></td>
                   <td className="py-2.5">
                     <div className="flex items-center justify-end gap-3">
@@ -5086,7 +5086,7 @@ function ControloAcessos({ membros, planos, acessos, onRegistarEntrada, onRegist
                 </div>
                 <div className="ml-auto"><Pill estado={encontrado.estado} /></div>
               </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-1">Validade: {encontrado.vencimento}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 mb-1">Último dia: {encontrado.vencimento ? ultimoDiaDeTreino(encontrado.vencimento) : "—"}</p>
               {estaVencido && diasVencido > 0 && (
                 <p className="text-sm font-bold text-red-600 dark:text-red-400 mb-2">⚠️ Mensalidade vencida há {diasVencido} dia{diasVencido > 1 ? "s" : ""}</p>
               )}
@@ -7725,7 +7725,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                 <th className="pb-2 font-medium">Membro</th>
                 <th className="pb-2 font-medium">Plano</th>
                 <th className="pb-2 font-medium">Preço</th>
-                <th className="pb-2 font-medium">Vencimento</th>
+                <th className="pb-2 font-medium">Último dia</th>
                 <th className="pb-2 font-medium">Estado</th>
                 <th className="pb-2 font-medium"></th>
               </tr>
@@ -7754,7 +7754,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
                       </td>
                       <td className="py-2.5 text-slate-600 dark:text-slate-300">{kz(plano?.preco || 0)}</td>
                       <td className="py-2.5 text-slate-600 dark:text-slate-300">
-                        {m.vencimento || <span className="text-slate-400 dark:text-slate-500 italic">Sem subscrição</span>} {dias !== null && dias >= 0 && dias <= 5 && <span className="text-amber-500 text-xs ml-1">({dias}d)</span>}
+                        {m.vencimento ? ultimoDiaDeTreino(m.vencimento) : <span className="text-slate-400 dark:text-slate-500 italic">Sem subscrição</span>} {dias !== null && dias >= 0 && dias <= 5 && <span className="text-amber-500 text-xs ml-1">({dias}d)</span>}
                       </td>
                       <td className="py-2.5"><Pill estado={m.estado} /></td>
                       <td className="py-2.5 text-right">
@@ -9130,7 +9130,7 @@ function SubscricoesDivergentes({ membros, historicoSubscricoes, onRepor }) {
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">{r.membro.numero}</p>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                Agora: <strong>{r.membro.plano || "sem plano"}</strong>, vence <strong>{r.membro.vencimento || "—"}</strong>
+                Agora: <strong>{r.membro.plano || "sem plano"}</strong>, último dia <strong>{r.membro.vencimento ? ultimoDiaDeTreino(r.membro.vencimento) : "—"}</strong>
               </p>
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
                 Histórico diz: <strong>{r.ultimo.planoNovo || "sem plano"}</strong>, vence <strong>{r.ultimo.vencimentoNovo || "—"}</strong>
@@ -9176,7 +9176,7 @@ function SubscricoesSemRecibo({ membros, faturas, planos, historicoSubscricoes }
                 <Pill estado={membro.estado} />
               </div>
               <p className="text-xs text-slate-400 dark:text-slate-500">
-                {membro.numero} · {membro.plano} · vence {membro.vencimento}
+                {membro.numero} · {membro.plano} · último dia {membro.vencimento ? ultimoDiaDeTreino(membro.vencimento) : "—"}
               </p>
               {ultimoRegisto && (
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
@@ -10222,7 +10222,7 @@ function DarDiasForm({ membro, perfil, limiteAjuste, onConfirmar, onFechar, dias
   return (
     <div className="space-y-2 text-xs">
       <p className="text-slate-600 dark:text-slate-300">
-        Dar dias a <strong>{membro.nome}</strong> — vencimento atual: <strong>{membro.vencimento || "—"}</strong>
+        Dar dias a <strong>{membro.nome}</strong> — último dia atual: <strong>{membro.vencimento ? ultimoDiaDeTreino(membro.vencimento) : "—"}</strong>
         {perfil !== "administrador" && <span className="text-slate-400"> · máximo por vez: {limiteAjuste} dias</span>}
       </p>
       <div className="flex flex-wrap items-center gap-2">
