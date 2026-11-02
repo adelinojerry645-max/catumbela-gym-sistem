@@ -18985,8 +18985,10 @@ export default function CatumbelaGymApp() {
           menuAberto ? "translate-x-0" : "-translate-x-full"
         } md:translate-x-0`}
       >
-        <div className="flex items-center justify-between gap-2.5 px-5 py-5 border-b border-slate-800/80">
-          <div className="flex items-center gap-2.5 min-w-0">
+        <div className="relative overflow-hidden flex items-center justify-between gap-2.5 px-5 py-5 border-b border-slate-800/80 menu-topo">
+          <img src="https://images.unsplash.com/photo-1778828494354-9b717d36dc99?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8M3x8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=600" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-40 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-900/70 to-tema-700/40 pointer-events-none" />
+          <div className="relative flex items-center gap-2.5 min-w-0">
             <div className="bg-white rounded-lg p-1.5 shrink-0 shadow-[0_2px_8px_rgba(0,0,0,0.25)]">
               <img src={dadosGinasio.logo || LOGO_BASE64} alt={dadosGinasio.nome} className="h-8 w-auto object-contain" />
             </div>

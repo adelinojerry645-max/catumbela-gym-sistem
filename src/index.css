@@ -115,3 +115,11 @@ button[class*="bg-tema-500"]:not([class*="bg-tema-500/"]):disabled {
   .card-viva { transition: none; }
   .card-viva:hover { transform: none; }
 }
+
+/* Menu lateral: linha de luz a correr no topo e botões que deslizam */
+.menu-topo::after { content:""; position:absolute; left:0; bottom:0; height:2px; width:40%;
+  background:linear-gradient(90deg, transparent, rgb(var(--tema-300)), transparent); animation: linhaLuz 3.5s ease-in-out infinite; }
+@keyframes linhaLuz { 0%{transform:translateX(-100%)} 100%{transform:translateX(260%)} }
+.vidro-lateral nav a, .vidro-lateral nav button { transition: transform .18s ease, background-color .18s ease; }
+.vidro-lateral nav a:hover, .vidro-lateral nav button:hover { transform: translateX(4px); }
+@media (prefers-reduced-motion: reduce) { .menu-topo::after { animation: none; } }
