@@ -16076,7 +16076,14 @@ export default function CatumbelaGymApp() {
   // um login mais recente noutro aparelho (ver sessoesAtivas mais abaixo).
   const [meuTokenSessao, setMeuTokenSessao] = useLocalOnly("meuTokenSessao", null);
   const [avisoSessaoEncerrada, setAvisoSessaoEncerrada] = useState(false);
-  const [tela, setTela] = useState("dashboard");
+  // Lembra o ecrã onde estavas: ao recarregar a página, volta ao mesmo sítio
+  // (em vez de ir sempre para o Início).
+  const [tela, setTela] = useState(() => {
+    try { return localStorage.getItem("catumbela_tela") || "dashboard"; } catch { return "dashboard"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("catumbela_tela", tela); } catch {}
+  }, [tela]);
   // Quando a Auditoria manda "Ver" um movimento específico, isto guarda
   // para onde ir depois de mudar de ecrã — qual aba abrir, e qual
   // movimento destacar e mostrar em vista, sem a pessoa ter de o
