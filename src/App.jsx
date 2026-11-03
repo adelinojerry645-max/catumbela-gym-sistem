@@ -8129,7 +8129,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
   );
 }
 
-function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
+function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFatura, onPagamentoParcial, onEliminarFatura, onEstenderSubscricao, perfil, nomeAtual }) {
   const [aba, setAba] = useState("emitir"); // "emitir" | "historico"
   const [tipo, setTipo] = useState("FATURA"); // FATURA | PROFORMA | RECIBO
   const [membroId, setMembroId] = useState("");
@@ -8143,6 +8143,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const [metodoParte2, setMetodoParte2] = useState("dinheiro");
   const [contaBancariaIdParte2, setContaBancariaIdParte2] = useState("");
   const [faturaOrigemNumero, setFaturaOrigemNumero] = useState(null); // se este recibo quita uma fatura pendente
+  const [parcialAberta, setParcialAberta] = useState(null);
+  const [parcialValor, setParcialValor] = useState("");
+  const [parcialMetodo, setParcialMetodo] = useState("dinheiro");
+  const [parcialConta, setParcialConta] = useState("");
   const [gerada, setGerada] = useState(null);
   const [aGerarPDF, setAGerarPDF] = useState(false);
   const docRef = useRef(null);
@@ -8517,13 +8521,27 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
           return (
             <div className="divide-y divide-slate-50 dark:divide-slate-700">
               {pendentes.map((f) => (
-                <div key={f.numero} className="flex items-center justify-between py-2.5 text-sm">
+                <div key={f.numero}>
+                <div className="flex items-center justify-between py-2.5 text-sm">
                   <div>
                     <p className="font-medium text-slate-900 dark:text-slate-100">{f.membro.nome}</p>
                     <p className="text-xs text-slate-400 dark:text-slate-500">{f.numero} · {f.data}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="font-bold text-tema-500">{kz(f.valor)}</span>
+                    <div className="text-right">
+                      <span className="font-bold text-tema-500">{kz(f.valor)}</span>
+                      {(f.pagamentosParciais || []).length > 0 && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Pago {kz((f.pagamentosParciais || []).reduce((s, p) => s + Number(p.valor || 0), 0))} · <strong className="text-amber-600">Falta {kz(f.valor - (f.pagamentosParciais || []).reduce((s, p) => s + Number(p.valor || 0), 0))}</strong>
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setParcialAberta(parcialAberta === f.numero ? null : f.numero); setParcialValor(""); setParcialMetodo("dinheiro"); setParcialConta(""); }}
+                      className="text-xs font-semibold text-tema-500 ring-1 ring-tema-250 px-3 py-1.5 rounded-lg"
+                    >
+                      Receber parte
+                    </button>
                     <button
                       onClick={() => {
                         setTipo("RECIBO");
@@ -8542,6 +8560,44 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
                       Preparar recibo desta fatura →
                     </button>
                   </div>
+                </div>
+                {parcialAberta === f.numero && (
+                  <div className="py-2.5 flex flex-wrap items-center gap-2 text-xs bg-tema-100 dark:bg-slate-700 rounded-lg px-3 mb-2">
+                    <input type="number" min="0" value={parcialValor} onChange={(e) => setParcialValor(e.target.value)} placeholder="Valor em Kz"
+                      className="w-28 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+                    <select value={parcialMetodo} onChange={(e) => { setParcialMetodo(e.target.value); setParcialConta(""); }}
+                      className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+                      <option value="dinheiro">Dinheiro</option>
+                      <option value="tpa">TPA</option>
+                      <option value="express">MULTICAIXA Express</option>
+                      <option value="referencia">Referência</option>
+                      <option value="transferencia">Transferência bancária</option>
+                    </select>
+                    {(parcialMetodo === "tpa" || parcialMetodo === "express" || parcialMetodo === "transferencia") && (
+                      <select value={parcialConta} onChange={(e) => setParcialConta(e.target.value)}
+                        className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+                        <option value="">{parcialMetodo === "express" ? "Qual número Express?" : parcialMetodo === "tpa" ? "De qual banco é o TPA?" : "Qual conta recebeu?"}</option>
+                        {obterContasBancarias(dadosGinasio)
+                          .filter((c) => (parcialMetodo === "express" ? !!c.telefone : !!c.iban))
+                          .map((c) => <option key={c.id} value={c.id}>{c.banco}</option>)}
+                      </select>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (faltaContaBancaria(parcialMetodo, parcialConta)) { alert(MSG_FALTA_CONTA); return; }
+                        const r = await onPagamentoParcial(f.numero, { valor: parcialValor, metodo: parcialMetodo, contaBancariaId: parcialConta });
+                        if (r?.erro) { alert(r.erro); return; }
+                        setParcialValor("");
+                        setParcialConta("");
+                        if (r?.recibo) { setParcialAberta(null); alert(`Pago por completo! Recibo ${r.recibo} gerado e a subscrição foi renovada.`); }
+                        else alert(`Registado. Ainda falta ${kz(r?.emFalta || 0)}.`);
+                      }}
+                      className="font-semibold text-white bg-gradient-to-b from-tema-400 to-tema-600 px-3 py-1.5 rounded-lg"
+                    >
+                      Registar pagamento
+                    </button>
+                  </div>
+                )}
                 </div>
               ))}
             </div>
@@ -17543,7 +17599,7 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao, divisaoPagamento }) => {
+  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao, divisaoPagamento, semLedger }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
     // Pagamento dividido — o cliente paga uma parte em dinheiro (em mão) e
@@ -17629,7 +17685,7 @@ export default function CatumbelaGymApp() {
       }
       return novo;
     });
-    if (tipo === "RECIBO" && (metodo || partes)) {
+    if (tipo === "RECIBO" && !semLedger && (metodo || partes)) {
       // Com pagamento dividido, cada parte conta como se fosse o seu
       // próprio pagamento (mesmo número de recibo) — assim os relatórios
       // por método (dinheiro vs. banco) continuam corretos, em vez de todo
@@ -17672,6 +17728,66 @@ export default function CatumbelaGymApp() {
     registarAuditoria(`Gerou ${tipo === "FATURA" ? "fatura" : tipo === "PROFORMA" ? "proforma" : "recibo"} ${numero}`, `${membro.nome} — ${kz(valor)}`);
     agendarWhatsAppRecibo(documento, dadosGinasio?.nome);
     return documento;
+  };
+
+  // PAGAMENTO POR PARTES numa FATURA — o cliente paga aos poucos (ex.: 7 000 hoje,
+  // 1 000 amanhã). Cada parte entra logo no Caixa/Banco (ligada ao número da
+  // fatura). Quando a soma chega ao total, gera-se o RECIBO final (sem contar o
+  // dinheiro outra vez), as entradas passam para o número do recibo e só aí a
+  // subscrição avança.
+  const registarPagamentoParcialFatura = async (faturaNumero, { valor, metodo, contaBancariaId }) => {
+    const f = faturas.find((x) => x.numero === faturaNumero);
+    const v = Number(valor) || 0;
+    if (!f || f.tipo !== "FATURA" || f.estado === "paga" || v <= 0) return { erro: "Valor inválido." };
+    const jaPago = (f.pagamentosParciais || []).reduce((s, p) => s + Number(p.valor || 0), 0);
+    const emFalta = Math.max(0, Number(f.valor) - jaPago);
+    if (v > emFalta) return { erro: `O valor é maior que o que falta (${kz(emFalta)}).` };
+    const agora = new Date();
+    const parte = {
+      valor: v, metodo, contaBancariaId: metodo === "dinheiro" ? null : contaBancariaId || null,
+      data: agora.toLocaleDateString("pt-PT"),
+      hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      registadoPor: contaAtual?.nome || "—",
+    };
+    const todas = [...(f.pagamentosParciais || []), parte];
+    const completo = jaPago + v >= Number(f.valor);
+    const contaEsc = parte.contaBancariaId ? obterContasBancarias(dadosGinasio).find((c) => String(c.id) === String(parte.contaBancariaId)) : null;
+    const itemPlano = (f.itens || []).find((i) => String(i.referencia || "").startsWith("PLANO-"));
+    const tipoRec = itemPlano ? "mensalidade" : "outro";
+    const registo = {
+      id: Date.now(), direcao: "entrada",
+      subtipo: `Pagamento parcial (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`,
+      valor: v, descricao: `${f.numero} — ${f.membro.nome}`,
+      data: `${parte.data} ${parte.hora}`, registadoPor: parte.registadoPor,
+      origem: "recibo", origemNumero: f.numero, contaBancariaNome: contaEsc?.banco || null,
+      tipoReceita: tipoRec, metodo,
+    };
+    setFaturas((atual) => atual.map((x) => (x.numero === f.numero ? { ...x, pagamentosParciais: todas } : x)));
+    setPagamentosFeitos((atual) => [
+      ...atual,
+      { id: `${f.numero}-pp${todas.length - 1}`, numero: f.numero, metodo, valor: v, registadoPor: parte.registadoPor, tipo: tipoRec, planoNome: null, data: dataLocalISO(agora) },
+    ]);
+    if (metodo === "dinheiro") setMovimentosCaixa((atual) => [registo, ...atual]);
+    else setMovimentosBancarios((atual) => [registo, ...atual]);
+    registarAuditoria(`Pagamento parcial da fatura ${f.numero}`, `${f.membro.nome} — ${kz(v)} (${ROTULO_METODO_PAGAMENTO[metodo] || metodo})`);
+    if (!completo) return { emFalta: emFalta - v };
+    // Completo → recibo final com as partes todas discriminadas.
+    const divisao = todas.map((p) => ({ metodo: p.metodo, valor: p.valor, contaBancariaId: p.contaBancariaId }));
+    const recibo = await gerarDocumentoFaturacao({
+      tipo: "RECIBO", membro: f.membro,
+      itens: f.itens.map(({ referencia, descricao, qtd, precoUnit }) => ({ referencia, descricao, qtd, precoUnit, total: qtd * precoUnit })),
+      valor: Number(f.valor), metodo: divisao[0].metodo, divisaoPagamento: divisao.length > 1 ? divisao : undefined,
+      faturaOrigemNumero: f.numero, tipoReceita: tipoRec, semLedger: true,
+    });
+    if (recibo?.numero) {
+      let i = 0;
+      setPagamentosFeitos((atual) => atual.map((p) => (p.numero === f.numero ? { ...p, numero: recibo.numero, id: `${recibo.numero}-p${i++}` } : p)));
+      setMovimentosCaixa((atual) => atual.map((m) => (m.origemNumero === f.numero ? { ...m, origemNumero: recibo.numero, descricao: `${recibo.numero} — ${f.membro.nome}` } : m)));
+      setMovimentosBancarios((atual) => atual.map((m) => (m.origemNumero === f.numero ? { ...m, origemNumero: recibo.numero, descricao: `${recibo.numero} — ${f.membro.nome}` } : m)));
+      const nomePlano = itemPlano ? (planos.find((p) => `PLANO-${p.nome.toUpperCase()}` === itemPlano.referencia) || {}).nome : null;
+      if (nomePlano) estenderSubscricaoPeloRecibo(f.membro.id, nomePlano, recibo.numero, itemPlano.qtd || 1);
+    }
+    return { emFalta: 0, recibo: recibo?.numero };
   };
 
   // Elimina um documento do histórico E desfaz tudo o que ele gerou (a
@@ -19348,7 +19464,7 @@ export default function CatumbelaGymApp() {
             <PlanoAtividades atividades={atividades} trainers={trainers} reservasAtividades={reservasAtividades} onAdicionar={adicionarAtividade} onAtualizar={atualizarAtividade} onRemover={removerAtividade} />
           )}
           {telaAtual === "faturacao" && (perfil === "administrador" || perfil === "recepcionista") && (
-            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} />
+            <Faturacao membros={membros} planos={planos} produtos={produtos} dadosGinasio={dadosGinasio} faturas={faturas} onGerarFatura={gerarDocumentoFaturacao} onPagamentoParcial={registarPagamentoParcialFatura} onEliminarFatura={eliminarFatura} onEstenderSubscricao={estenderSubscricaoPeloRecibo} perfil={perfil} nomeAtual={contaAtual?.nome} />
           )}
           {telaAtual === "pos" && (
             <VendasPOS produtos={produtos} membros={membros} dadosGinasio={dadosGinasio} onFinalizar={finalizarVenda} />
