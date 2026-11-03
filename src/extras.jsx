@@ -102,6 +102,7 @@ export function PaginaPublicaOpiniao() {
   return (
     <div className="min-h-screen fundo-vidro bg-slate-50 font-sans text-slate-800 flex items-start sm:items-center justify-center p-4">
       <div className="w-full max-w-md">
+        <a href="/?ginasio=1" className="inline-block mb-3 px-1 text-sm font-semibold text-slate-600">← Voltar</a>
         <div className="flex items-center gap-3 mb-4 px-1">
           <img src="/icons/icon-192.png" alt="Catumbela Gym" className="w-12 h-12 rounded-xl bg-white" />
           <div>

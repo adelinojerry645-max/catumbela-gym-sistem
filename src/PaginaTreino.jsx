@@ -452,6 +452,7 @@ export default function PaginaTreino() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
       <header className="relative overflow-hidden bg-gradient-to-br from-tema-700 to-tema-500 text-white px-5 pt-8 pb-10">
+        <a href="/?ginasio=1" className="relative z-10 inline-block mb-3 text-sm font-semibold text-white/90">← Voltar</a>
         <img src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8MXx8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=1080" alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-luminosity" />
         <div className="absolute inset-0 bg-gradient-to-t from-tema-700/80 via-transparent to-transparent" />
         <div className="absolute -right-8 -top-8 w-40 h-40 rounded-full bg-white/10" />
