@@ -853,6 +853,8 @@ export function PaginaPublicaGinasio() {
   const g = dados?.ginasio || {};
   const cfg = dados?.config || {};
   const planos = (dados?.planos || []).filter((p) => !(cfg.planosOcultos || []).includes(p.id));
+  // Valor da taxa de inscrição (matrícula). Pode vir da configuração da página; por omissão 3 000 Kz.
+  const taxaInscricao = Number(cfg.taxaInscricao ?? g.taxaInscricaoPadrao ?? 3000) || 0;
   const tel = String(cfg.whatsapp || g.telefone || "").replace(/\D/g, "");
   const wa = tel ? `https://wa.me/${tel.length <= 9 ? "244" + tel : tel}?text=${encodeURIComponent("Olá! Gostava de saber mais sobre o Catumbela Gym.")}` : null;
   const morada = [g.morada, g.cidade, "Angola"].filter(Boolean).join(", ");
@@ -890,6 +892,16 @@ export function PaginaPublicaGinasio() {
         <Bloco titulo="Horário">
           <p className="whitespace-pre-line text-slate-700">{cfg.horario || HORARIO_PADRAO}</p>
         </Bloco>
+
+        {taxaInscricao > 0 && (
+          <div className="bg-tema-600 text-white rounded-3xl shadow-lg p-5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-extrabold">Taxa de inscrição</p>
+              <p className="text-xs text-white/80">Paga uma só vez, na primeira inscrição</p>
+            </div>
+            <p className="text-2xl font-extrabold shrink-0">{kz(taxaInscricao)}</p>
+          </div>
+        )}
 
         {planos.length > 0 && (
           <Bloco titulo="Planos">
