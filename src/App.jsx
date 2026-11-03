@@ -16869,7 +16869,12 @@ export default function CatumbelaGymApp() {
     // Quem se inscreve sozinho (fora da receção) também fica sujeito à taxa
     // de inscrição definida em Configurações — fica pendente e é cobrada
     // junto com a primeira mensalidade, em "Pagar mensalidade".
-    const taxaInscricaoPendente = Number(dadosGinasio?.taxaInscricaoPadrao) > 0 ? Number(dadosGinasio.taxaInscricaoPadrao) : 0;
+    // Se ainda não houver taxa definida em Configurações, usa 3 000 Kz (a taxa que o ginásio cobra).
+    // Só fica a 0 se o administrador pôr mesmo 0.
+    const taxaConfigurada = dadosGinasio?.taxaInscricaoPadrao;
+    const taxaInscricaoPendente = taxaConfigurada === undefined || taxaConfigurada === null || taxaConfigurada === ""
+      ? 3000
+      : (Number(taxaConfigurada) > 0 ? Number(taxaConfigurada) : 0);
     const membroNovo = {
       id: novoIdMembro,
       numero,
