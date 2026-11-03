@@ -8156,12 +8156,13 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
   const membro = membros.find((m) => String(m.id) === String(membroId));
   const plano = membro ? planos.find((p) => p.nome === membro.plano) : null;
 
-  const adicionarMensalidade = () => {
-    if (!membro || !plano) return;
-    if (itensSelecionados.some((i) => i.referencia === `PLANO-${plano.nome.toUpperCase()}`)) return;
+  const adicionarMensalidade = (planoEscolhido) => {
+    const pl = planoEscolhido || plano;
+    if (!membro || !pl) return;
+    // Só um plano por documento: trocar de plano substitui o anterior.
     setItensSelecionados((atual) => [
-      ...atual,
-      { referencia: `PLANO-${plano.nome.toUpperCase()}`, descricao: `Plano ${plano.nome} (${plano.duracaoDias} dias/mês)`, qtd: 1, precoUnit: plano.preco },
+      ...atual.filter((i) => !String(i.referencia || "").startsWith("PLANO-")),
+      { referencia: `PLANO-${pl.nome.toUpperCase()}`, descricao: `Plano ${pl.nome} (${pl.duracaoDias} dias/mês)`, qtd: 1, precoUnit: pl.preco },
     ]);
   };
 
@@ -8243,9 +8244,10 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
     // estendida — senão o dinheiro fica registado mas o vencimento nunca avança.
     // A quantidade do item (qtd) representa quantos MESES foram pagos de uma
     // vez — sem isto, pagar 3 meses só avançava o vencimento em 1 mês.
-    const itemPlano = itensSelecionados.find((i) => i.referencia === `PLANO-${plano?.nome.toUpperCase()}`);
-    if (tipo === "RECIBO" && plano && itemPlano) {
-      onEstenderSubscricao(membro.id, plano.nome, gravado.numero, itemPlano.qtd || 1);
+    const itemPlano = itensSelecionados.find((i) => String(i.referencia || "").startsWith("PLANO-"));
+    const planoDoItem = itemPlano ? planos.find((p) => `PLANO-${p.nome.toUpperCase()}` === itemPlano.referencia) : null;
+    if (tipo === "RECIBO" && planoDoItem) {
+      onEstenderSubscricao(membro.id, planoDoItem.nome, gravado.numero, itemPlano.qtd || 1);
     }
     setGerada(gravado);
   };
@@ -8327,25 +8329,19 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
 
             {membro && (
               <>
-                {plano ? (
-                  <button
-                    onClick={adicionarMensalidade}
-                    className="w-full text-sm font-semibold border border-tema-250 text-tema-500 rounded-lg py-2 hover:bg-tema-100 dark:hover:bg-slate-700"
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Plano a cobrar {plano ? `(atual: ${membro.plano})` : ""}
+                  </label>
+                  <select
+                    value=""
+                    onChange={(e) => { const pl = planos.find((p) => p.nome === e.target.value); if (pl) adicionarMensalidade(pl); }}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-tema-250 text-tema-500 font-semibold dark:bg-slate-900 text-sm"
                   >
-                    + Adicionar plano do membro ({membro.plano} — {kz(plano.preco)})
-                  </button>
-                ) : (
-                  <div className="text-sm bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-800 rounded-lg p-3">
-                    <p className="text-amber-700 dark:text-amber-400 font-medium">
-                      Este membro não tem um plano válido associado
-                      {membro.plano ? ` ("${membro.plano}" já não existe na lista de Planos)` : " (ainda não subscreveu nenhum plano)"}.
-                    </p>
-                    <p className="text-amber-600 dark:text-amber-500 text-xs mt-1">
-                      Vai a <strong>Subscrições</strong> e escolhe/confirma o plano dele — isso já gera o recibo
-                      diretamente, sem precisares de vir aqui.
-                    </p>
-                  </div>
-                )}
+                    <option value="">+ Escolher plano (pode ser outro, diferente do atual)</option>
+                    {planos.map((p) => <option key={p.nome} value={p.nome}>{p.nome} — {kz(p.preco)}</option>)}
+                  </select>
+                </div>
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 -mt-1">
                   Venda de produtos do stock faz-se em "Vendas (POS)" — aqui é só para o plano/mensalidade do membro.
                 </p>
