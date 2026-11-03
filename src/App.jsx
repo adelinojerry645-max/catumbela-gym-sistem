@@ -2499,6 +2499,18 @@ function CanvasAssinatura({ onAssinar }) {
   );
 }
 
+// Regras da mensalidade e das faltas — aparecem no contrato (termo) e nos Termos.
+const REGRAS_FALTAS = [
+  "A mensalidade tem 30 dias seguidos, a contar do dia do pagamento. Faltar não dá direito a dias de volta nem a dinheiro.",
+  "Problema do ginásio (avaria, falta de luz ou ginásio fechado): os dias perdidos são devolvidos.",
+  "Doença: com prova (mensagem ou foto da declaração médica), até 7 dias por mensalidade.",
+  "Trabalho ou viagem curta: avisa no próprio dia, pelo WhatsApp da receção. Máximo de 3 dias por mensalidade. Sem aviso, não há dias.",
+  "Pausa: se vais faltar mais de 7 dias seguidos (doença ou viagem), avisa antes. Podes pedir 1 pausa por mensalidade, de até 15 dias. Durante a pausa o plano pára e depois continua.",
+  "No total, só podes receber até 7 dias de compensação por mensalidade (sem contar os dias por problema do ginásio). Acima disso, só o administrador decide.",
+  "Todos os dias dados ficam registados no sistema, com o motivo e quem os deu.",
+  "Se não renovares, o plano acaba no dia a seguir ao último dia. Quando renovares, a nova mensalidade conta a partir do dia do pagamento, e os dias parados não se recuperam.",
+  "A mensalidade e a taxa de inscrição não são reembolsáveis.",
+];
 const TEXTO_TERMO_RESPONSABILIDADE = `Declaro que estou em condições físicas adequadas para a prática de exercício físico neste ginásio, e que participo nas atividades por minha conta e risco. Comprometo-me a seguir as regras e normas de funcionamento do espaço, e a informar a equipa técnica de qualquer condição de saúde relevante antes de iniciar os treinos.`;
 
 function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRemove, onCancelar, onReativar, onAlternarSuspensao, onAdicionarAdvertencia, onRemoverAdvertencia, onAprovarAdvertencia, onRejeitarAdvertencia, onDefinirMeta, perfil, dadosGinasio, historicoCargas, avaliacoesFisicas, acessos }) {
@@ -2862,6 +2874,11 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
                   <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Termo de responsabilidade (opcional)</p>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2 leading-relaxed">{TEXTO_TERMO_RESPONSABILIDADE}</p>
+                  <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1">Regras da mensalidade e das faltas</p>
+                  <ol className="list-decimal pl-5 mb-3 space-y-1 text-[11px] text-slate-400 dark:text-slate-500 leading-relaxed">
+                    {REGRAS_FALTAS.map((r, i) => <li key={i}>{r}</li>)}
+                  </ol>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-2">Ao assinar, aceito o termo de responsabilidade e estas regras.</p>
                   <CanvasAssinatura onAssinar={(assinatura) => setNovo({ ...novo, assinaturaContrato: assinatura })} />
                 </div>
               ) : novo.assinaturaContrato ? (
@@ -15529,6 +15546,10 @@ function ModalPrivacidade({ dadosGinasio, onFechar }) {
 
         <h4 className="font-semibold mt-3 mb-1">5. Regras da mensalidade e reembolsos</h4>
         <p>A mensalidade dá acesso ao ginásio durante o período pago. Depois de paga e iniciada, a mensalidade e a taxa de inscrição <strong>não são reembolsáveis</strong>, salvo erro nosso (por exemplo, valor cobrado a mais ou cobrança em duplicado), que é corrigido com devolução ou crédito. Se o ginásio ficar fechado por muito tempo por causa nossa, o tempo perdido é compensado. A subscrição não é cobrada sozinha: só renova quando pagas outra vez.</p>
+        <p className="mt-2 font-medium">Se faltares, estas são as regras:</p>
+        <ol className="list-decimal pl-5 space-y-1 mt-1">
+          {REGRAS_FALTAS.map((r, i) => <li key={i}>{r}</li>)}
+        </ol>
 
         <h4 className="font-semibold mt-3 mb-1">6. Uso do ginásio</h4>
         <p>Usa o espaço e os equipamentos com cuidado e respeito. O cartão/QR é pessoal e não pode ser emprestado. Treinas por tua conta e risco; se tiveres algum problema de saúde, consulta um médico antes de treinar. O ginásio pode recusar ou terminar o acesso a quem não cumprir as regras.</p>
