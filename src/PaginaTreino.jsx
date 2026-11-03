@@ -406,7 +406,7 @@ export default function PaginaTreino() {
     setErroPT("");
     try {
       const { data, error } = await supabase.rpc("treino_personal_validar", { p_senha: senhaTxt });
-      if (error || data !== true) { setErroPT(error ? "Não consegui ligar. Tenta outra vez." : "Senha errada."); return; }
+      if (error || !data) { setErroPT(error ? "Não consegui ligar. Tenta outra vez." : "Senha errada."); return; }
       try { sessionStorage.setItem("catumbela_pt_senha", senhaTxt); } catch {}
       setSenhaPT(senhaTxt); setPedirSenha(false); setSenhaTxt(""); setEditar(true);
     } catch { setErroPT("Não consegui ligar. Tenta outra vez."); }
@@ -499,9 +499,9 @@ export default function PaginaTreino() {
               <p className="text-xs font-bold tracking-widest text-white/80">{ehHoje ? "TREINO DE HOJE" : diaInfo.nome.toUpperCase()}</p>
               <h2 className="text-2xl font-extrabold mt-1 leading-tight">{t.icone} {t.titulo}</h2>
               <p className="text-sm font-semibold mt-3 bg-white/20 inline-block rounded-full px-3 py-1">⏱ {minutos} min · 🔥 {lista.length} exercícios</p>
-              {doPersonal && <p className="text-xs font-bold mt-2 text-white/90">👨‍🏫 Treino feito pelo personal</p>}
+              {doPersonal && <p className="text-xs font-bold mt-2 text-white/90">👨‍🏫 Treino feito pelo personal{doPersonal.personal ? ` ${doPersonal.personal}` : ""}</p>}
             </section>
-            {doPersonal?.nota && <div className="rounded-2xl bg-white border-l-4 border-tema-500 shadow-sm p-3.5 text-sm text-slate-700 mt-3"><span className="font-bold text-tema-700">Aviso do personal: </span>{doPersonal.nota}</div>}
+            {doPersonal?.nota && <div className="rounded-2xl bg-white border-l-4 border-tema-500 shadow-sm p-3.5 text-sm text-slate-700 mt-3"><span className="font-bold text-tema-700">Aviso do personal{doPersonal.personal ? ` ${doPersonal.personal}` : ""}: </span>{doPersonal.nota}</div>}
 
             {!doPersonal && <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-1.5 flex gap-1.5 mt-3">
               <button onClick={() => setCurto(false)} className={`flex-1 rounded-xl py-2 text-sm font-bold transition ${!curto ? "bg-tema-600 text-white shadow" : "text-slate-500"}`}>Tenho tempo ({t.minutos} min)</button>
