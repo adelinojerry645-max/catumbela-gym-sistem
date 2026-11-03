@@ -15468,6 +15468,7 @@ const MENU_RECEPCAO = [
       { id: "subscricoes", label: "Subscrições", icon: ClipboardList },
       { id: "atletas-em-falta", label: "Atletas em Falta", icon: AlertTriangle },
       { id: "pagamentos", label: "Pagamentos", icon: CreditCard },
+      { id: "aprovacao", label: "Aprovação de Pagamentos", icon: ShieldCheck },
       { id: "faturacao", label: "Faturação / Recibos", icon: FileText },
       { id: "pos", label: "Vendas (POS)", icon: ShoppingCart },
       { id: "stock", label: "Stock / Produtos", icon: Package },
@@ -19267,7 +19268,7 @@ export default function CatumbelaGymApp() {
           {telaAtual === "pagamentos" && (
             <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
           )}
-          {telaAtual === "aprovacao" && perfil === "administrador" && (
+          {telaAtual === "aprovacao" && (perfil === "administrador" || perfil === "recepcionista") && (
             <AprovacaoPagamentos pendentes={pagamentosPendentes} onAprovar={aprovarPagamento} onRejeitar={rejeitarPagamento} />
           )}
           {telaAtual === "caixa" && perfil === "administrador" && (
