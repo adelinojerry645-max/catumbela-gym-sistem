@@ -831,6 +831,68 @@ export function ContasAPagar({ contas, setContas, categorias, contasBancarias, o
 // =====================================================================
 const HORARIO_PADRAO = "Segunda a sexta: 5h às 21h\nSábado: 5h às 13h\n\nSegunda a sexta:\nPersonal Edy: 5h30 às 10h\nPersonal João: 15h às 21h\n\nPersonal KC: segunda, quinta e sexta\n\nSábado: Edy e João revezam-se, um em cada semana";
 
+// Regras do ginásio. Uma linha por regra; as linhas que começam por "# " são títulos.
+// O administrador pode mudar o texto em "Página Pública" (menu); se estiver vazio usa este.
+const REGRAS_PADRAO = `# Entrada e cartão
+Mostra o teu cartão ou QR na entrada. É pessoal e não pode ser emprestado.
+Só treina quem tem a mensalidade em dia. O último dia do teu plano aparece na tua ficha.
+Marca sempre a entrada e a saída. Ficar mais de 2 horas tem uma taxa de 300 Kz.
+
+# Roupa e higiene
+Treina com roupa e calçado desportivos.
+Traz uma toalha e limpa o aparelho depois de usares.
+Podes trazer a tua garrafa de água.
+
+# Equipamentos
+Usa os aparelhos com cuidado e põe os pesos no lugar depois de usar.
+Não largues os pesos no chão com força.
+Se o aparelho estiver ocupado, passa ao seguinte. Se tiver gente à espera, descansa só 1 minuto entre séries.
+Se algum aparelho estiver avariado, avisa a receção.
+Se tiveres dúvidas num exercício, pede ajuda ao personal.
+
+# Respeito e segurança
+Respeita todos no ginásio. Não são permitidas ofensas nem violência.
+Não tires fotos nem vídeos de outras pessoas sem elas deixarem.
+É proibido fumar e consumir álcool ou drogas no espaço.
+Cuida dos teus pertences.
+Se tiveres algum problema de saúde, avisa antes de treinar. Treinas por tua conta e risco.
+Quem não cumprir as regras pode receber advertência e perder o acesso.
+
+# Mensalidade e faltas
+A mensalidade tem 30 dias seguidos, a contar do dia do pagamento. Faltar não dá dias nem dinheiro de volta.
+Problema do ginásio (avaria, falta de luz ou ginásio fechado): os dias perdidos são devolvidos.
+Doença, com prova (mensagem ou foto da declaração médica): até 7 dias por mensalidade.
+Trabalho ou viagem curta: avisa no próprio dia pelo WhatsApp da receção. Máximo 3 dias por mensalidade.
+Pausa: se vais faltar mais de 7 dias seguidos, avisa antes. 1 pausa por mensalidade, de até 15 dias.
+A mensalidade e a taxa de inscrição não são reembolsáveis.`;
+
+function BlocosRegras({ texto }) {
+  const grupos = [];
+  String(texto || "").split("\n").map((l) => l.trim()).filter(Boolean).forEach((l) => {
+    if (l.startsWith("#")) grupos.push({ titulo: l.replace(/^#+\s*/, ""), itens: [] });
+    else {
+      if (!grupos.length) grupos.push({ titulo: "", itens: [] });
+      grupos[grupos.length - 1].itens.push(l);
+    }
+  });
+  return (
+    <div className="space-y-4">
+      {grupos.map((g, i) => (
+        <div key={i}>
+          {g.titulo && <p className="text-xs font-bold text-tema-700 uppercase tracking-wide mb-1.5">{g.titulo}</p>}
+          <ul className="space-y-1.5">
+            {g.itens.map((it, j) => (
+              <li key={j} className="flex gap-2 text-sm text-slate-700 leading-snug">
+                <span className="text-tema-500 font-bold shrink-0">✓</span><span>{it}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function textoPlano(p) {
   if (p.entradas) return `${p.entradas} entradas`;
   const d = p.duracaoDias;
@@ -916,6 +978,12 @@ export function PaginaPublicaGinasio() {
                 </div>
               ))}
             </div>
+          </Bloco>
+        )}
+
+        {cfg.mostrarRegras !== false && (
+          <Bloco titulo="Regras do ginásio">
+            <BlocosRegras texto={(cfg.regras && cfg.regras.trim()) ? cfg.regras : REGRAS_PADRAO} />
           </Bloco>
         )}
 
@@ -1062,6 +1130,14 @@ export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
             <label className="text-xs font-semibold text-slate-500">WhatsApp (se for diferente do telefone do ginásio)</label>
             <input className={inputCls} value={c.whatsapp || ""} onChange={(e) => atualizar({ whatsapp: e.target.value })} placeholder="9xx xxx xxx" />
           </div>
+          <div>
+            <label className="text-xs font-semibold text-slate-500">Regras do ginásio (uma regra por linha; as linhas que começam por # são títulos)</label>
+            <textarea rows={14} className={inputCls} value={c.regras ?? REGRAS_PADRAO} onChange={(e) => atualizar({ regras: e.target.value })} />
+            <button type="button" className={btnSuave + " mt-1"} onClick={() => atualizar({ regras: REGRAS_PADRAO })}>Voltar ao texto base</button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input type="checkbox" checked={c.mostrarRegras !== false} onChange={(e) => atualizar({ mostrarRegras: e.target.checked })} /> Mostrar as regras na página pública
+          </label>
           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
             <input type="checkbox" checked={c.mostrarPrecos !== false} onChange={(e) => atualizar({ mostrarPrecos: e.target.checked })} /> Mostrar os preços
           </label>
