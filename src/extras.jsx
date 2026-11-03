@@ -876,6 +876,33 @@ A mensalidade e a taxa de inscrição não são reembolsáveis.
 
 O cumprimento destas regras é obrigatório para garantir a segurança, a higiene e o bom funcionamento do ginásio. O não cumprimento poderá resultar em advertências ou suspensão do acesso.`;
 
+function BlocosRegras({ texto }) {
+  const grupos = [];
+  String(texto || "").split("\n").map((l) => l.trim()).filter(Boolean).forEach((l) => {
+    if (l.startsWith("#")) grupos.push({ titulo: l.replace(/^#+\s*/, ""), itens: [] });
+    else {
+      if (!grupos.length) grupos.push({ titulo: "", itens: [] });
+      grupos[grupos.length - 1].itens.push(l);
+    }
+  });
+  return (
+    <div className="space-y-4">
+      {grupos.map((g, i) => (
+        <div key={i}>
+          {g.titulo && <p className="text-xs font-bold text-tema-700 uppercase tracking-wide mb-1.5">{g.titulo}</p>}
+          <ul className="space-y-1.5">
+            {g.itens.map((it, j) => (
+              <li key={j} className="flex gap-2 text-sm text-slate-700 leading-snug">
+                <span className="text-tema-500 font-bold shrink-0">✓</span><span>{it}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function textoPlano(p) {
   if (p.entradas) return `${p.entradas} entradas`;
   const d = p.duracaoDias;
@@ -885,140 +912,19 @@ function textoPlano(p) {
   return `${d} dias`;
 }
 
-// ---------- Página pública do ginásio (desenho novo: a anilha é a forma da página) ----------
-const FUNDO = "rgb(var(--lat-fundo))";
-const MEIO = "rgb(var(--lat-meio))";
-const ACENTO = "rgb(var(--acento))";
-const FOTO_HERO = "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=1000&h=1000";
-const FOTO_HORARIO = "https://images.unsplash.com/photo-1733517301178-312a6f694f2d?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=900&h=900";
-const FOTO_ONDE = "https://images.unsplash.com/photo-1733517300919-ec69c1447345?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=900&h=900";
-const FOTO_REGRAS = "https://images.unsplash.com/photo-1652364649008-99b647d0d1d0?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=700&h=700";
-const FONTE_TITULO = '"Stack Sans Headline", "Helvetica Neue", Arial, sans-serif';
-const FONTE_TEXTO = '"Stack Sans Text", "Helvetica Neue", Arial, sans-serif';
-
-// Lê a primeira linha de horários ("Segunda a sexta: 5h às 21h") e diz se está aberto agora.
-function estadoAbertura(horario, agora = new Date()) {
-  const bloco = String(horario || "").split(/\n\s*\n/)[0];
-  const intervalos = {};
-  const diasDe = (t) => (/segunda/i.test(t) ? [1, 2, 3, 4, 5] : /s[áa]bado/i.test(t) ? [6] : [0]);
-  bloco.split("\n").forEach((l) => {
-    const m = l.match(/^\s*(segunda a sexta|segunda-feira a sexta-feira|s[áa]bado|domingo)[^:]*:\s*(\d{1,2})h(\d{2})?\s*(?:às|as|a|-)\s*(\d{1,2})h(\d{2})?/i);
-    if (!m) return;
-    const ini = Number(m[2]) * 60 + Number(m[3] || 0);
-    const fim = Number(m[4]) * 60 + Number(m[5] || 0);
-    diasDe(m[1]).forEach((d) => { intervalos[d] = [ini, fim]; });
-  });
-  if (!Object.keys(intervalos).length) return null;
-  const fmt = (min) => `${Math.floor(min / 60)}h${min % 60 ? String(min % 60).padStart(2, "0") : ""}`;
-  const agoraMin = agora.getHours() * 60 + agora.getMinutes();
-  const hoje = intervalos[agora.getDay()];
-  if (hoje && agoraMin >= hoje[0] && agoraMin < hoje[1]) return { aberto: true, texto: `Aberto agora · fecha às ${fmt(hoje[1])}` };
-  const nomes = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
-  for (let i = 0; i < 8; i++) {
-    const d = (agora.getDay() + i) % 7;
-    const iv = intervalos[d];
-    if (!iv) continue;
-    if (i === 0 && agoraMin >= iv[0]) continue;
-    const quando = i === 0 ? "hoje" : i === 1 ? "amanhã" : nomes[d];
-    return { aberto: false, texto: `Fechado · abre ${quando} às ${fmt(iv[0])}` };
-  }
-  return null;
-}
-
-// Regras: títulos "# ..." e uma regra por linha. A última linha depois de um espaço em branco é a nota final.
-function agruparRegras(texto) {
-  const linhas = String(texto || "").split("\n").map((l) => l.trim());
-  const grupos = [];
-  let nota = "";
-  const ultimoIdx = (() => { for (let i = linhas.length - 1; i >= 0; i--) if (linhas[i]) return i; return -1; })();
-  linhas.forEach((l, i) => {
-    if (!l) return;
-    if (l.startsWith("#")) { grupos.push({ titulo: l.replace(/^#+\s*/, ""), itens: [] }); return; }
-    if (i === ultimoIdx && i > 0 && !linhas[i - 1] && grupos.length) { nota = l; return; }
-    if (!grupos.length) grupos.push({ titulo: "", itens: [] });
-    grupos[grupos.length - 1].itens.push(l);
-  });
-  return { grupos, nota };
-}
-
-function Anilha({ foto, alt = "", className = "", style = {} }) {
-  return (
-    <div className={`relative rounded-full aspect-square ${className}`} style={{ background: ACENTO, ...style }}>
-      <div className="absolute rounded-full overflow-hidden" style={{ inset: "9%" }}>
-        <img src={foto} alt={alt} width="800" height="800" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="w-full h-full object-cover" />
-      </div>
-      <div className="absolute rounded-full" style={{ width: "7%", height: "7%", left: "46.5%", top: "46.5%", background: FUNDO }} />
-    </div>
-  );
-}
-
-function RegrasCasa({ texto }) {
-  const { grupos, nota } = useMemo(() => agruparRegras(texto), [texto]);
-  return (
-    <div className="space-y-12 md:space-y-16">
-      {grupos.map((g, i) => {
-        const destaque = i === 0 && grupos.length > 1;
-        const lista = (
-          <ul className={`grid gap-x-12 gap-y-4 ${destaque ? "" : "md:grid-cols-2"}`}>
-            {g.itens.map((it, j) => (
-              <li key={j} className="flex gap-3 text-[17px] leading-snug">
-                <span className="mt-[7px] shrink-0 rounded-full" style={{ width: 11, height: 11, background: ACENTO }} />
-                <span>{it}</span>
-              </li>
-            ))}
-          </ul>
-        );
-        const cab = g.titulo && (
-          <div className="flex items-baseline justify-between gap-4 mb-6">
-            <h3 style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em" }} className="text-[clamp(1.75rem,1.2rem+2.4vw,2.75rem)] leading-[1.05]">{g.titulo}</h3>
-            <span className="text-[15px] opacity-70 shrink-0">{g.itens.length}</span>
-          </div>
-        );
-        return destaque ? (
-          <div key={i} className="relative overflow-hidden rounded-3xl p-6 md:p-10 text-white" style={{ background: FUNDO }}>
-            <div className="relative">{cab}{lista}</div>
-          </div>
-        ) : (
-          <div key={i}>{cab}{lista}</div>
-        );
-      })}
-      {nota && <p className="text-[19px] leading-snug max-w-2xl" style={{ fontFamily: FONTE_TITULO, fontWeight: 300 }}>{nota}</p>}
-    </div>
-  );
-}
-
 export function PaginaPublicaGinasio() {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState(false);
   useEffect(() => {
     document.title = "Catumbela Gym";
-    if (!document.getElementById("fonte-stack-sans")) {
-      const l = document.createElement("link");
-      l.id = "fonte-stack-sans";
-      l.rel = "stylesheet";
-      l.href = "https://fonts.googleapis.com/css2?family=Stack+Sans+Headline:wght@300&family=Stack+Sans+Text:wght@400;500&display=swap";
-      document.head.appendChild(l);
-    }
     supabase.rpc("pagina_publica").then(({ data, error }) => {
       if (error || !data) setErro(true); else setDados(data);
     });
   }, []);
 
-  // Entrada suave dos blocos ao aparecerem (só se o aparelho aceita animações)
-  useEffect(() => {
-    if (typeof window === "undefined" || !("IntersectionObserver" in window)) return;
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const raiz = document.getElementById("gym-publico");
-    if (!raiz) return;
-    raiz.classList.add("rev-pronto");
-    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("rev-dentro"); io.unobserve(e.target); } }), { threshold: 0.12 });
-    raiz.querySelectorAll("[data-rev]").forEach((el, i) => { el.style.transitionDelay = `${(i % 4) * 70}ms`; io.observe(el); });
-    return () => io.disconnect();
-  }, [dados]);
-
   const g = dados?.ginasio || {};
   const cfg = dados?.config || {};
-  const planos = [...(dados?.planos || [])].filter((p) => !(cfg.planosOcultos || []).includes(p.id)).sort((a, b) => (Number(a.preco) || 0) - (Number(b.preco) || 0));
+  const planos = (dados?.planos || []).filter((p) => !(cfg.planosOcultos || []).includes(p.id));
   // Valor da taxa de inscrição (matrícula). Pode vir da configuração da página; por omissão 3 000 Kz.
   const taxaInscricao = Number(cfg.taxaInscricao ?? g.taxaInscricaoPadrao ?? 3000) || 0;
   const tel = String(cfg.whatsapp || g.telefone || "").replace(/\D/g, "");
@@ -1027,155 +933,81 @@ export function PaginaPublicaGinasio() {
   const temPonto = Number.isFinite(cfg.lat) && Number.isFinite(cfg.lng);
   const destinoMapa = temPonto ? `${cfg.lat},${cfg.lng}` : morada;
   const base = typeof window !== "undefined" ? window.location.origin : "";
-  const horario = cfg.horario || HORARIO_PADRAO;
-  const abertura = useMemo(() => estadoAbertura(horario), [horario]);
-  const blocosHorario = String(horario).split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
-  const cores = [MEIO, "rgb(var(--tema-600))", ACENTO];
-  const alturas = [0, 70, 140];
 
-  const botao = "inline-flex items-center justify-center rounded-full font-medium text-[17px] px-7 h-14 transition-transform duration-150 active:scale-95";
+  const Bloco = ({ titulo: t, children }) => (
+    <div className="bg-white/90 backdrop-blur rounded-3xl ring-1 ring-white shadow-lg p-5">
+      <h2 className="font-extrabold text-slate-900 mb-3">{t}</h2>
+      {children}
+    </div>
+  );
 
   return (
-    <div id="gym-publico" className="min-h-screen overflow-x-hidden" style={{ background: FUNDO, color: "#fff", fontFamily: FONTE_TEXTO }}>
-      <style>{`
-        #gym-publico.rev-pronto [data-rev]{opacity:0;transform:translateY(22px);transition:opacity .6s cubic-bezier(.2,.7,.2,1),transform .6s cubic-bezier(.2,.7,.2,1)}
-        #gym-publico.rev-pronto [data-rev].rev-dentro{opacity:1;transform:none}
-        #gym-publico .anilha-gira{animation:anilhaEntra 1.1s cubic-bezier(.2,.7,.2,1) both}
-        @keyframes anilhaEntra{from{opacity:0;transform:scale(.92) rotate(-8deg)}to{opacity:1;transform:none}}
-        @media (prefers-reduced-motion: reduce){#gym-publico .anilha-gira{animation:none}}
-      `}</style>
-
-      {/* Topo e entrada */}
-      <header className="relative overflow-hidden">
-        <div className="max-w-6xl mx-auto px-5 pt-5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/icons/icon-192.png" alt="" width="40" height="40" className="w-10 h-10 rounded-full bg-white" />
-            <span className="text-[17px] font-medium">Catumbela Gym</span>
+    <div className="min-h-screen fundo-vidro bg-slate-50 font-sans text-slate-800 p-4">
+      <div className="max-w-md mx-auto space-y-4">
+        <div className="relative overflow-hidden rounded-3xl -mx-1 text-center pt-6 pb-5 px-4 bg-slate-900">
+          <img src="https://images.unsplash.com/photo-1534438327276-14e5300c3a48?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3wxMDE3MjIwfDB8MXxzZWFyY2h8MXx8Z3ltJTIwd2VpZ2h0c3xlbnwwfDB8fHwxNzkzNTU3ODkzfDI&ixlib=rb-4.1.0&q=80&w=1080" alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} className="absolute inset-0 w-full h-full object-cover opacity-50" />
+          <div className="absolute inset-0 bg-gradient-to-b from-tema-700/40 to-slate-900/80" />
+          <div className="relative">
+          <img src="/icons/icon-192.png" alt="Catumbela Gym" className="w-24 h-24 rounded-3xl bg-white mx-auto shadow-lg" />
+          <h1 className="text-2xl font-extrabold text-white mt-3">CATUMBELA GYM</h1>
+          <p className="text-slate-200 text-sm">{cfg.descricao || "Força, foco e resultados."}</p>
           </div>
-          <a href={`${base}/?inscricao=1`} className="text-[16px] font-medium underline underline-offset-4">Inscrever-me</a>
         </div>
-        <div className="max-w-6xl mx-auto px-5 md:grid md:grid-cols-2 md:items-center md:min-h-[38rem] pt-12 md:pt-8">
-          <div className="relative z-10 pb-10 md:pb-0">
-            <h1 style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em", lineHeight: 1.02 }} className="text-[clamp(3rem,13.5vw,6.5rem)]">Catumbela Gym</h1>
-            <p className="mt-5 text-[clamp(1.25rem,1.1rem+0.7vw,1.625rem)] leading-snug max-w-md" style={{ color: "rgb(255 255 255 / .82)" }}>{cfg.descricao || "Força, foco e resultados."}</p>
-            <p className="mt-3 text-[18px] leading-snug max-w-md" style={{ color: "rgb(255 255 255 / .7)" }}>Ginásio na {g.cidade || "Catumbela"}: musculação, personal trainers e o treino do dia.</p>
-            {abertura && (
-              <p className="mt-6 inline-flex items-center gap-2.5 rounded-full px-4 h-10 text-[15px]" style={{ background: MEIO }}>
-                <span className="rounded-full" style={{ width: 10, height: 10, background: abertura.aberto ? "#4ade80" : "rgb(255 255 255 / .45)" }} />
-                {abertura.texto}
-              </p>
-            )}
-            <div className="mt-8 flex flex-col sm:flex-row gap-3">
-              <a href={`${base}/?inscricao=1`} className={botao} style={{ background: ACENTO, color: FUNDO }}>Quero inscrever-me</a>
-              {wa && <a href={wa} target="_blank" rel="noreferrer" className={botao} style={{ background: MEIO, color: "#fff" }}>Falar no WhatsApp</a>}
+
+        <div className="grid grid-cols-1 gap-2">
+          <a href={`${base}/?inscricao=1`} className="bg-tema-500 text-white font-bold py-3.5 rounded-2xl text-center shadow-lg">Quero inscrever-me</a>
+          {wa && <a href={wa} target="_blank" rel="noreferrer" className="bg-white text-tema-700 font-bold py-3.5 rounded-2xl text-center ring-1 ring-tema-300">Falar no WhatsApp</a>}
+        </div>
+
+        {erro && <p className="text-center text-sm text-slate-500">Não foi possível carregar os dados agora. Tenta daqui a pouco.</p>}
+
+        <Bloco titulo="Horário">
+          <p className="whitespace-pre-line text-slate-700">{cfg.horario || HORARIO_PADRAO}</p>
+        </Bloco>
+
+        {taxaInscricao > 0 && (
+          <div className="bg-tema-600 text-white rounded-3xl shadow-lg p-5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="font-extrabold">Taxa de inscrição</p>
+              <p className="text-xs text-white/80">Paga uma só vez, na primeira inscrição</p>
             </div>
-            {erro && <p className="mt-4 text-[15px] opacity-80">Não foi possível carregar os dados agora. Tenta daqui a pouco.</p>}
+            <p className="text-2xl font-extrabold shrink-0">{kz(taxaInscricao)}</p>
           </div>
-          <div className="relative h-[84vw] md:h-[36rem]">
-            <Anilha foto={FOTO_HERO} alt="Pesos e barras no ginásio" className="anilha-gira absolute" style={{ width: "min(118vw, 44rem)", left: "min(10vw, 4rem)", top: 0 }} />
-          </div>
-        </div>
-      </header>
+        )}
 
-      {/* Planos */}
-      <section className="py-20 md:py-28" style={{ background: "rgb(var(--tema-100))", color: FUNDO }}>
-        <div className="max-w-6xl mx-auto px-5">
-          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-8 mb-12">
-            <h2 data-rev style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em", lineHeight: 1.02 }} className="text-[clamp(2.5rem,9vw,4.5rem)]">Planos</h2>
-            {taxaInscricao > 0 && (
-              <div data-rev className="rounded-full aspect-square w-44 shrink-0 flex flex-col items-center justify-center text-center text-white p-4" style={{ background: FUNDO }}>
-                <span className="text-[15px] opacity-80">Taxa de inscrição</span>
-                <span className="text-[26px] leading-tight mt-1" style={{ fontFamily: FONTE_TITULO, fontWeight: 300 }}>{kz(taxaInscricao)}</span>
-                <span className="text-[13px] opacity-70 mt-1">paga uma só vez</span>
-              </div>
-            )}
-          </div>
-          {planos.length > 0 ? (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 items-end">
-              {planos.map((p, i) => {
-                const k = i % 3;
-                const claro = k === 2;
-                return (
-                  <div key={p.id} data-rev className="rounded-3xl overflow-hidden flex flex-col justify-between min-h-[220px] sm:min-h-[var(--alt)]" style={{ background: cores[k], color: claro ? FUNDO : "#fff", "--alt": `${260 + alturas[k]}px` }}>
-                    <div className="p-7">
-                      <p className="text-[24px] font-medium leading-tight">{p.nome}</p>
-                      {cfg.mostrarPrecos !== false && <p className="mt-6 text-[clamp(2.25rem,1.6rem+2.4vw,3.25rem)] leading-none" style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em" }}>{kz(p.preco)}</p>}
-                      <p className="text-[17px] mt-3" style={{ opacity: 0.85 }}>{textoPlano(p)}</p>
-                    </div>
-                    <a href={`${base}/?inscricao=1`} className="h-16 flex items-center px-7 text-[17px] font-medium transition-opacity duration-150 active:opacity-80" style={{ background: "rgb(0 0 0 / .22)" }}>Inscrever-me neste plano →</a>
+        {planos.length > 0 && (
+          <Bloco titulo="Planos">
+            <div className="divide-y divide-slate-100">
+              {planos.map((p) => (
+                <div key={p.id} className="flex items-center justify-between py-2.5 gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>
+                    <p className="text-xs text-slate-400">{textoPlano(p)}</p>
                   </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-[19px]">Pergunta-nos os planos e preços no WhatsApp ou na receção.</p>
-          )}
-        </div>
-      </section>
-
-      {/* Horário */}
-      <section className="py-20 md:py-28 overflow-hidden" style={{ background: MEIO }}>
-        <div className="max-w-6xl mx-auto px-5 md:grid md:grid-cols-2 md:gap-16 md:items-center">
-          <div>
-            <h2 data-rev style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em", lineHeight: 1.02 }} className="text-[clamp(2.5rem,9vw,4.5rem)] mb-10">Horário</h2>
-            <div className="space-y-8">
-              {blocosHorario.map((b, i) => (
-                <p key={i} data-rev className={`whitespace-pre-line leading-snug ${i === 0 ? "text-[clamp(1.5rem,1.1rem+1.8vw,2.25rem)]" : "text-[17px]"}`} style={{ fontFamily: i === 0 ? FONTE_TITULO : FONTE_TEXTO, fontWeight: i === 0 ? 300 : 400, color: i === 0 ? "#fff" : "rgb(255 255 255 / .82)" }}>{b}</p>
+                  {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}
+                </div>
               ))}
             </div>
-          </div>
-          <div className="mt-14 md:mt-0 relative h-[78vw] md:h-[30rem]">
-            <Anilha foto={FOTO_HORARIO} alt="Treino de peito com halteres" className="absolute" style={{ width: "min(92vw, 30rem)", right: "-14vw" }} />
-          </div>
-        </div>
-      </section>
+          </Bloco>
+        )}
 
-      {/* Regras */}
-      {cfg.mostrarRegras !== false && (
-        <section className="py-20 md:py-28" style={{ background: "rgb(var(--tema-200))", color: FUNDO }}>
-          <div className="max-w-6xl mx-auto px-5">
-            <h2 data-rev style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em", lineHeight: 1.02 }} className="text-[clamp(2.5rem,9vw,4.5rem)] mb-12">Regras da casa</h2>
-            <div data-rev><RegrasCasa texto={(cfg.regras && cfg.regras.trim()) ? cfg.regras : REGRAS_PADRAO} /></div>
-          </div>
-        </section>
-      )}
+        {cfg.mostrarRegras !== false && (
+          <Bloco titulo="Regras do ginásio">
+            <BlocosRegras texto={(cfg.regras && cfg.regras.trim()) ? cfg.regras : REGRAS_PADRAO} />
+          </Bloco>
+        )}
 
-      {/* Onde estamos */}
-      <section className="py-20 md:py-28 overflow-hidden" style={{ background: ACENTO, color: FUNDO }}>
-        <div className="max-w-6xl mx-auto px-5 md:grid md:grid-cols-2 md:gap-16 md:items-center">
-          <div>
-            <h2 data-rev style={{ fontFamily: FONTE_TITULO, fontWeight: 300, letterSpacing: "-0.022em", lineHeight: 1.02 }} className="text-[clamp(2.5rem,9vw,4.5rem)] mb-8">Onde estamos</h2>
-            <p data-rev className="text-[clamp(1.375rem,1.1rem+1.2vw,2rem)] leading-snug" style={{ fontFamily: FONTE_TITULO, fontWeight: 300 }}>{[g.morada, g.cidade].filter(Boolean).join(", ") || "Catumbela, Benguela"}</p>
-            {g.telefone && <p data-rev className="mt-3 text-[18px]">Tel.: {g.telefone}</p>}
-            <div data-rev className="mt-8 flex flex-col sm:flex-row gap-3">
-              <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destinoMapa)}`} target="_blank" rel="noreferrer" className={botao} style={{ background: FUNDO, color: "#fff" }}>Abrir no mapa</a>
-              {wa && <a href={wa} target="_blank" rel="noreferrer" className={botao} style={{ background: "rgb(0 0 0 / .14)", color: FUNDO }}>Falar no WhatsApp</a>}
-            </div>
-          </div>
-          <div className="mt-14 md:mt-0 relative h-[70vw] md:h-[26rem]">
-            <Anilha foto={FOTO_ONDE} alt="Atleta a levantar uma barra" className="absolute" style={{ width: "min(84vw, 26rem)", left: "min(6vw, 3rem)", background: FUNDO }} />
-          </div>
-        </div>
-      </section>
+        <Bloco titulo="Onde estamos">
+          <p className="text-slate-700 text-sm">{g.morada}{g.cidade ? `, ${g.cidade}` : ""}</p>
+          {g.telefone && <p className="text-slate-500 text-sm mt-1">Tel.: {g.telefone}</p>}
+          <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destinoMapa)}`} target="_blank" rel="noreferrer" className="inline-block mt-3 text-sm font-bold text-tema-600 underline">Abrir no mapa</a>
+        </Bloco>
 
-      {/* Fecho */}
-      <footer className="pt-16 pb-10" style={{ background: FUNDO }}>
-        <div className="max-w-6xl mx-auto px-5">
-          <div className="flex items-end gap-1 h-[26vw] md:h-40" role="img" aria-label="Catumbela Gym">
-            {"CATUMBELA GYM".split("").map((c, i) => c === " " ? <div key={i} className="shrink-0" style={{ width: "3vw" }} /> : (
-              <div key={i} aria-hidden="true" className="flex-1 flex items-start justify-center rounded-t-2xl pt-2 text-[clamp(1.1rem,5.6vw,3.5rem)] font-medium" style={{ height: `${[62, 84, 100, 72, 92, 66, 98, 78, 88, 70, 96, 82][i % 12]}%`, background: [ACENTO, "rgb(var(--tema-500))", "rgb(var(--tema-300))", "rgb(var(--tema-600))"][i % 4], color: FUNDO }}>{c}</div>
-            ))}
-          </div>
-          <div className="mt-12 grid sm:grid-cols-2 gap-4 text-[17px]">
-            <a href={`${base}/?treino=1`} className="underline underline-offset-4">Treinos e exercícios para fazer hoje</a>
-            <a href={`${base}/?opiniao=1`} className="underline underline-offset-4">Deixar a tua opinião ou reclamação</a>
-          </div>
-          <div className="mt-10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-[14px]" style={{ color: "rgb(255 255 255 / .7)" }}>
-            <span>© Catumbela Gym</span>
-            <span>Fotos: Unsplash · Lisa Marie Theck, Youcef Chenzer</span>
-          </div>
+        <div className="text-center pb-6">
+          <a href={`${base}/?treino=1`} className="block text-sm font-semibold text-tema-700 underline mb-2">Treinos e exercícios para fazer hoje</a>
+          <a href={`${base}/?opiniao=1`} className="text-sm text-slate-500 underline">Deixar a tua opinião ou reclamação</a>
         </div>
-      </footer>
+      </div>
     </div>
   );
 }
