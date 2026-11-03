@@ -15863,6 +15863,7 @@ function Login({ contas, membros, planos, dadosGinasio, onEntrar, onCriarAdmin, 
             <button onClick={() => setModoInscricao(false)} className="absolute right-4 top-4 text-slate-400 hover:text-slate-600">
               <X size={18} />
             </button>
+            <button type="button" onClick={() => { if (abrirInscricaoDireta) window.location.href = "/?ginasio=1"; else setModoInscricao(false); }} className="text-sm font-semibold text-slate-500 mb-2">← Voltar</button>
             <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-1">Torna-te membro</h3>
             <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">
               Cria já a tua conta e escolhe o teu plano. Depois de entrares, podes concluir o pagamento diretamente na tua área de membro.
