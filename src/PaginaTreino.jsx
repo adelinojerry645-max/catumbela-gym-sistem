@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { supabase } from "./lib/supabaseClient";
 import FiguraExercicio, { tipoDe } from "./FiguraExercicio.jsx";
 
 // Página pública (sem entrar no sistema): treino do dia para quando o personal não vem.
@@ -243,6 +244,81 @@ const AQUECIMENTO_F = [
   { nome: "Bike leve", eq: "Bike", series: "3 min", dica: "Pedala devagar, só para aquecer pernas e coração." },
 ];
 
+// ---- Treino feito pelo personal ----
+const CATALOGO = (() => {
+  const mapa = {};
+  [...Object.values(TREINOS_M), ...Object.values(TREINOS_F)].forEach((d) => (d.exercicios || []).forEach((e) => { if (!mapa[e.nome]) mapa[e.nome] = e; }));
+  [...AQUECIMENTO_M, ...AQUECIMENTO_F].forEach((e) => { if (!mapa[e.nome]) mapa[e.nome] = e; });
+  return mapa;
+})();
+const NOMES_CATALOGO = Object.keys(CATALOGO).sort((a, b) => a.localeCompare(b, "pt"));
+
+const dois = (n) => String(n).padStart(2, "0");
+// Data (AAAA-MM-DD) do próximo dia da semana `diaId`, contando com hoje
+function dataDoDia(diaId) {
+  const d = new Date();
+  const falta = (diaId - d.getDay() + 7) % 7;
+  d.setDate(d.getDate() + falta);
+  return `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+}
+function resolverExercicio(x) {
+  const c = CATALOGO[x.nome] || {};
+  return { ...c, nome: x.nome, series: x.series || c.series || "", dica: x.dica || c.dica || "O personal explica como se faz.", eq: c.eq || x.eq || "Ver com o personal" };
+}
+
+function EditorPersonal({ inicial, existe, aoGuardar, aoApagar, aoFechar, aGuardar, erro }) {
+  const [titulo, setTitulo] = useState(inicial.titulo);
+  const [nota, setNota] = useState(inicial.nota);
+  const [lista, setLista] = useState(inicial.exercicios.map((e) => ({ nome: e.nome, series: e.series || "", dica: e.dica || "", outro: !CATALOGO[e.nome] })));
+  const mudar = (i, patch) => setLista((l) => l.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  const mover = (i, d) => setLista((l) => { const j = i + d; if (j < 0 || j >= l.length) return l; const c = [...l]; [c[i], c[j]] = [c[j], c[i]]; return c; });
+  const campo = "w-full rounded-lg border border-slate-200 px-2.5 py-2 text-sm bg-white";
+  const validos = lista.filter((x) => x.nome.trim());
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={aoFechar}>
+      <div className="bg-slate-50 w-full sm:max-w-xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-extrabold text-lg text-slate-900">✏️ Treino do personal</h3>
+          <button onClick={aoFechar} className="text-slate-400 text-sm font-semibold">Fechar</button>
+        </div>
+        <p className="text-xs text-slate-500">Escolhe os exercícios da lista (já vêm com desenho e explicação) ou escreve um teu. Todos veem logo.</p>
+        <input className={campo} placeholder="Nome do treino (ex.: Peito e tríceps)" value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={80} />
+        <textarea className={campo} rows={2} placeholder="Aviso para o grupo (opcional)" value={nota} onChange={(e) => setNota(e.target.value)} maxLength={400} />
+        <div className="space-y-2">
+          {lista.map((x, i) => (
+            <div key={i} className="bg-white rounded-xl border border-slate-100 p-2.5 space-y-1.5">
+              <div className="flex gap-1.5 items-center">
+                <span className="w-6 h-6 shrink-0 rounded-full bg-tema-600 text-white text-xs font-bold flex items-center justify-center">{i + 1}</span>
+                <select className={campo} value={x.outro ? "__outro" : x.nome}
+                  onChange={(e) => (e.target.value === "__outro" ? mudar(i, { outro: true, nome: "" }) : mudar(i, { outro: false, nome: e.target.value, series: x.series || CATALOGO[e.target.value]?.series || "" }))}>
+                  <option value="" disabled>Escolhe o exercício…</option>
+                  {NOMES_CATALOGO.map((n) => <option key={n} value={n}>{n}</option>)}
+                  <option value="__outro">➕ Outro (escrever)</option>
+                </select>
+              </div>
+              {x.outro && <input className={campo} placeholder="Nome do exercício" value={x.nome} onChange={(e) => mudar(i, { nome: e.target.value })} maxLength={80} />}
+              <div className="flex gap-1.5">
+                <input className={campo} placeholder="Séries (ex.: 4 x 12)" value={x.series} onChange={(e) => mudar(i, { series: e.target.value })} maxLength={30} />
+                <button onClick={() => mover(i, -1)} className="px-2.5 rounded-lg bg-slate-100 text-slate-600 text-sm">↑</button>
+                <button onClick={() => mover(i, 1)} className="px-2.5 rounded-lg bg-slate-100 text-slate-600 text-sm">↓</button>
+                <button onClick={() => setLista((l) => l.filter((_, k) => k !== i))} className="px-2.5 rounded-lg bg-red-50 text-red-600 text-sm">✕</button>
+              </div>
+              {(x.outro || !CATALOGO[x.nome]) && <input className={campo} placeholder="Como fazer (opcional)" value={x.dica} onChange={(e) => mudar(i, { dica: e.target.value })} maxLength={300} />}
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setLista((l) => [...l, { nome: "", series: "", dica: "", outro: false }])} className="w-full rounded-xl border-2 border-dashed border-tema-300 text-tema-700 font-bold text-sm py-2.5">+ Adicionar exercício</button>
+        {erro && <p className="text-sm text-red-600 font-medium">{erro}</p>}
+        <div className="flex gap-2 pt-1">
+          <button disabled={aGuardar || !validos.length} onClick={() => aoGuardar({ titulo: titulo.trim() || "Treino do dia", nota: nota.trim(), exercicios: validos.map((x) => ({ nome: x.nome.trim(), series: x.series.trim(), ...(x.dica.trim() && (x.outro || !CATALOGO[x.nome]) ? { dica: x.dica.trim() } : {}) })) })}
+            className="flex-1 bg-tema-600 text-white font-bold rounded-xl py-3 disabled:opacity-50">{aGuardar ? "A guardar…" : "Guardar treino"}</button>
+          {existe && <button disabled={aGuardar} onClick={aoApagar} className="px-3 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-semibold">Voltar ao treino do plano</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CartaoExercicio({ e, numero, aberto, aoAlternar }) {
   const tipo = tipoDe(e.nome);
   return (
@@ -300,11 +376,63 @@ export default function PaginaTreino() {
   const [mostrarEquip, setMostrarEquip] = useState(false);
   const [copiado, setCopiado] = useState(false);
 
-  const t = TREINOS[dia];
+  // Treinos feitos pelo personal (guardados na base de dados)
+  const [feitos, setFeitos] = useState([]);
+  const [senhaPT, setSenhaPT] = useState(() => { try { return sessionStorage.getItem("catumbela_pt_senha") || ""; } catch { return ""; } });
+  const [pedirSenha, setPedirSenha] = useState(false);
+  const [senhaTxt, setSenhaTxt] = useState("");
+  const [editar, setEditar] = useState(false);
+  const [aGuardar, setAGuardar] = useState(false);
+  const [erroPT, setErroPT] = useState("");
+  const carregarFeitos = () => {
+    try {
+      Promise.resolve(supabase.rpc("treino_personal_listar")).then(({ data }) => { if (Array.isArray(data)) setFeitos(data); }).catch(() => {});
+    } catch {}
+  };
+  useEffect(() => { carregarFeitos(); }, []);
+
+  const dataDia = dataDoDia(dia);
+  const doPersonal = feitos.find((f) => f.data === dataDia && f.sexo === sexo);
+  const plano = TREINOS[dia];
+  const t = doPersonal
+    ? { titulo: doPersonal.titulo, icone: "👨‍🏫", cor: "from-tema-700 to-tema-500", minutos: 60, exercicios: (doPersonal.exercicios || []).map(resolverExercicio) }
+    : plano;
   const diaInfo = DIAS.find((d) => d.id === dia);
   const ehHoje = dia === hoje;
-  const lista = t.descanso ? [] : t.exercicios.filter((e) => !curto || e.essencial);
-  const minutos = t.descanso ? 0 : curto ? 30 : t.minutos;
+  const lista = t.descanso ? [] : t.exercicios.filter((e) => doPersonal || !curto || e.essencial);
+  const minutos = t.descanso ? 0 : curto && !doPersonal ? 30 : t.minutos;
+
+  const entrarPT = async () => {
+    setErroPT("");
+    try {
+      const { data, error } = await supabase.rpc("treino_personal_validar", { p_senha: senhaTxt });
+      if (error || data !== true) { setErroPT(error ? "Não consegui ligar. Tenta outra vez." : "Senha errada."); return; }
+      try { sessionStorage.setItem("catumbela_pt_senha", senhaTxt); } catch {}
+      setSenhaPT(senhaTxt); setPedirSenha(false); setSenhaTxt(""); setEditar(true);
+    } catch { setErroPT("Não consegui ligar. Tenta outra vez."); }
+  };
+  const guardarPT = async (v) => {
+    setAGuardar(true); setErroPT("");
+    try {
+      const { data, error } = await supabase.rpc("treino_personal_guardar", { p_senha: senhaPT, p_data: dataDia, p_sexo: sexo, p_titulo: v.titulo, p_nota: v.nota, p_exercicios: v.exercicios });
+      if (error || data !== true) { setErroPT("Não guardou. Confirma a ligação e a senha."); if (data === false) { setSenhaPT(""); try { sessionStorage.removeItem("catumbela_pt_senha"); } catch {} } }
+      else { setEditar(false); carregarFeitos(); setAberto(null); }
+    } catch { setErroPT("Não guardou. Tenta outra vez."); }
+    setAGuardar(false);
+  };
+  const apagarPT = async () => {
+    setAGuardar(true); setErroPT("");
+    try {
+      const { data, error } = await supabase.rpc("treino_personal_apagar", { p_senha: senhaPT, p_data: dataDia, p_sexo: sexo });
+      if (error || data !== true) setErroPT("Não consegui voltar ao plano.");
+      else { setEditar(false); carregarFeitos(); }
+    } catch { setErroPT("Não consegui voltar ao plano."); }
+    setAGuardar(false);
+  };
+  const abrirEditor = () => { setErroPT(""); if (senhaPT) setEditar(true); else setPedirSenha(true); };
+  const inicialEditor = doPersonal
+    ? { titulo: doPersonal.titulo, nota: doPersonal.nota || "", exercicios: doPersonal.exercicios || [] }
+    : { titulo: plano.descanso ? "" : plano.titulo, nota: "", exercicios: plano.descanso ? [] : plano.exercicios.map((e) => ({ nome: e.nome, series: e.series })) };
 
   const link = typeof window !== "undefined" ? `${window.location.origin}/treino/` : "";
   const copiar = async () => {
@@ -371,12 +499,14 @@ export default function PaginaTreino() {
               <p className="text-xs font-bold tracking-widest text-white/80">{ehHoje ? "TREINO DE HOJE" : diaInfo.nome.toUpperCase()}</p>
               <h2 className="text-2xl font-extrabold mt-1 leading-tight">{t.icone} {t.titulo}</h2>
               <p className="text-sm font-semibold mt-3 bg-white/20 inline-block rounded-full px-3 py-1">⏱ {minutos} min · 🔥 {lista.length} exercícios</p>
+              {doPersonal && <p className="text-xs font-bold mt-2 text-white/90">👨‍🏫 Treino feito pelo personal</p>}
             </section>
+            {doPersonal?.nota && <div className="rounded-2xl bg-white border-l-4 border-tema-500 shadow-sm p-3.5 text-sm text-slate-700 mt-3"><span className="font-bold text-tema-700">Aviso do personal: </span>{doPersonal.nota}</div>}
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-1.5 flex gap-1.5 mt-3">
+            {!doPersonal && <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-1.5 flex gap-1.5 mt-3">
               <button onClick={() => setCurto(false)} className={`flex-1 rounded-xl py-2 text-sm font-bold transition ${!curto ? "bg-tema-600 text-white shadow" : "text-slate-500"}`}>Tenho tempo ({t.minutos} min)</button>
               <button onClick={() => setCurto(true)} className={`flex-1 rounded-xl py-2 text-sm font-bold transition ${curto ? "bg-tema-600 text-white shadow" : "text-slate-500"}`}>Só tenho 30 min</button>
-            </div>
+            </div>}
 
             <div className="rounded-2xl bg-amber-50 border border-amber-200 p-3.5 text-sm text-amber-900 mt-3">
               <p className="font-bold mb-1">Antes de começar</p>
@@ -426,8 +556,28 @@ export default function PaginaTreino() {
           )}
         </section>
 
-        <p className="text-center text-xs text-slate-400 mt-10">Catumbela Gym · Força, foco e resultados 💪</p>
+        <div className="mt-6 text-center">
+          <button onClick={abrirEditor} className="text-sm font-bold text-tema-700 bg-tema-100 rounded-full px-4 py-2">👨‍🏫 Sou o personal: fazer o treino de {diaInfo.nome.toLowerCase()}</button>
+        </div>
+        <p className="text-center text-xs text-slate-400 mt-6">Catumbela Gym · Força, foco e resultados 💪</p>
       </main>
+
+      {pedirSenha && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setPedirSenha(false)}>
+          <div className="bg-white rounded-3xl p-5 w-full max-w-sm space-y-3" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-extrabold text-lg">🔑 Entrar como personal</h3>
+            <input type="password" autoFocus value={senhaTxt} onChange={(e) => setSenhaTxt(e.target.value)} onKeyDown={(e) => e.key === "Enter" && entrarPT()} placeholder="Senha do personal" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-base" />
+            {erroPT && <p className="text-sm text-red-600 font-medium">{erroPT}</p>}
+            <div className="flex gap-2">
+              <button onClick={entrarPT} className="flex-1 bg-tema-600 text-white font-bold rounded-xl py-2.5">Entrar</button>
+              <button onClick={() => setPedirSenha(false)} className="px-4 rounded-xl bg-slate-100 text-slate-600 font-semibold">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editar && (
+        <EditorPersonal key={`${dataDia}-${sexo}`} inicial={inicialEditor} existe={!!doPersonal} aoGuardar={guardarPT} aoApagar={apagarPT} aoFechar={() => setEditar(false)} aGuardar={aGuardar} erro={erroPT} />
+      )}
     </div>
   );
 }
