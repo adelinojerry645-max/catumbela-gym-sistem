@@ -833,30 +833,37 @@ const HORARIO_PADRAO = "Segunda a sexta: 5h às 21h\nSábado: 5h às 13h\n\nSegu
 
 // Regras do ginásio. Uma linha por regra; as linhas que começam por "# " são títulos.
 // O administrador pode mudar o texto em "Página Pública" (menu); se estiver vazio usa este.
-const REGRAS_PADRAO = `# Entrada e cartão
-Mostra o teu cartão ou QR na entrada. É pessoal e não pode ser emprestado.
-Só treina quem tem a mensalidade em dia. O último dia do teu plano aparece na tua ficha.
-Marca sempre a entrada e a saída. Ficar mais de 2 horas tem uma taxa de 300 Kz.
+const REGRAS_PADRAO = `# Avisos importantes
+Proibido treinar com o mesmo sapato usado na rua. Quem vier com sapato de casa não poderá treinar e será convidado a voltar.
+Proibido treinar sem toalha.
+Proibido treinar com meia.
+Usar as máquinas corretamente, porque não nos responsabilizamos pelos danos.
+Treinos com duração superior a 2 horas num só período terão um acréscimo de 300 Kz.
 
-# Roupa e higiene
-Treina com roupa e calçado desportivos.
-Traz uma toalha e limpa o aparelho depois de usares.
-Podes trazer a tua garrafa de água.
+# Regras gerais
+Respeitar os horários de funcionamento do ginásio.
+O acesso é permitido apenas para membros com inscrição e pagamento em dia.
+A entrada no ginásio deve ser feita exclusivamente pela porta maior, que dá acesso à casa de banho. Evite entrar pela porta que fica próximo ao balcão.
+Usar roupa e calçados esportivos e adequados.
+Manter boa higiene pessoal e utilizar duas toalhas durante os exercícios.
+Calçar os sapatos somente dentro do ginásio para manter o tapete limpo.
 
-# Equipamentos
-Usa os aparelhos com cuidado e põe os pesos no lugar depois de usar.
-Não largues os pesos no chão com força.
-Se o aparelho estiver ocupado, passa ao seguinte. Se tiver gente à espera, descansa só 1 minuto entre séries.
-Se algum aparelho estiver avariado, avisa a receção.
-Se tiveres dúvidas num exercício, pede ajuda ao personal.
+# Uso dos equipamentos
+Compartilhar os equipamentos e evitar ocupá-los por muito tempo.
+Devolver halteres, anilhas e outros equipamentos ao local correto após o uso.
+Utilizar os equipamentos corretamente para evitar danos e acidentes.
 
-# Respeito e segurança
-Respeita todos no ginásio. Não são permitidas ofensas nem violência.
-Não tires fotos nem vídeos de outras pessoas sem elas deixarem.
-É proibido fumar e consumir álcool ou drogas no espaço.
-Cuida dos teus pertences.
-Se tiveres algum problema de saúde, avisa antes de treinar. Treinas por tua conta e risco.
-Quem não cumprir as regras pode receber advertência e perder o acesso.
+# Conduta e segurança
+Manter o respeito com os demais frequentadores e funcionários.
+Evitar longas conversas ao telefone ou filmagens que possam incomodar outros membros.
+Seguir as orientações dos instrutores e pedir ajuda quando necessário.
+Não permanecer sentado nos equipamentos sem utilizá-los.
+Informar a equipe do ginásio em caso de emergências ou problemas de saúde.
+
+# Alimentação e hidratação
+Não consumir alimentos dentro da área de treino.
+Usar apenas garrafas com tampa para evitar derramamentos.
+Sem água, não treina. É obrigatório ter uma garrafa de água durante o treino.
 
 # Mensalidade e faltas
 A mensalidade tem 30 dias seguidos, a contar do dia do pagamento. Faltar não dá dias nem dinheiro de volta.
@@ -864,7 +871,9 @@ Problema do ginásio (avaria, falta de luz ou ginásio fechado): os dias perdido
 Doença, com prova (mensagem ou foto da declaração médica): até 7 dias por mensalidade.
 Trabalho ou viagem curta: avisa no próprio dia pelo WhatsApp da receção. Máximo 3 dias por mensalidade.
 Pausa: se vais faltar mais de 7 dias seguidos, avisa antes. 1 pausa por mensalidade, de até 15 dias.
-A mensalidade e a taxa de inscrição não são reembolsáveis.`;
+A mensalidade e a taxa de inscrição não são reembolsáveis.
+
+O cumprimento destas regras é obrigatório para garantir a segurança, a higiene e o bom funcionamento do ginásio. O não cumprimento poderá resultar em advertências ou suspensão do acesso.`;
 
 function BlocosRegras({ texto }) {
   const grupos = [];
