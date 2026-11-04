@@ -16852,6 +16852,16 @@ export default function CatumbelaGymApp() {
   }, [tela]);
 
   const sair = () => {
+    try {
+      if (contaAtual?.nome) {
+        const agora = new Date();
+        adicionarAuditoriaSegura({
+          id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`,
+          utilizador: contaAtual.nome, acao: "Saiu do sistema", detalhe: "",
+          data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+        });
+      }
+    } catch (e) { /* ignora */ }
     setAutenticado(false);
     setPerfil(null);
     setContaAtual(null);
@@ -16888,6 +16898,17 @@ export default function CatumbelaGymApp() {
     setContaAtual(conta);
     setTela(conta.perfil === "personal_trainer" ? "meus-alunos" : "dashboard");
     setAutenticado(true);
+    // Fica registado quem entrou no sistema, quando e de que aparelho (ver Auditoria).
+    try {
+      const agora = new Date();
+      const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+      const aparelho = /iPhone|Android|Mobile/i.test(ua) ? "telemóvel" : "computador";
+      adicionarAuditoriaSegura({
+        id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}`,
+        utilizador: conta.nome || "—", acao: "Entrou no sistema", detalhe: `${conta.perfil === "administrador" ? "Administrador" : conta.perfil === "recepcionista" ? "Recepção" : "Personal"} · ${aparelho}`,
+        data: agora.toLocaleDateString("pt-PT"), hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
+      });
+    } catch (e) { /* o registo nunca pode impedir a entrada */ }
   };
 
   const redefinirSenha = (email, novaSenha) => {
