@@ -1090,6 +1090,37 @@ export function EnviarPaginaPublica({ siteUrl }) {
 }
 
 // Admin: configurar o que aparece na página pública
+function VisitasPaginaPublica() {
+  const [linhas, setLinhas] = useState(null);
+  useEffect(() => {
+    Promise.resolve(supabase.rpc("ler_visitas", { p_dias: 7 })).then(({ data }) => setLinhas(Array.isArray(data) ? data : [])).catch(() => setLinhas([]));
+  }, []);
+  const nomes = { ginasio: "Página do ginásio", opiniao: "Opiniões e reclamações", treino: "Treinos", inscricao: "Inscrição" };
+  const porDia = {};
+  (linhas || []).forEach((l) => { porDia[l.dia] = porDia[l.dia] || { total: 0, paginas: [] }; porDia[l.dia].total += l.total; porDia[l.dia].paginas.push(`${nomes[l.pagina] || l.pagina}: ${l.total}`); });
+  const dias = Object.keys(porDia).sort().reverse();
+  const total7 = dias.reduce((t, d) => t + porDia[d].total, 0);
+  return (
+    <Cartao title="Visitas à página pública (últimos 7 dias)">
+      {linhas === null ? <p className="text-sm text-slate-400">A carregar...</p> : dias.length === 0 ? (
+        <p className="text-sm text-slate-500 dark:text-slate-400">Ainda não há visitas contadas. Se acabou de pôr isto, falta correr o SQL das visitas no Supabase.</p>
+      ) : (
+        <div>
+          <p className="text-2xl font-extrabold text-tema-500 mb-2">{total7} <span className="text-sm font-semibold text-slate-500">visitas</span></p>
+          <div className="divide-y divide-slate-100 dark:divide-slate-700">
+            {dias.map((d) => (
+              <div key={d} className="py-1.5 text-sm flex justify-between gap-3">
+                <span className="text-slate-600 dark:text-slate-300">{d.split("-").reverse().join("/")}</span>
+                <span className="text-slate-500 dark:text-slate-400 text-xs text-right">{porDia[d].paginas.join(" · ")} <strong className="text-slate-800 dark:text-slate-100 ml-1">= {porDia[d].total}</strong></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Cartao>
+  );
+}
+
 export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
   const c = (config && config[0]) || {};
   const origem = (siteUrl && siteUrl.trim()) || (typeof window !== "undefined" ? window.location.origin : "");
@@ -1126,6 +1157,7 @@ export function ConfigPaginaPublica({ planos, config, setConfig, siteUrl }) {
 
   return (
     <div className="space-y-5">
+      <VisitasPaginaPublica />
       <Cartao title="Localização exata">
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">Faz isto estando no ginásio, com o GPS ligado. O botão "Abrir no mapa" da página pública passa a levar os clientes a este ponto.</p>
         {temPonto && (

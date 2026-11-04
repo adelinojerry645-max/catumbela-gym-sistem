@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import { PaginaPublicaOpiniao, PaginaPublicaGinasio } from "./extras.jsx";
 import PaginaTreino from "./PaginaTreino.jsx";
 import "./index.css";
+import { supabase } from "./lib/supabaseClient";
 import { instalarRegistoDeErros, registarErro } from "./lib/registoErros";
 
 instalarRegistoDeErros();
@@ -25,6 +26,16 @@ class CapturaErros extends React.Component {
     );
   }
 }
+
+// Conta cada visita às páginas públicas (1 vez por separador), só números — sem nomes.
+try {
+  const qv = new URLSearchParams(window.location.search);
+  const pag = qv.get("ginasio") === "1" ? "ginasio" : qv.get("opiniao") === "1" ? "opiniao" : qv.get("treino") === "1" ? "treino" : qv.get("inscricao") === "1" ? "inscricao" : null;
+  if (pag && !window.sessionStorage.getItem("visita-" + pag)) {
+    window.sessionStorage.setItem("visita-" + pag, "1");
+    Promise.resolve(supabase.rpc("registar_visita", { p_pagina: pag })).catch(() => {});
+  }
+} catch (e) { /* contar visitas nunca pode estragar a página */ }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
