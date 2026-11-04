@@ -3089,8 +3089,8 @@ function Planos({ planos, membros, onSave, onRemove }) {
         {planos.map((p) => (
           <Card key={p.id}>
             <div className="-m-5 mb-4 relative h-36 rounded-t-2xl overflow-hidden bg-gradient-to-br from-tema-500 to-tema-700">
-              {fotoDoPlano(p) && <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+              {fotoDoPlano(p) && <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover scale-110 blur-[3px]" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/45 to-black/30" />
               <span className="absolute top-3 left-3 text-[11px] font-semibold bg-white/90 text-slate-800 px-2 py-0.5 rounded-full">
                 {p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}
               </span>

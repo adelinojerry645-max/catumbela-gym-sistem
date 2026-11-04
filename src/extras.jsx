@@ -997,8 +997,8 @@ export function PaginaPublicaGinasio() {
                 <div key={p.id} className="py-3">
                   {fotoDoPlano(p) && (
                     <div className="relative h-28 rounded-2xl overflow-hidden mb-2.5 bg-slate-200">
-                      <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                      <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover scale-110 blur-[3px]" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/45 to-black/30" />
                       <p className="absolute bottom-2.5 left-3 right-3 font-extrabold text-white text-sm leading-tight">{p.nome}</p>
                     </div>
                   )}
