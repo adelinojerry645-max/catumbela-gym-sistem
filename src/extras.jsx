@@ -983,6 +983,13 @@ export function PaginaPublicaGinasio() {
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>
                     <p className="text-xs text-slate-400">{textoPlano(p)}</p>
+                    {p.descricao && p.descricao.trim() && (
+                      <ul className="mt-1.5 space-y-0.5">
+                        {p.descricao.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
+                          <li key={i} className="text-xs text-slate-600 flex gap-1.5"><span className="text-tema-600">•</span><span>{l}</span></li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}
                 </div>

@@ -2990,18 +2990,18 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
 function Planos({ planos, membros, onSave, onRemove }) {
   const [editando, setEditando] = useState(null); // objeto do plano, ou {} para novo
   const [aEliminar, setAEliminar] = useState(null);
-  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0, entradas: "" });
+  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "" });
   const [historicoPreco, setHistoricoPreco] = useState({}); // { planoId: [{de, para, data}] }
   const [erroNomeDuplicado, setErroNomeDuplicado] = useState("");
 
   const abrirNovo = () => {
-    setForm({ nome: "", duracaoDias: 30, preco: 0, entradas: "" });
+    setForm({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "" });
     setErroNomeDuplicado("");
     setEditando({});
   };
 
   const abrirEdicao = (p) => {
-    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "" });
+    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "", descricao: p.descricao || "" });
     setErroNomeDuplicado("");
     setEditando(p);
   };
@@ -3091,6 +3091,13 @@ function Planos({ planos, membros, onSave, onRemove }) {
             <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}</p>
             <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">{p.nome}</h3>
             <p className="text-2xl font-extrabold text-tema-500 mt-3">{kz(p.preco)}</p>
+            {p.descricao && p.descricao.trim() && (
+              <ul className="mt-3 space-y-1">
+                {p.descricao.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
+                  <li key={i} className="text-sm text-slate-600 dark:text-slate-300 flex gap-1.5"><span className="text-tema-500">•</span><span>{l}</span></li>
+                ))}
+              </ul>
+            )}
 
             {historicoPreco[p.id]?.length > 0 && (
               <div className="mt-3 space-y-1">
@@ -3144,6 +3151,12 @@ function Planos({ planos, membros, onSave, onRemove }) {
                   onChange={(e) => setForm({ ...form, entradas: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Cada dia de treino conta 1 entrada. Passado o limite, a entrada fica bloqueada até renovar. Para as entradas não expirarem depressa, põe uma duração longa (ex.: 365 dias).</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">O que se faz neste plano (uma linha por serviço)</label>
+                <textarea rows={5} value={form.descricao} placeholder={"ex.:\nAvaliação física inicial\nPlano de treino individual\nAcompanhamento do PT"}
+                  onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Preço (Kz)</label>
