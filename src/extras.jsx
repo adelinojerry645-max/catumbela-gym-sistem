@@ -837,14 +837,13 @@ const HORARIO_PADRAO = "Segunda a sexta: 5h às 21h\nSábado: 5h às 13h\n\nSegu
 const REGRAS_PADRAO = `# Avisos importantes
 Proibido treinar com o mesmo sapato usado na rua. Quem vier com sapato de casa não poderá treinar e será convidado a voltar.
 Proibido treinar sem toalha.
-Proibido treinar com meia.
+Proibido treinar de meia.
 Usar as máquinas corretamente, porque não nos responsabilizamos pelos danos.
 Treinos com duração superior a 2 horas num só período terão um acréscimo de 300 Kz.
 
 # Regras gerais
 Respeitar os horários de funcionamento do ginásio.
 O acesso é permitido apenas para membros com inscrição e pagamento em dia.
-A entrada no ginásio deve ser feita exclusivamente pela porta maior, que dá acesso à casa de banho. Evite entrar pela porta que fica próximo ao balcão.
 Usar roupa e calçados esportivos e adequados.
 Manter boa higiene pessoal e utilizar duas toalhas durante os exercícios.
 Calçar os sapatos somente dentro do ginásio para manter o tapete limpo.
