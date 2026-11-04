@@ -903,6 +903,21 @@ function BlocosRegras({ texto }) {
   );
 }
 
+// Fotos prontas para os planos (Unsplash, ligadas diretamente — não ocupam espaço no sistema).
+export const FOTOS_PLANOS = [
+  "1648542036561-e1d66a5ae2b1", "1738523686534-7055df5858d6", "1571019614242-c5c5dee9f50b",
+  "1641337221253-fdc7237f6b61", "1558611848-73f7eb4001a1", "1554344728-77cf90d9ed26",
+  "1593079831268-3381b0db4a77", "1649068618811-9f3547ef98fc", "1616279967983-ec413476e824",
+].map((id) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=75`);
+// Foto escolhida; se ainda não escolheram nenhuma, usa uma por defeito (foto "" = sem foto, de propósito).
+export function fotoDoPlano(p) {
+  if (p && typeof p.foto === "string") return p.foto;
+  const chave = String((p && (p.id ?? p.nome)) || "");
+  let h = 0;
+  for (let k = 0; k < chave.length; k++) h = (h * 31 + chave.charCodeAt(k)) >>> 0;
+  return FOTOS_PLANOS[h % FOTOS_PLANOS.length];
+}
+
 function textoPlano(p) {
   if (p.entradas) return `${p.entradas} entradas`;
   const d = p.duracaoDias;
@@ -980,16 +995,16 @@ export function PaginaPublicaGinasio() {
             <div className="divide-y divide-slate-100">
               {planos.map((p) => (
                 <div key={p.id} className="py-3">
-                  {p.foto && (
+                  {fotoDoPlano(p) && (
                     <div className="relative h-28 rounded-2xl overflow-hidden mb-2.5 bg-slate-200">
-                      <img src={p.foto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
                       <p className="absolute bottom-2.5 left-3 right-3 font-extrabold text-white text-sm leading-tight">{p.nome}</p>
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      {!p.foto && <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>}
+                      {!fotoDoPlano(p) && <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>}
                       <p className="text-xs text-slate-400">{textoPlano(p)}</p>
                     </div>
                     {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}

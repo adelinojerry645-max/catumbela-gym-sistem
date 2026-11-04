@@ -12,7 +12,7 @@ import {
 import { lerColecao, lerColecaoComData, lerDataColecao, gravarColecao, gravarColecaoSeAtual, subscreverColecao, desligarCanal, adicionarItemAtomico, atualizarItemAtomico, removerItemAtomico, reservarAtividadeAtomico, gerarDocumentoAtomico } from "./lib/estadoApp";
 import { QRCodeSVG } from "./lib/QRCodeSVG.jsx";
 import { prepararCorrida, gerarVideo, gerarCartaz, entregarFicheiro, videoSuportado } from "./videoAtleta.js";
-import { PainelDono, ContasAPagar, ConfigPaginaPublica, EnviarPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
+import { FOTOS_PLANOS, fotoDoPlano, PainelDono, ContasAPagar, ConfigPaginaPublica, EnviarPaginaPublica, contasUrgentes, maisUmMes, OpinioesAdmin, AlertasEstranhos, PontoEquilibrio, ComissoesPersonal, DesafiosMes } from "./extras.jsx";
 import { contextoErro } from "./lib/registoErros";
 import { protegerSenha, senhaConfere, estaProtegida, mensagemSenhaFraca } from "./lib/senhas";
 import { AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, Legend } from "recharts";
@@ -2987,13 +2987,6 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   );
 }
 
-// Fotos prontas para os planos (Unsplash, ligadas diretamente — não ocupam espaço no sistema).
-const FOTOS_PLANOS = [
-  "1648542036561-e1d66a5ae2b1", "1738523686534-7055df5858d6", "1571019614242-c5c5dee9f50b",
-  "1641337221253-fdc7237f6b61", "1558611848-73f7eb4001a1", "1554344728-77cf90d9ed26",
-  "1593079831268-3381b0db4a77", "1649068618811-9f3547ef98fc", "1616279967983-ec413476e824",
-].map((id) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=75`);
-
 function Planos({ planos, membros, onSave, onRemove }) {
   const [editando, setEditando] = useState(null); // objeto do plano, ou {} para novo
   const [aEliminar, setAEliminar] = useState(null);
@@ -3008,7 +3001,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
   };
 
   const abrirEdicao = (p) => {
-    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "", descricao: p.descricao || "", foto: p.foto || "" });
+    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "", descricao: p.descricao || "", foto: fotoDoPlano(p) });
     setErroNomeDuplicado("");
     setEditando(p);
   };
@@ -3096,7 +3089,7 @@ function Planos({ planos, membros, onSave, onRemove }) {
         {planos.map((p) => (
           <Card key={p.id}>
             <div className="-m-5 mb-4 relative h-36 rounded-t-2xl overflow-hidden bg-gradient-to-br from-tema-500 to-tema-700">
-              {p.foto && <img src={p.foto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+              {fotoDoPlano(p) && <img src={fotoDoPlano(p)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
               <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
               <span className="absolute top-3 left-3 text-[11px] font-semibold bg-white/90 text-slate-800 px-2 py-0.5 rounded-full">
                 {p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}
