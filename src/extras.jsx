@@ -979,19 +979,28 @@ export function PaginaPublicaGinasio() {
           <Bloco titulo="Planos">
             <div className="divide-y divide-slate-100">
               {planos.map((p) => (
-                <div key={p.id} className="flex items-center justify-between py-2.5 gap-3">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>
-                    <p className="text-xs text-slate-400">{textoPlano(p)}</p>
-                    {p.descricao && p.descricao.trim() && (
-                      <ul className="mt-1.5 space-y-0.5">
-                        {p.descricao.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
-                          <li key={i} className="text-xs text-slate-600 flex gap-1.5"><span className="text-tema-600">•</span><span>{l}</span></li>
-                        ))}
-                      </ul>
-                    )}
+                <div key={p.id} className="py-3">
+                  {p.foto && (
+                    <div className="relative h-28 rounded-2xl overflow-hidden mb-2.5 bg-slate-200">
+                      <img src={p.foto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                      <p className="absolute bottom-2.5 left-3 right-3 font-extrabold text-white text-sm leading-tight">{p.nome}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      {!p.foto && <p className="font-semibold text-slate-800 text-sm">{p.nome}</p>}
+                      <p className="text-xs text-slate-400">{textoPlano(p)}</p>
+                    </div>
+                    {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}
                   </div>
-                  {cfg.mostrarPrecos !== false && <p className="font-extrabold text-tema-600 shrink-0">{kz(p.preco)}</p>}
+                  {p.descricao && p.descricao.trim() && (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {p.descricao.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
+                        <li key={i} className="text-xs text-slate-600 flex gap-1.5"><span className="text-tema-600">•</span><span>{l}</span></li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               ))}
             </div>

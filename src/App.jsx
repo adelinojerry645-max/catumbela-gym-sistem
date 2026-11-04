@@ -2987,21 +2987,28 @@ function Membros({ membros, planos, contas, advertencias, onAdd, onUpdate, onRem
   );
 }
 
+// Fotos prontas para os planos (Unsplash, ligadas diretamente — não ocupam espaço no sistema).
+const FOTOS_PLANOS = [
+  "1648542036561-e1d66a5ae2b1", "1738523686534-7055df5858d6", "1571019614242-c5c5dee9f50b",
+  "1641337221253-fdc7237f6b61", "1558611848-73f7eb4001a1", "1554344728-77cf90d9ed26",
+  "1593079831268-3381b0db4a77", "1649068618811-9f3547ef98fc", "1616279967983-ec413476e824",
+].map((id) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=75`);
+
 function Planos({ planos, membros, onSave, onRemove }) {
   const [editando, setEditando] = useState(null); // objeto do plano, ou {} para novo
   const [aEliminar, setAEliminar] = useState(null);
-  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "" });
+  const [form, setForm] = useState({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "", foto: "" });
   const [historicoPreco, setHistoricoPreco] = useState({}); // { planoId: [{de, para, data}] }
   const [erroNomeDuplicado, setErroNomeDuplicado] = useState("");
 
   const abrirNovo = () => {
-    setForm({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "" });
+    setForm({ nome: "", duracaoDias: 30, preco: 0, entradas: "", descricao: "", foto: "" });
     setErroNomeDuplicado("");
     setEditando({});
   };
 
   const abrirEdicao = (p) => {
-    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "", descricao: p.descricao || "" });
+    setForm({ nome: p.nome, duracaoDias: p.duracaoDias, preco: p.preco, entradas: p.entradas || "", descricao: p.descricao || "", foto: p.foto || "" });
     setErroNomeDuplicado("");
     setEditando(p);
   };
@@ -3088,9 +3095,15 @@ function Planos({ planos, membros, onSave, onRemove }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         {planos.map((p) => (
           <Card key={p.id}>
-            <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500">{p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}</p>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-1">{p.nome}</h3>
-            <p className="text-2xl font-extrabold text-tema-500 mt-3">{kz(p.preco)}</p>
+            <div className="-m-5 mb-4 relative h-36 rounded-t-2xl overflow-hidden bg-gradient-to-br from-tema-500 to-tema-700">
+              {p.foto && <img src={p.foto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+              <span className="absolute top-3 left-3 text-[11px] font-semibold bg-white/90 text-slate-800 px-2 py-0.5 rounded-full">
+                {p.duracaoDias} dias{p.entradas ? ` · ${p.entradas} entradas` : ""}
+              </span>
+              <h3 className="absolute bottom-3 left-4 right-4 text-lg font-extrabold text-white leading-tight drop-shadow">{p.nome}</h3>
+            </div>
+            <p className="text-3xl font-extrabold text-tema-500">{kz(p.preco)}</p>
             {p.descricao && p.descricao.trim() && (
               <ul className="mt-3 space-y-1">
                 {p.descricao.split("\n").map((l) => l.trim()).filter(Boolean).map((l, i) => (
@@ -3151,6 +3164,19 @@ function Planos({ planos, membros, onSave, onRemove }) {
                   onChange={(e) => setForm({ ...form, entradas: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Cada dia de treino conta 1 entrada. Passado o limite, a entrada fica bloqueada até renovar. Para as entradas não expirarem depressa, põe uma duração longa (ex.: 365 dias).</p>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">Foto do plano</label>
+                <div className="mt-1 grid grid-cols-5 gap-1.5">
+                  <button type="button" onClick={() => setForm({ ...form, foto: "" })}
+                    className={`h-12 rounded-lg text-[10px] font-semibold ring-2 ${!form.foto ? "ring-tema-500 text-tema-500" : "ring-slate-200 text-slate-400"}`}>Sem foto</button>
+                  {FOTOS_PLANOS.map((u) => (
+                    <button type="button" key={u} onClick={() => setForm({ ...form, foto: u })}
+                      className={`h-12 rounded-lg overflow-hidden ring-2 ${form.foto === u ? "ring-tema-500" : "ring-transparent"}`}>
+                      <img src={u.replace("w=800", "w=160")} alt="" loading="lazy" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-slate-400 dark:text-slate-500">O que se faz neste plano (uma linha por serviço)</label>
