@@ -3231,7 +3231,9 @@ const DADOS_BANCARIOS_GYM = {
 // pontual, aula experimental). Pagamentos de membros inscritos passam
 // todos a fazer-se em "Faturação / Recibos".
 // ---------------------------------------------------------------------
-function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
+function Pagamentos({ dadosGinasio, onRegistarAvulso, faturas = [] }) {
+  const [dias, setDias] = useState("1");
+  const [inicio, setInicio] = useState(dataLocalISO(new Date()));
   const [nome, setNome] = useState("");
   const [telefone, setTelefone] = useState("");
   const [descricao, setDescricao] = useState("Entrada avulsa");
@@ -3278,6 +3280,8 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
       metodo,
       contaBancariaId: (metodo === "transferencia" || metodo === "express" || metodo === "tpa") ? contaBancariaId : undefined,
       comprovativo,
+      dias: Number(dias) || 1,
+      inicio: inicio || dataLocalISO(new Date()),
     });
     } catch (erro) {
       aConfirmarRef.current = false; // deixa tentar de novo
@@ -3293,10 +3297,24 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
     setTelefone("");
     setDescricao("Entrada avulsa");
     setValor("");
+    setDias("1");
+    setInicio(dataLocalISO(new Date()));
     setMetodo("dinheiro");
     setComprovativo(null);
     setRecibo(null);
   };
+
+  // Lista de avulsos com controlo de dias (recibos avulsos que têm data de fim).
+  const hojeAv = dataLocalISO(new Date());
+  const listaAvulsos = faturas
+    .filter((f) => f.tipo === "RECIBO" && f.tipoReceita === "avulso" && f.avulsoFim)
+    .map((f) => {
+      const restantes = Math.round((new Date(`${f.avulsoFim}T12:00:00`) - new Date(`${hojeAv}T12:00:00`)) / 86400000) + 1;
+      const porComecar = f.avulsoInicio > hojeAv;
+      return { ...f, restantes, porComecar, terminou: restantes <= 0 };
+    })
+    .sort((a, b) => Number(a.terminou) - Number(b.terminou) || a.avulsoFim.localeCompare(b.avulsoFim));
+  const fmtData = (iso) => iso.split("-").reverse().join("/");
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -3321,6 +3339,18 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Descrição</label>
               <input value={descricao} onChange={(e) => setDescricao(e.target.value)}
                 className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Quantos dias?</label>
+                <input type="number" min={1} value={dias} onChange={(e) => setDias(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Começa em</label>
+                <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-tema-200" />
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Valor (Kz)</label>
@@ -3446,6 +3476,30 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso }) {
             <button onClick={reiniciar} className="mt-4 text-sm font-semibold text-tema-500 hover:underline">
               Registar outro pagamento
             </button>
+          </div>
+        )}
+      </Card>
+      <Card title="Avulsos — controlo de dias">
+        {listaAvulsos.length === 0 ? (
+          <p className="text-sm text-slate-400 dark:text-slate-500">Ainda não há avulsos com dias registados.</p>
+        ) : (
+          <div className="space-y-2 max-h-[70vh] overflow-y-auto">
+            {listaAvulsos.map((a) => (
+              <div key={a.numero} className="flex items-center justify-between gap-3 rounded-lg ring-1 ring-slate-200 dark:ring-slate-600 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{a.membro?.nome}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    {a.avulsoDias} dia(s) · {fmtData(a.avulsoInicio)} a {fmtData(a.avulsoFim)} · {kz(a.valor)}
+                  </p>
+                </div>
+                <span className={`shrink-0 text-[11px] font-bold px-2 py-1 rounded-full ${
+                  a.terminou ? "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                  : a.porComecar ? "bg-sky-100 text-sky-700" : a.restantes <= 1 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                }`}>
+                  {a.terminou ? "Terminou" : a.porComecar ? `Começa ${fmtData(a.avulsoInicio)}` : a.restantes === 1 ? "Último dia" : `Faltam ${a.restantes} dias`}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </Card>
@@ -17648,7 +17702,7 @@ export default function CatumbelaGymApp() {
   // guardado e persistente, nunca reinicia), guarda no histórico para
   // segunda via, e — se for um Recibo — regista logo a receita nos
   // pagamentos (senão nunca entraria nos relatórios/lucro).
-  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao, divisaoPagamento, semLedger }) => {
+  const gerarDocumentoFaturacao = async ({ tipo, membro, itens, valor, metodo, faturaOrigemNumero, tipoReceita, contaBancariaId, planoNome, vencimentoSubscricao, divisaoPagamento, semLedger, extra }) => {
     const prefixo = tipo === "FATURA" ? "FAT" : tipo === "PROFORMA" ? "PRO" : "REC";
     const ano = new Date().getFullYear();
     // Pagamento dividido — o cliente paga uma parte em dinheiro (em mão) e
@@ -17659,6 +17713,7 @@ export default function CatumbelaGymApp() {
     // documento, com o valor total, e mostra as duas partes discriminadas.
     const partes = divisaoPagamento && divisaoPagamento.length > 0 ? divisaoPagamento.filter((p) => Number(p.valor) > 0) : null;
     const documentoBase = {
+      ...(extra || {}),
       tipo,
       membro,
       itens,
@@ -17889,16 +17944,25 @@ export default function CatumbelaGymApp() {
   // Pagamento avulso — pessoa sem inscrição (dia avulso, aula experimental).
   // Regista-se logo (staff já viu o comprovativo presencialmente, se houver),
   // sem passar pela fila de aprovação, que é só para self-service de membros.
-  const registarPagamentoAvulso = async ({ nome, telefone, descricao, valor, metodo, contaBancariaId, comprovativo }) => {
+  const registarPagamentoAvulso = async ({ nome, telefone, descricao, valor, metodo, contaBancariaId, comprovativo, dias, inicio }) => {
     const clienteAvulso = { nome, numero: "AVULSO", telefone: telefone || "" };
+    // Controlo de dias: "dias" comprados a partir de "inicio" (AAAA-MM-DD).
+    // O último dia de treino é inicio + (dias - 1).
+    let extra;
+    if (Number(dias) > 0 && inicio) {
+      const f = new Date(`${inicio}T12:00:00`);
+      f.setDate(f.getDate() + Number(dias) - 1);
+      extra = { avulsoDias: Number(dias), avulsoInicio: inicio, avulsoFim: dataLocalISO(f) };
+    }
     const documento = await gerarDocumentoFaturacao({
       tipo: "RECIBO",
       membro: clienteAvulso,
-      itens: [{ referencia: "AVULSO", descricao, qtd: 1, precoUnit: valor, total: valor }],
+      itens: [{ referencia: "AVULSO", descricao: extra ? `${descricao} — ${extra.avulsoDias} dia(s), de ${extra.avulsoInicio} a ${extra.avulsoFim}` : descricao, qtd: 1, precoUnit: valor, total: valor }],
       valor,
       metodo,
       contaBancariaId,
       tipoReceita: "avulso",
+      extra,
     });
     if (comprovativo) {
       registarAuditoria("Anexou comprovativo a pagamento avulso", `${nome} — ${documento.numero}`);
@@ -19453,7 +19517,7 @@ export default function CatumbelaGymApp() {
             <Subscricoes membros={membros} planos={planos} onAtualizarSubscricao={atualizarSubscricao} onCancelarRenovacao={cancelarRenovacao} onPausar={pausarSubscricao} onRetomar={retomarSubscricao} onCancelarPausa={cancelarPausa} perfil={perfil} dadosGinasio={dadosGinasio} historicoSubscricoes={historicoSubscricoes} onDarDias={darDiasAoMembro} />
           )}
           {telaAtual === "pagamentos" && (
-            <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} />
+            <Pagamentos dadosGinasio={dadosGinasio} onRegistarAvulso={registarPagamentoAvulso} faturas={faturas} />
           )}
           {telaAtual === "aprovacao" && (perfil === "administrador" || perfil === "recepcionista") && (
             <AprovacaoPagamentos pendentes={pagamentosPendentes} onAprovar={aprovarPagamento} onRejeitar={rejeitarPagamento} />
