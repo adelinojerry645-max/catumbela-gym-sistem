@@ -93,6 +93,21 @@ export async function gravarColecaoSeAtual(chave, valor, dataEsperada) {
 // juntam-se num só pedido.
 const ultimaGravacaoPropria = {};
 const ATRASO_BUSCA_MS = 1200;
+// Listas grandes (centenas de KB cada): várias alterações seguidas (ex.: um
+// recibo mexe em faturas, pagamentos e caixa) juntam-se num só pedido, em vez
+// de cada aparelho descarregar a lista inteira a cada alteração. É isto que
+// mais gastava a largura de banda do Supabase (limite do plano).
+const ATRASO_BUSCA_GRANDES_MS = 20000;
+const COLECOES_GRANDES = new Set([
+  "faturas", "pagamentosFeitos", "movimentosCaixa", "movimentosBancarios",
+  "vendasProdutos", "historicoSubscricoes", "comprasMembros", "custos",
+]);
+function atrasoDeBusca(chave) {
+  const nome = String(chave).replace(/^teste_/, "");
+  if (COLECOES_GRANDES.has(nome)) return ATRASO_BUSCA_GRANDES_MS;
+  if (nome === "acessos") return 4000; // entradas/saídas: quase imediato, mas junta rajadas
+  return ATRASO_BUSCA_MS;
+}
 
 export function subscreverColecao(chave, aoAlterar) {
   let temporizador = null;
@@ -102,6 +117,13 @@ export function subscreverColecao(chave, aoAlterar) {
     temporizador = null;
     if (desligado) return;
     try {
+      // Pergunta primeiro só pela data (pedido minúsculo): se não há nada mais
+      // novo do que o que já vimos, não descarrega a lista inteira.
+      if (ultimaDataVista !== null) {
+        const d = await lerDataColecao(chave);
+        if (desligado) return;
+        if (d && Date.parse(d) <= ultimaDataVista) return;
+      }
       const res = await lerColecaoComData(chave);
       if (desligado || !res) return;
       // Só aceita leituras MAIS NOVAS do que a última vista (uma leitura lenta e
@@ -127,7 +149,7 @@ export function subscreverColecao(chave, aoAlterar) {
         // Eco da nossa própria gravação: já sabemos o que lá está.
         if (novoRegisto.atualizado_em && ultimaGravacaoPropria[chave] === novoRegisto.atualizado_em) return;
         if (temporizador) return; // já há uma busca marcada: junta-se
-        temporizador = setTimeout(buscar, ATRASO_BUSCA_MS);
+        temporizador = setTimeout(buscar, atrasoDeBusca(chave));
       }
     )
     .subscribe();
