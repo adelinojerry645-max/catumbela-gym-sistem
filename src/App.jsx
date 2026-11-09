@@ -1386,6 +1386,28 @@ const linkWhatsApp = (telefone, mensagem) =>
 const linkSMS = (telefone, mensagem) =>
   `sms:${(telefone || "").replace(/\D/g, "")}?body=${encodeURIComponent(mensagem)}`;
 
+// Mensagem padrão de TODOS os comprovativos (recibos, faturas, vendas):
+//   Olá ADELINO, segue o resumo do seu documento REC-2026-002323 (Ginásio):
+//
+//   • Ovo x1 — 250 Kz
+//   • Água pequena x1 — 150 Kz
+//
+//   Total: 400 Kz
+//   Obrigado pela preferência!
+// Aceita um documento ou vários (ex.: inscrição + mensalidade juntas).
+const mensagemComprovativo = (docs, nomeGinasio, nomeCliente) => {
+  const lista = (Array.isArray(docs) ? docs : [docs]).filter(Boolean);
+  const primeiro = String(nomeCliente || lista[0]?.membro?.nome || "").trim().split(" ")[0];
+  const numeros = lista.map((d) => d.numero).join(" + ");
+  const itens = lista.flatMap((d) => d.itens || []);
+  const total = lista.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+  return (
+    `Olá ${primeiro}, segue o resumo do seu documento ${numeros} (${nomeGinasio || "Catumbela Gym"}):\n\n` +
+    (itens.length ? itens.map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") + "\n\n" : "") +
+    `Total: ${kz(total)}\nObrigado pela preferência!`
+  );
+};
+
 // WhatsApp "quase automático" ao gerar um recibo de plano/inscrição: abre o
 // WhatsApp com a mensagem já escrita e o número do atleta — a recepcionista só
 // carrega em Enviar. (Envio 100% sem cliques exige a API oficial do WhatsApp
@@ -1422,12 +1444,7 @@ const agendarWhatsAppRecibo = (documento, nomeGinasio) => {
       const tel = filaWhatsAppRecibos.telefone;
       filaWhatsAppRecibos.docs = []; filaWhatsAppRecibos.timer = null;
       if (!docs.length) return;
-      const total = docs.reduce((s, d) => s + (Number(d.valor) || 0), 0);
-      const numeros = docs.map((d) => d.numero).join(" + ");
-      const primeiro = String(m.nome || "").trim().split(" ")[0];
-      const mensagem =
-        `Olá ${primeiro}, recebemos o teu pagamento. Recibo ${numeros} — ${kz(total)}. ` +
-        `Obrigado! ${nomeGinasio || "Catumbela Gym"} 💪`;
+      const mensagem = mensagemComprovativo(docs, nomeGinasio, m.nome);
       window.open(linkWhatsApp(tel, mensagem), "_blank", "noopener");
     }, 700);
   } catch { /* nunca deixa isto estragar a geração do recibo */ }
@@ -3465,7 +3482,7 @@ function Pagamentos({ dadosGinasio, onRegistarAvulso, faturas = [] }) {
               </button>
               {recibo.membro.telefone && (
                 <a
-                  href={linkWhatsApp(recibo.membro.telefone, `Recibo ${recibo.numero} — ${kz(recibo.valor)} recebido. Obrigado! ${dadosGinasio.nome} 💪`)}
+                  href={linkWhatsApp(recibo.membro.telefone, mensagemComprovativo(recibo, dadosGinasio.nome))}
                   target="_blank" rel="noreferrer"
                   className="flex-1 bg-gradient-to-b from-tema-400 to-tema-600 hover:from-tema-450 hover:to-tema-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
                 >
@@ -3792,7 +3809,7 @@ function VendasPOS({ produtos, membros, dadosGinasio, onFinalizar }) {
               </button>
               {concluida.membro?.telefone && (
                 <a
-                  href={linkWhatsApp(concluida.membro.telefone, `Recibo ${concluida.numero} — ${kz(concluida.valor)}. Obrigado pela compra! ${dadosGinasio.nome} 💪`)}
+                  href={linkWhatsApp(concluida.membro.telefone, mensagemComprovativo(concluida, dadosGinasio.nome))}
                   target="_blank" rel="noreferrer"
                   className="flex-1 bg-gradient-to-b from-tema-400 to-tema-600 hover:from-tema-450 hover:to-tema-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
                 >
@@ -8045,7 +8062,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
             <a
               href={linkWhatsApp(
                 ultimoRecibo.membro.telefone,
-                `Olá ${ultimoRecibo.membro.nome.split(" ")[0]}, aqui está o recibo ${ultimoRecibo.numero} — Plano ${ultimoPlanoConfirmado}, ${kz(ultimoRecibo.valor)}. Obrigado! 💪`
+                mensagemComprovativo(ultimoRecibo, dadosGinasio?.nome)
               )}
               target="_blank" rel="noreferrer"
               className="mt-3 flex items-center justify-center gap-1.5 bg-gradient-to-b from-tema-400 to-tema-600 hover:from-tema-450 hover:to-tema-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white text-sm font-semibold py-2 rounded-lg"
@@ -8071,7 +8088,7 @@ function Subscricoes({ membros, planos, onAtualizarSubscricao, onCancelarRenovac
 // HISTÓRICO DE FATURAS E RECIBOS — todos os documentos já emitidos,
 // pesquisável, para veres o que já se tirou e reimprimir (2ª via).
 // ---------------------------------------------------------------------
-function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
+function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual, dadosGinasio }) {
   const [pesquisa, setPesquisa] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("TODOS");
   const [aEliminar, setAEliminar] = useState(null);
@@ -8157,9 +8174,7 @@ function HistoricoFaturas({ faturas, onVer, onEliminar, perfil, nomeAtual }) {
                         <a
                           href={linkWhatsApp(
                             f.membro.telefone,
-                            f.tipo === "RECIBO"
-                              ? `Olá ${String(f.membro.nome || "").trim().split(" ")[0]}, segue o teu recibo ${f.numero} — ${kz(f.valor)}. Obrigado! Catumbela Gym 💪`
-                              : `Olá ${String(f.membro.nome || "").trim().split(" ")[0]}, segue o documento ${f.numero} — ${kz(f.valor)}. Catumbela Gym`
+                            mensagemComprovativo(f, dadosGinasio?.nome)
                           )}
                           target="_blank" rel="noreferrer"
                           title="Enviar por WhatsApp"
@@ -8369,6 +8384,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
       {aba === "historico" && (
         <HistoricoFaturas
           faturas={faturas}
+          dadosGinasio={dadosGinasio}
           perfil={perfil}
           nomeAtual={nomeAtual}
           onEliminar={onEliminarFatura}
@@ -8734,9 +8750,7 @@ function Faturacao({ membros, planos, produtos, dadosGinasio, faturas, onGerarFa
               <a
                 href={linkWhatsApp(
                   gerada.membro?.telefone || "",
-                  `Olá ${(gerada.membro?.nome || "").split(" ")[0]}, segue o resumo do seu documento ${gerada.numero} (${dadosGinasio.nome}):\n\n` +
-                    (gerada.itens || []).map((i) => `• ${i.descricao} x${i.qtd} — ${kz(i.total)}`).join("\n") +
-                    `\n\nTotal: ${kz(gerada.valor)}\nObrigado pela preferência!`
+                  mensagemComprovativo(gerada, dadosGinasio.nome)
                 )}
                 target="_blank" rel="noreferrer"
                 className="flex-1 bg-gradient-to-b from-tema-400 to-tema-600 hover:from-tema-450 hover:to-tema-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.25),0_2px_6px_rgba(20,32,31,0.35)] active:shadow-[inset_0_1px_2px_rgba(20,32,31,0.35)] active:translate-y-px transition-all text-white rounded-lg py-2 text-sm font-semibold text-center"
