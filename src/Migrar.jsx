@@ -20,8 +20,10 @@ const itens = (v) => (Array.isArray(v) ? v.length : "—");
 const kb = (v) => Math.round(JSON.stringify(v).length / 1024) + " KB";
 
 export default function Migrar() {
-  const [url, setUrl] = useState("");
-  const [chave, setChave] = useState("");
+  // O link pode já trazer o destino preenchido: ?migrar=1&url=...&chave=...
+  const qs = new URLSearchParams(window.location.search);
+  const [url, setUrl] = useState(qs.get("url") || "");
+  const [chave, setChave] = useState(qs.get("chave") || "");
   const [log, setLog] = useState([]);
   const [linhas, setLinhas] = useState(null);
   const [aCorrer, setACorrer] = useState(false);
