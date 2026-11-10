@@ -1,7 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Projecto Supabase (migrado em 10/11/2026 para uma organização nova, por causa
+// do limite de largura de banda do plano grátis). A chave "anon" é pública por
+// desenho; fica aqui para não depender das variáveis do Vercel (que ainda
+// apontam para o projecto antigo). O projecto antigo é yhbqopxqudjinsvcjhpx.
+const supabaseUrl = "https://qhkwfqzacucgurtgxsne.supabase.co";
+const supabaseAnonKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFoa3dmcXphY3VjZ3VydGd4c25lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQyNjc4NDAsImV4cCI6MjEwOTg0Mzg0MH0.WUmVHlhOsgSIGu8RaSreiajvGq2IZjox_sXPg6o1kZk";
 
 let supabaseClient;
 
