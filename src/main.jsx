@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { PaginaPublicaOpiniao, PaginaPublicaGinasio } from "./extras.jsx";
 import PaginaTreino from "./PaginaTreino.jsx";
+import Migrar from "./Migrar.jsx";
 import "./index.css";
 import { supabase } from "./lib/supabaseClient";
 import { instalarRegistoDeErros, registarErro } from "./lib/registoErros";
@@ -45,6 +46,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         if (q.get("opiniao") === "1") return <PaginaPublicaOpiniao />;
         if (q.get("ginasio") === "1") return <PaginaPublicaGinasio />;
         if (q.get("treino") === "1") return <PaginaTreino />;
+        if (q.get("migrar") === "1") return <Migrar />;
         return <App />;
       })()}
     </CapturaErros>
