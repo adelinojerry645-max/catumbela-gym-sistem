@@ -397,3 +397,16 @@ exception when others then
 end $$;
 
 select 'ESTRUTURA CRIADA COM SUCESSO' as resultado;
+
+-- Usada só pela ferramenta de migração (envio de listas grandes em partes)
+CREATE OR REPLACE FUNCTION public.anexar_itens_colecao(p_chave text, p_itens jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  INSERT INTO estado_app (chave, valor, atualizado_em)
+  VALUES (p_chave, p_itens, now())
+  ON CONFLICT (chave) DO UPDATE
+  SET valor = estado_app.valor || p_itens, atualizado_em = now();
+END;
+$function$;

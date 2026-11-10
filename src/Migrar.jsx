@@ -74,11 +74,34 @@ export default function Migrar() {
         const existente = mapaD.get(r.chave);
         const igual = existente && existente.atualizado_em === r.atualizado_em && canonico(existente.valor) === canonico(r.valor);
         if (igual) continue;
-        const res = await destino.from("estado_app").upsert(
-          { chave: r.chave, valor: r.valor, atualizado_em: r.atualizado_em },
-          { onConflict: "chave" }
-        );
-        if (res.error) erros.push(`${r.chave}: ${res.error.message}`);
+        let erro = null;
+        if (Array.isArray(r.valor) && JSON.stringify(r.valor).length > 1000000) {
+          // Lista muito grande (ex.: auditoria): envia em pedaços de 500 itens.
+          escrever(`… ${r.chave}: lista grande, a enviar em partes`);
+          const del = await destino.from("estado_app").delete().eq("chave", r.chave);
+          if (del.error) erro = del.error;
+          for (let i = 0; i < r.valor.length && !erro; i += 500) {
+            const parte = r.valor.slice(i, i + 500);
+            let res;
+            for (let tent = 0; tent < 3; tent++) {
+              res = await destino.rpc("anexar_itens_colecao", { p_chave: r.chave, p_itens: parte });
+              if (!res.error) break;
+            }
+            if (res.error) erro = res.error;
+            else if (i % 2500 === 0) escrever(`   ${Math.min(i + 500, r.valor.length)} / ${r.valor.length}`);
+          }
+          if (!erro) {
+            const fim = await destino.from("estado_app").update({ atualizado_em: r.atualizado_em }).eq("chave", r.chave);
+            if (fim.error) erro = fim.error;
+          }
+        } else {
+          const res = await destino.from("estado_app").upsert(
+            { chave: r.chave, valor: r.valor, atualizado_em: r.atualizado_em },
+            { onConflict: "chave" }
+          );
+          if (res.error) erro = res.error;
+        }
+        if (erro) erros.push(`${r.chave}: ${erro.message}`);
         else copiadas++;
         escrever(`… ${r.chave} (${itens(r.valor)} itens)`);
       }
