@@ -853,6 +853,13 @@ function usePersistente(chave, valorInicial, setStatusSync) {
     let tentativas = 0;
     const baseAoIniciar = baseParaFusao.current; // a base guardada localmente, de antes desta leitura
     const tentarLer = () => {
+      // A auditoria é a lista maior (quase 2 MB) e só o administrador a consulta:
+      // não é descarregada ao abrir o sistema, apenas quando se abre um ecrã que a
+      // usa (ver o efeito "tela" mais abaixo). Poupa muito tráfego do Supabase.
+      if (chave === "auditLog") {
+        marcarColecaoCarregada(chave);
+        return;
+      }
       lerColecaoComData(PREFIXO_COLECAO_TESTE + chave)
         .then((res) => {
           const dados = res ? res.valor : null;
@@ -16893,7 +16900,7 @@ export default function CatumbelaGymApp() {
   // O registo de auditoria não usa tempo real (ver COLECOES_SEM_TEMPO_REAL):
   // ao abrir o ecrã, vai buscar as entradas feitas noutros aparelhos.
   useEffect(() => {
-    if (tela !== "auditoria") return;
+    if (tela !== "auditoria" && tela !== "alertas" && tela !== "recuperar-dados") return;
     lerColecaoComData(PREFIXO_COLECAO_TESTE + "auditLog")
       .then((res) => {
         if (!res || !Array.isArray(res.valor)) return;
