@@ -19805,7 +19805,7 @@ export default function CatumbelaGymApp() {
           )}
         </main>
         {perfil === "administrador" && (
-          <CaixaPerguntas pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} reconstruir={reconstruirPagamentosDeRecibos} />
+          <CaixaPerguntas pagamentosFeitos={pagamentosFeitos} faturas={faturas} acessos={acessos} membros={membros} reconstruir={reconstruirPagamentosDeRecibos} />
         )}
       </div>
     </div>
