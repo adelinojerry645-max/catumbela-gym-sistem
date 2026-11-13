@@ -10427,9 +10427,15 @@ function DarDiasForm({ membro, perfil, limiteAjuste, onConfirmar, onFechar, dias
 // soma ao vencimento exatamente os dias que ele faltou, para ele se manter
 // ativo. Os dias em falta contam desde a última visita OU desde a última
 // reposição (o que for mais recente), para nunca repor duas vezes a mesma falta.
-function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, onDarDias }) {
+function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, onDarDias, avisosEnviados, onMarcarEnviado }) {
   const [limiarFalta, setLimiarFalta] = useState(3);
   const [aReporId, setAReporId] = useState(null);
+  const [aEnviarEmMassa, setAEnviarEmMassa] = useState(false);
+  // "Sentimos a tua falta": uma chave por atleta e por dia, para não repetir no
+  // mesmo dia mas poder voltar a enviar noutro.
+  const hojeAviso = dataLocalISO(new Date());
+  const chaveFalta = (r) => `${r.membro.id}-falta-${hojeAviso}`;
+  const mensagemFalta = (r) => `Olá ${String(r.membro.nome || "").split(" ")[0]}, sentimos a tua falta no ginásio! Está tudo bem? Passa por cá quando puderes 💪`;
   const limiteAjuste = Number(dadosGinasio?.limiteDiasRecepcao) > 0 ? Number(dadosGinasio.limiteDiasRecepcao) : 7;
 
   const faltosos = useMemo(() => {
@@ -10460,8 +10466,17 @@ function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, o
       .slice(0, 100);
   }, [membros, acessos, ajustesDias, limiarFalta]);
 
+  const jaEnviadosFalta = new Set((avisosEnviados || []).map((a) => a.chave));
+  const porContactarFalta = faltosos
+    .filter((r) => r.membro.telefone && !jaEnviadosFalta.has(chaveFalta(r)))
+    .map((r) => ({ ...r, tipo: "falta" }));
+
   return (
-    <Card title="Atletas em falta — repor dias para manter ativo">
+    <Card title="Atletas em falta — repor dias para manter ativo" action={onMarcarEnviado && porContactarFalta.length > 0 ? (
+      <button onClick={() => setAEnviarEmMassa(true)} className="text-xs font-semibold text-tema-500 hover:underline">
+        Enviar "sentimos a tua falta" a todos ({porContactarFalta.length})
+      </button>
+    ) : null}>
       <div className="flex flex-wrap items-center gap-2 mb-3 text-xs text-slate-500 dark:text-slate-400">
         Mostrar quem não vem há pelo menos
         <select value={limiarFalta} onChange={(e) => setLimiarFalta(Number(e.target.value))} className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-900 dark:text-white">
@@ -10493,11 +10508,20 @@ function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, o
           ))}
         </div>
       )}
+      {aEnviarEmMassa && (
+        <EnviarEmMassaModal
+          pessoas={porContactarFalta}
+          gerarMensagem={mensagemFalta}
+          gerarChave={chaveFalta}
+          onMarcarEnviado={onMarcarEnviado}
+          onFechar={() => setAEnviarEmMassa(false)}
+        />
+      )}
     </Card>
   );
 }
 
-function ControloDias({ ajustesDias, membros, acessos, dadosGinasio, onSalvarLimites, onDarDias, onAnular }) {
+function ControloDias({ ajustesDias, membros, acessos, dadosGinasio, onSalvarLimites, onDarDias, onAnular, avisosEnviados, onMarcarEnviado }) {
   const [mes, setMes] = useState(mesLocalISO(new Date()));
   const [limAjuste, setLimAjuste] = useState(String(dadosGinasio?.limiteDiasRecepcao ?? 7));
   const [limMes, setLimMes] = useState(String(dadosGinasio?.limiteDiasMesRecepcao ?? 14));
@@ -10546,7 +10570,7 @@ function ControloDias({ ajustesDias, membros, acessos, dadosGinasio, onSalvarLim
         </div>
       </Card>
 
-      <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil="administrador" dadosGinasio={dadosGinasio} onDarDias={onDarDias} />
+      <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil="administrador" dadosGinasio={dadosGinasio} onDarDias={onDarDias} avisosEnviados={avisosEnviados} onMarcarEnviado={onMarcarEnviado} />
 
       <Card title="Dias dados — registo e controlo">
         <div className="flex flex-wrap items-center gap-3 mb-3 text-xs text-slate-500 dark:text-slate-400">
@@ -19696,10 +19720,10 @@ export default function CatumbelaGymApp() {
           )}
           {telaAtual === "auditoria" && perfil === "administrador" && <Auditoria registos={auditLog} onNavegar={navegarComFoco} dispositivos={dispositivos} meuIdDispositivo={meuIdDispositivo} />}
           {telaAtual === "atletas-em-falta" && (perfil === "administrador" || perfil === "recepcionista") && (
-            <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil={perfil} dadosGinasio={dadosGinasio} onDarDias={darDiasAoMembro} />
+            <AtletasEmFalta membros={membros} acessos={acessos} ajustesDias={ajustesDias} perfil={perfil} dadosGinasio={dadosGinasio} onDarDias={darDiasAoMembro} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />
           )}
           {telaAtual === "controlo-dias" && perfil === "administrador" && (
-            <ControloDias ajustesDias={ajustesDias} membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} onSalvarLimites={guardarLimitesDias} onDarDias={darDiasAoMembro} onAnular={anularAjusteDias} />
+            <ControloDias ajustesDias={ajustesDias} membros={membros} acessos={acessos} dadosGinasio={dadosGinasio} onSalvarLimites={guardarLimitesDias} onDarDias={darDiasAoMembro} onAnular={anularAjusteDias} avisosEnviados={avisosEnviados} onMarcarEnviado={marcarAvisoEnviado} />
           )}
           {telaAtual === "recuperar-dados" && perfil === "administrador" && (
             <div className="space-y-4">
