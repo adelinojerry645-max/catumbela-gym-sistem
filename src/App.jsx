@@ -10466,6 +10466,24 @@ function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, o
       .slice(0, 100);
   }, [membros, acessos, ajustesDias, limiarFalta]);
 
+  // Lista de difusão do WhatsApp Business: descarrega um ficheiro de contactos
+  // (.vcf) com todos os atletas em falta. Importado no telemóvel da recepção, os
+  // números ficam guardados e podem ser postos numa lista de difusão.
+  const [msgCopiada, setMsgCopiada] = useState(false);
+  const exportarContactosFalta = () => {
+    const comTel = faltosos.filter((r) => r.membro.telefone);
+    const esc = (s) => String(s || "").replace(/[\\;,]/g, " ").replace(/\r?\n/g, " ");
+    const vcf = comTel.map((r) => `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${esc(r.membro.nome)} (CG)\r\nTEL;TYPE=CELL:+${numeroInternacional(r.membro.telefone)}\r\nEND:VCARD`).join("\r\n") + "\r\n";
+    const url = URL.createObjectURL(new Blob([vcf], { type: "text/vcard" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `atletas-em-falta-${hojeAviso}.vcf`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const copiarMensagemFalta = async () => {
+    try { await navigator.clipboard.writeText("Olá! Sentimos a tua falta no ginásio! Está tudo bem? Passa por cá quando puderes 💪"); setMsgCopiada(true); setTimeout(() => setMsgCopiada(false), 2500); } catch { /* sem permissão */ }
+  };
+
   const jaEnviadosFalta = new Set((avisosEnviados || []).map((a) => a.chave));
   const porContactarFalta = faltosos
     .filter((r) => r.membro.telefone && !jaEnviadosFalta.has(chaveFalta(r)))
@@ -10484,6 +10502,15 @@ function AtletasEmFalta({ membros, acessos, ajustesDias, perfil, dadosGinasio, o
         </select>
         — o botão <strong>Repor</strong> soma ao vencimento os dias que o atleta faltou.
       </div>
+      {faltosos.some((r) => r.membro.telefone) && (
+        <div className="mb-3 rounded-lg bg-slate-50 dark:bg-slate-900 p-3 text-xs text-slate-600 dark:text-slate-300 space-y-2">
+          <p><strong>Enviar a todos de uma vez (lista de difusão do WhatsApp Business):</strong> 1) descarregue os contactos; 2) abra o ficheiro no telemóvel da recepção para guardar os números; 3) no WhatsApp Business crie uma lista de difusão com eles e envie a mensagem copiada.</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={exportarContactosFalta} className="px-3 py-1.5 rounded-lg bg-tema-500 text-white font-semibold">Descarregar contactos ({faltosos.filter((r) => r.membro.telefone).length})</button>
+            <button onClick={copiarMensagemFalta} className="px-3 py-1.5 rounded-lg ring-1 ring-slate-300 dark:ring-slate-600 font-semibold">{msgCopiada ? "Copiada ✔" : "Copiar mensagem"}</button>
+          </div>
+        </div>
+      )}
       {faltosos.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500">Nenhum atleta está em falta há {limiarFalta} dia(s) ou mais.</p>
       ) : (
