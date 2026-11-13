@@ -11021,6 +11021,16 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
   const totalOutros = outros.reduce((s, p) => s + p.valor, 0);
   const totalDia = totalVendas + totalSubscricoes + totalOutros;
 
+  // Total por forma de pagamento (Dinheiro/Caixa, TPA, Express, etc.).
+  const rotuloMetodoResumo = { dinheiro: "Dinheiro (caixa)", tpa: "TPA", express: "Express", referencia: "Referência", transferencia: "Transferência" };
+  const ordemMetodos = ["dinheiro", "tpa", "express", "transferencia", "referencia"];
+  const somaMetodo = (lista, m) => lista.filter((p) => (p.metodo || "outro") === m).reduce((s, p) => s + p.valor, 0);
+  const metodosPresentes = [
+    ...ordemMetodos,
+    ...Array.from(new Set(pagamentosDoDia.map((p) => p.metodo || "outro"))).filter((m) => !ordemMetodos.includes(m)),
+  ].filter((m, i) => i < 3 || pagamentosDoDia.some((p) => (p.metodo || "outro") === m));
+  const totaisPorMetodo = metodosPresentes.map((m) => ({ m, rotulo: rotuloMetodoResumo[m] || m, total: somaMetodo(pagamentosDoDia, m) }));
+
   // Resumo dia a dia (só útil na vista de semana).
   const resumoPorDia = [];
   if (modo === "semana") {
@@ -11031,7 +11041,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
       const v = doDia.filter((p) => p.tipo === "venda").reduce((t, p) => t + p.valor, 0);
       const sb = doDia.filter((p) => p.tipo === "mensalidade" || p.tipo === "inscricao").reduce((t, p) => t + p.valor, 0);
       const ou = doDia.reduce((t, p) => t + p.valor, 0) - v - sb;
-      resumoPorDia.push({ iso, nome: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][i], vendas: v, subs: sb, outros: ou, total: v + sb + ou, acessos: acessosDoDia.filter((a) => a.data === iso).length });
+      resumoPorDia.push({ iso, nome: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][i], vendas: v, subs: sb, outros: ou, total: v + sb + ou, acessos: acessosDoDia.filter((a) => a.data === iso).length, metodos: Object.fromEntries(metodosPresentes.map((m) => [m, somaMetodo(doDia, m)])) });
       d.setDate(d.getDate() + 1);
     }
   }
@@ -11040,6 +11050,14 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
 
   const exportar = () => {
     const livro = XLSX.utils.book_new();
+    const folhaResumo = criarFolhaOrganizada(
+      [
+        ...totaisPorMetodo.map((t) => ({ Item: t.rotulo, "Valor (Kz)": t.total })),
+        { Item: "TOTAL", "Valor (Kz)": totalDia },
+      ],
+      "Resumo por método"
+    );
+    XLSX.utils.book_append_sheet(livro, folhaResumo, "Resumo por método");
     const folhaVendas = criarFolhaOrganizada(
       vendasPOS.map((p) => ({
         Hora: p.hora, Cliente: p.membroNome,
@@ -11138,6 +11156,21 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
         <Card><p className="text-xs text-slate-400 dark:text-slate-500">Acessos ao ginásio</p><p className="text-xl font-extrabold text-slate-900 dark:text-slate-100">{acessosDoDia.length}</p></Card>
       </div>
 
+      <Card title={`Dinheiro que entrou ${periodoTxt}, por forma de pagamento`}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {totaisPorMetodo.map((t) => (
+            <div key={t.m}>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{t.rotulo}</p>
+              <p className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{kz(t.total)}</p>
+            </div>
+          ))}
+          <div>
+            <p className="text-xs text-slate-400 dark:text-slate-500">Total</p>
+            <p className="text-lg font-extrabold text-tema-500">{kz(totalDia)}</p>
+          </div>
+        </div>
+      </Card>
+
       {modo === "semana" && (
         <Card title="Resumo dia a dia">
           <div className="overflow-x-auto">
@@ -11148,6 +11181,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
                   <th className="pb-2 font-medium text-right">Vendas</th>
                   <th className="pb-2 font-medium text-right">Subscrições</th>
                   {totalOutros > 0 && <th className="pb-2 font-medium text-right">Outros</th>}
+                  {totaisPorMetodo.map((t) => <th key={t.m} className="pb-2 font-medium text-right">{t.rotulo}</th>)}
                   <th className="pb-2 font-medium text-right">Total</th>
                   <th className="pb-2 font-medium text-right">Acessos</th>
                 </tr>
@@ -11159,6 +11193,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
                     <td className="py-1.5 text-right">{kz(r.vendas)}</td>
                     <td className="py-1.5 text-right">{kz(r.subs)}</td>
                     {totalOutros > 0 && <td className="py-1.5 text-right">{kz(r.outros)}</td>}
+                    {totaisPorMetodo.map((t) => <td key={t.m} className="py-1.5 text-right">{kz(r.metodos[t.m] || 0)}</td>)}
                     <td className="py-1.5 text-right font-medium">{kz(r.total)}</td>
                     <td className="py-1.5 text-right">{r.acessos}</td>
                   </tr>
@@ -11168,6 +11203,7 @@ function RelatorioDiario({ pagamentosFeitos, faturas, acessos }) {
                   <td className="py-2 text-right">{kz(totalVendas)}</td>
                   <td className="py-2 text-right">{kz(totalSubscricoes)}</td>
                   {totalOutros > 0 && <td className="py-2 text-right">{kz(totalOutros)}</td>}
+                  {totaisPorMetodo.map((t) => <td key={t.m} className="py-2 text-right">{kz(t.total)}</td>)}
                   <td className="py-2 text-right text-tema-500">{kz(totalDia)}</td>
                   <td className="py-2 text-right">{acessosDoDia.length}</td>
                 </tr>
