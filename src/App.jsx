@@ -13070,7 +13070,7 @@ function RelatorioHorarioColaboradores({ contas, registosPonto, dadosGinasio, on
   );
 }
 
-function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, onDefinirSexo }) {
+function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, dadosGinasio, onFechar, onDefinirSexo, faturas = [] }) {
   const [mesEscolhido, setMesEscolhido] = useState(mesLocalISO(new Date()));
   // Período do ranking: um mês inteiro, ou uma semana (segunda a domingo) —
   // escolhe-se qualquer dia e o sistema calcula a semana a que ele pertence.
@@ -13109,7 +13109,13 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         // ficou mais tempo do que o limite. Assim, se a taxa foi cobrada
         // por engano e a fatura é eliminada depois (ver "eliminarFatura",
         // que limpa esse campo), o atleta deixa de ficar penalizado aqui.
-        const sessoesLongas = acessosDoMes.filter((a) => a.taxaSessaoLongaFatura).length;
+        // Quem JÁ PAGOU a taxa volta ao ranking: só conta como "taxada" a sessão
+        // cuja fatura de taxa ainda existe e continua por pagar.
+        const sessoesLongas = acessosDoMes.filter((a) => {
+          if (!a.taxaSessaoLongaFatura) return false;
+          const fat = faturas.find((f) => f.numero === a.taxaSessaoLongaFatura);
+          return !!fat && fat.estado !== "paga";
+        }).length;
         // Dias DISTINTOS, não sessões — vir treinar em vários dias do mês
         // conta para a consistência, mesmo que cada sessão seja curta;
         // duas entradas no MESMO dia não duplicam isto.
@@ -13162,7 +13168,7 @@ function MelhorAtleta({ membros, acessos, historicoCargas, avaliacoesFisicas, da
         if (aTaxada !== bTaxada) return aTaxada ? 1 : -1;
         return b.pontuacao - a.pontuacao;
       });
-  }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, modoPeriodo, semanaIni, semanaFim, dadosGinasio]);
+  }, [membros, acessos, historicoCargas, avaliacoesFisicas, mesEscolhido, modoPeriodo, semanaIni, semanaFim, dadosGinasio, faturas]);
 
   const contagemCategoria = { M: 0, F: 0, sem: 0 };
   rankingTodos.forEach((r) => { contagemCategoria[r.membro.sexo === "M" || r.membro.sexo === "F" ? r.membro.sexo : "sem"] += 1; });
@@ -14145,7 +14151,7 @@ const exportarMembros = () => {
 
       {aVerMelhorAtleta && (
         <MelhorAtleta
-          membros={membros} acessos={acessos} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio}
+          membros={membros} acessos={acessos} historicoCargas={historicoCargas} avaliacoesFisicas={avaliacoesFisicas} dadosGinasio={dadosGinasio} faturas={faturas}
           onDefinirSexo={onDefinirSexo}
           onFechar={() => setAVerMelhorAtleta(false)}
         />
