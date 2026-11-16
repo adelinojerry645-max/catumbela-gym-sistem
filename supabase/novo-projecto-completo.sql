@@ -410,3 +410,26 @@ BEGIN
   SET valor = estado_app.valor || p_itens, atualizado_em = now();
 END;
 $function$;
+
+-- Protecção do sexo dos atletas: nunca se perde ao gravar de um aparelho antigo
+create or replace function public.estado_app_sexos_proteger() returns trigger language plpgsql as $$
+begin
+  if new.chave = 'sexosMembros' and jsonb_typeof(old.valor) = 'object' and jsonb_typeof(new.valor) = 'object' then
+    new.valor := old.valor || new.valor;
+  elsif new.chave = 'membros' and jsonb_typeof(old.valor) = 'array' and jsonb_typeof(new.valor) = 'array' then
+    new.valor := (
+      with antigos as (
+        select coalesce(jsonb_object_agg(x->>'id', x->>'sexo'), '{}'::jsonb) mapa
+        from jsonb_array_elements(old.valor) x where x->>'sexo' in ('M','F')
+      )
+      select coalesce(jsonb_agg(
+        case when n->>'sexo' in ('M','F') then n
+             when (select mapa from antigos) ? (n->>'id') then n || jsonb_build_object('sexo', (select mapa from antigos)->>(n->>'id'))
+             else n end order by ord), '[]'::jsonb)
+      from jsonb_array_elements(new.valor) with ordinality t(n, ord)
+    );
+  end if;
+  return new;
+end $$;
+drop trigger if exists estado_app_sexos_trg on public.estado_app;
+create trigger estado_app_sexos_trg before update on public.estado_app for each row when (new.chave in ('membros','sexosMembros')) execute function public.estado_app_sexos_proteger();
