@@ -16788,20 +16788,11 @@ export default function CatumbelaGymApp() {
           `${m.nome} — antes: ${m.plano || "sem plano"}, vencia ${m.vencimento || "—"} → agora: ${efetivo.plano || "sem plano"}, vence ${efetivo.vencimento} (pelo recibo mais recente)`
         );
       });
+      // Já não se escreve na Auditoria: esta correção é automática e repetia-se
+      // centenas de vezes por dia, e cada registo obrigava a regravar a lista
+      // inteira da auditoria (esgotava o disco do Supabase). Fica só na consola.
       if (registosParaAuditoria.length > 0) {
-        const agoraAud = new Date();
-        const nomeAtorAud = contaAtual?.nome || "Sistema";
-        setAuditLog((atualAud) => [
-          ...registosParaAuditoria.map((detalhe, i) => ({
-            id: `${agoraAud.getTime()}-${i}-${Math.floor(Math.random() * 100000)}`,
-            utilizador: nomeAtorAud,
-            acao: "Recuperou subscrição automaticamente (pelo recibo)",
-            detalhe,
-            data: agoraAud.toLocaleDateString("pt-PT"),
-            hora: agoraAud.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
-          })),
-          ...atualAud,
-        ]);
+        try { console.info("Subscrição reposta pelo recibo:", registosParaAuditoria); } catch {}
       }
       setMembros((atual) => {
         let mudouAlgumaCoisa = false;
@@ -16910,20 +16901,10 @@ export default function CatumbelaGymApp() {
         return { ...m, plano, vencimento, estado: vencimento ? (vencimento <= hojeStr ? "vencido" : "ativo") : "sem-subscricao" };
       })
     );
-    const nomeAtor = contaAtual?.nome || (perfil === "administrador" ? "Administrador" : perfil === "recepcionista" ? "Recepção" : "Sistema");
-    const agora = new Date();
-    setAuditLog((atual) => [
-      ...Array.from(porId.values()).map((d) => ({
-        id: `${agora.getTime()}-${Math.floor(Math.random() * 100000)}-${d.membro.id}`,
-        utilizador: nomeAtor,
-        acao: "Recuperou subscrição automaticamente (pelo histórico)",
-        detalhe: `${d.membro.nome || d.membro.id} — antes: ${d.membro.plano || "sem plano"}, vencia ${d.membro.vencimento || "—"} → agora: ${d.ultimo.planoNovo || "sem plano"}, vence ${d.ultimo.vencimentoNovo || "—"} (pelo histórico de subscrições)`,
-        destino: undefined,
-        data: agora.toLocaleDateString("pt-PT"),
-        hora: agora.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" }),
-      })),
-      ...atual,
-    ]);
+    // Sem registo na Auditoria (ver nota na reconciliação pelo recibo): só consola.
+    try {
+      console.info("Subscrição reposta pelo histórico:", Array.from(porId.values()).map((d) => `${d.membro.nome || d.membro.id} → ${d.ultimo.planoNovo || "sem plano"}, vence ${d.ultimo.vencimentoNovo || "—"}`));
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membros, historicoSubscricoes]);
 
