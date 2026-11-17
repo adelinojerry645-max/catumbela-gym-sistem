@@ -11728,17 +11728,28 @@ function useAtualizacaoAutomatica() {
       titulo.textContent = "Atualização disponível";
       titulo.style.cssText = "font-size:20px;font-weight:800;margin-bottom:8px";
       const texto = document.createElement("div");
-      texto.textContent = "Há uma versão nova do sistema. Carregue em “Atualizar agora” para não perder dados.";
       texto.style.cssText = "font-size:15px;margin-bottom:18px;line-height:1.4";
       const botao = document.createElement("button");
       botao.textContent = "Atualizar agora";
       botao.style.cssText = "background:#0f766e;color:#fff;border:0;border-radius:10px;padding:14px 18px;font-size:16px;font-weight:700;cursor:pointer;width:100%";
       botao.onclick = () => window.location.reload();
-      const depois = document.createElement("button");
-      depois.textContent = "Mais tarde";
-      depois.style.cssText = "background:transparent;color:#64748b;border:0;margin-top:10px;padding:8px;font-size:13px;cursor:pointer";
-      depois.onclick = () => { aviso.remove(); aviso = null; adiadoAte = Date.now() + 2 * 60 * 1000; };
-      caixa.append(titulo, texto, botao, depois);
+      // Obrigatório: não há "Mais tarde". Um aparelho com versão antiga grava dados
+      // desatualizados, por isso atualiza sozinho ao fim da contagem.
+      let restantes = 20;
+      const pintar = () => { texto.textContent = `Há uma versão nova do sistema. A atualizar sozinho em ${restantes} s para não perder dados.`; };
+      pintar();
+      const contagem = setInterval(() => {
+        restantes -= 1;
+        if (restantes <= 0) {
+          clearInterval(contagem);
+          try { window.sessionStorage.setItem("catumbela-gym:ultimo-reload-versao", String(Date.now())); } catch { /* ok */ }
+          window.location.reload();
+          return;
+        }
+        if (!aviso) { clearInterval(contagem); return; }
+        pintar();
+      }, 1000);
+      caixa.append(titulo, texto, botao);
       aviso.appendChild(caixa);
       document.body.appendChild(aviso);
     };
@@ -11750,7 +11761,9 @@ function useAtualizacaoAutomatica() {
         if (!m || m[1] === minha) return;
         const ficouFora = escondidoDesde && Date.now() - escondidoDesde > 30 * 1000;
         if (ficouFora && recarregarSePermitido()) return;
-        if (Date.now() >= adiadoAte) mostrarAviso();
+        // Nunca em ciclo: se acabou de recarregar e ainda vê a versão antiga, espera.
+        const recente = Date.now() - Number(window.sessionStorage.getItem("catumbela-gym:ultimo-reload-versao") || 0) < 90 * 1000;
+        if (!recente && Date.now() >= adiadoAte) mostrarAviso();
       } catch { /* sem rede: tenta mais tarde */ }
     };
     const aoMudarVisibilidade = () => {
