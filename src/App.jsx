@@ -12701,11 +12701,21 @@ function vencimentoEfetivoDoMembro(membro, faturas, planos) {
   if (recibosDoMembro.length === 0) {
     return { plano: membro.plano, vencimento: membro.vencimento, estado: membro.estado, temRecibo: false };
   }
-  // O recibo que aponta para o vencimento MAIS DISTANTE no futuro é o que
-  // conta — não importa a ordem em que os recibos foram criados/chegaram
-  // (protege também contra recibos a chegar fora de ordem por causa de
-  // sincronização atrasada).
-  const maisRecente = recibosDoMembro.reduce((a, b) => (b.vencimentoSubscricao > a.vencimentoSubscricao ? b : a));
+  // Conta o recibo MAIS RECENTE (pela data e hora em que foi emitido) — é o que
+  // o atleta pagou por último. Só em caso de empate de data e hora é que ganha
+  // o que vence mais tarde. Antes ganhava sempre o vencimento mais distante, e
+  // quem tinha o "Plano 3 entradas" (vale 1 ano) voltava a ele a cada semanal
+  // renovado, apagando a subscrição que tinha acabado de pagar.
+  const chaveRecibo = (f) => {
+    const [d, m, a] = String(f.data || "").split("/");
+    return `${a || "0000"}-${m || "00"}-${d || "00"} ${f.hora || "00:00"}`;
+  };
+  const maisRecente = recibosDoMembro.reduce((a, b) => {
+    const ca = chaveRecibo(a);
+    const cb = chaveRecibo(b);
+    if (cb !== ca) return cb > ca ? b : a;
+    return b.vencimentoSubscricao > a.vencimentoSubscricao ? b : a;
+  });
   return {
     plano: maisRecente.planoSubscricao,
     vencimento: maisRecente.vencimentoSubscricao,
